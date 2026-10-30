@@ -1,7 +1,7 @@
 # 🦞 SpecClaw Dashboard
 
 **Project:** bistec-studio
-**Last Updated:** 2026-10-30 18:42 UTC
+**Last Updated:** 2026-10-30 19:03 UTC
 
 _1 unnumbered change · run `/specclaw:renumber` to order them_
 
@@ -43,12 +43,12 @@ _1 unnumbered change · run `/specclaw:renumber` to order them_
 - 🔍 **035-pre-merge-docs** ▫ — verify PASS | 3/3 tasks (100%) | 0 failed | 5m
 - 🔍 **036-browser-title-ai-studio** ▫ — verify pass | 1/1 tasks (100%) | 0 failed | 51s
 - 🔍 **037-remove-scheduling-publishing** ▣ — verify PASS | 6/6 tasks (100%) | 0 failed | PR #1 merged | 49h36m
+- 📝 **038-campaigns-to-projects** ▣ — tasks done | 0/6 tasks (0%) | 0 failed | 49h56m
 - 🔍 **040-template-viewer** ▫ — verify PASS | 4/4 tasks (100%) | 0 failed | PR #1 merged | 35m
 
 ## Pending Proposals
 
 - 📋 **010-whatsapp-channel-posting** — proposal ready, awaiting planning
-- 📋 **038-campaigns-to-projects** ▣ — proposal ready, awaiting planning
 - 📋 **039-general-and-curated-captions** ▣ — proposal ready, awaiting planning
 
 ## Recently Completed
@@ -57,6 +57,6 @@ _None._
 
 ## Stats
 
-- **Total changes:** 37
-- **Active:** 37
+- **Total changes:** 38
+- **Active:** 38
 - **Completed:** 0
