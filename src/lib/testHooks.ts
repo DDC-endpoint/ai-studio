@@ -147,14 +147,14 @@ export function buildMockBriefingReply(lastUserMessage: string): string {
     `Mock briefing assistant reply for E2E tests. [${lastUserMessage}]`,
     '',
     '```briefing',
-    `Mock campaign briefing draft based on: ${lastUserMessage}`,
+    `Mock project briefing draft based on: ${lastUserMessage}`,
     '```',
   ].join('\n')
 }
 
 /** Deterministic "Enhance with AI" briefing rewrite (MOCK_AI). */
 export function buildMockBriefingEnhance(content: string): string {
-  return `Enhanced: ${content || 'Mock briefing drafted from campaign context.'}`
+  return `Enhanced: ${content || 'Mock briefing drafted from project context.'}`
 }
 
 /**

@@ -14,8 +14,8 @@ import { useConfirm } from '@/components/ui/ConfirmDialog'
 import { PageHead } from '@/components/ui/PageHead'
 import { FOCUS, ICON, ICON_BUTTON, ICON_SM, SECTION_HEAD, TAG } from '@/components/ui/atoms'
 import { apiFetch } from '@/lib/apiFetch'
-import { LIST, LIST_ROW, ROW_TITLE } from '@/components/campaigns/classes'
-import { postStyleLabel, postStyleOptions } from '@/components/campaigns/postStyleOptions'
+import { LIST, LIST_ROW, ROW_TITLE } from '@/components/projects/classes'
+import { postStyleLabel, postStyleOptions } from '@/components/projects/postStyleOptions'
 import type { Campaign, BrandKitSummary, ProjectSummary, ProjectRef } from '@/lib/api-types'
 
 export default function CampaignsPage() {

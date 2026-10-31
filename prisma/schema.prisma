@@ -330,12 +330,54 @@ model Project {
   defaultBrandKitId String?
   defaultBrandKit   BrandKit?         @relation("ProjectBrandKit", fields: [defaultBrandKitId], references: [id])
   defaultTone       String?
+  // 038: pre-fills the wizard and (as the default) MCP/ACP. Plain TEXT, validated in
+  // code (src/lib/postStyles), so a retired key needs no migration.
+  defaultPostStyle  String?
   isDeleted         Boolean           @default(false)
   deletedAt         DateTime?
   createdAt         DateTime          @default(now())
   campaigns         ProjectCampaign[]
+  briefs            Brief[]
+  briefings         ProjectBriefing[]
+  documents         ProjectDocument[]
 
   @@index([teamId])
+}
+
+// 038: the project's source documents (moved here from CampaignDocument). The original
+// file lives in the private BUCKET_DOCS under projects/<projectId>/; parsedText is the
+// extracted plain text (capped, `truncated` marks a cut) fed to the briefing assistant.
+model ProjectDocument {
+  id          String   @id @default(cuid())
+  teamId      String
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id])
+  name        String
+  contentType String
+  sizeBytes   Int
+  objectKey   String
+  parsedText  String   @db.Text
+  truncated   Boolean  @default(false)
+  createdBy   String
+  createdAt   DateTime @default(now())
+
+  @@index([projectId])
+  @@index([teamId])
+}
+
+// 038: the versioned project briefing (moved here from CampaignBriefing). Exactly one
+// isActive row per project; restore = re-activate an old version.
+model ProjectBriefing {
+  id        String   @id @default(cuid())
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id])
+  content   String   @db.Text
+  version   Int      @default(1)
+  isActive  Boolean  @default(false)
+  createdBy String
+  createdAt DateTime @default(now())
+
+  @@unique([projectId, version])
 }
 
 model Campaign {
@@ -414,6 +456,9 @@ model Brief {
   user                User               @relation(fields: [userId], references: [id])
   campaignId          String?
   campaign            Campaign?          @relation(fields: [campaignId], references: [id])
+  // 038: a post belongs to zero or one project. Deleting a project unassigns its posts in code.
+  projectId           String?
+  project             Project?           @relation(fields: [projectId], references: [id], onDelete: SetNull)
   brandKitId          String?
   brandKit            BrandKit?          @relation("BriefBrandKit", fields: [brandKitId], references: [id])
   topic               String
@@ -448,6 +493,7 @@ model Brief {
 
   @@index([userId])
   @@index([campaignId])
+  @@index([projectId])
   @@index([brandKitId])
   @@index([teamId])
 }
@@ -468,6 +514,9 @@ model Draft {
   // AND forward without losing states. Null for legacy rows created before this
   // field existed (treated as "latest revision").
   currentRevisionNumber Int?
+  // 038: the inputs (kit, project, briefing version, post style) this post was generated
+  // with, written at generation. Null = made before 038.
+  generationInputs Json?
   // Prompt revision that produced the current design (prompts/shared.ts
   // PROMPT_VERSION) — lets output quality be correlated with prompt changes.
   promptVersion   String?

@@ -259,7 +259,7 @@ async function findOrCreateNoticeDraft(page, kitId, spec) {
 // The kit, the campaign and the notice drafts the states need, reused by name
 // or topic so reruns do not pile up data. Failures are recorded per item.
 async function prepareStateData(page) {
-  const data = { kit: null, campaignId: null, notices: {} }
+  const data = { kit: null, campaignId: null, projectId: null, notices: {} }
   try {
     const kits = await getJson(page, '/api/admin/brandkits')
     data.kit = kits.find((k) => k.name === KIT_NAME) ?? null
@@ -283,13 +283,27 @@ async function prepareStateData(page) {
         name: CAMPAIGN_NAME,
         brandKitId: data.kit.id,
       })
-      await postJson(page, `/api/campaigns/${campaign.id}/briefing`, {
-        content: 'A capture campaign for final-year students.',
-      })
     }
     data.campaignId = campaign.id
   } catch (err) {
     skipped.push({ state: 'campaign data', reason: err.message })
+  }
+  // The briefing and its assistant live on projects since 038 T2.
+  try {
+    const projects = await getJson(page, '/api/projects')
+    let project = projects.find((p) => p.name === CAMPAIGN_NAME)
+    if (!project) {
+      project = await postJson(page, '/api/projects', {
+        name: CAMPAIGN_NAME,
+        defaultBrandKitId: data.kit.id,
+      })
+      await postJson(page, `/api/projects/${project.id}/briefing`, {
+        content: 'A capture project for final-year students.',
+      })
+    }
+    data.projectId = project.id
+  } catch (err) {
+    skipped.push({ state: 'project data', reason: err.message })
   }
   for (const [key, spec] of Object.entries(NOTICE_DRAFTS)) {
     try {
@@ -381,17 +395,17 @@ const STATES = [
   },
   {
     name: 'briefing-drawer',
-    ready: (d) => d.campaignId,
+    ready: (d) => d.projectId,
     run: async (page, data, snap) => {
-      await page.goto(`/campaigns/${data.campaignId}`)
+      await page.goto(`/projects/${data.projectId}`)
       await page.getByRole('heading', { name: CAMPAIGN_NAME, level: 1 }).waitFor()
-      // surfaces.test.ts (campaign detail): Draft with AI opens the drawer.
+      // surfaces.test.ts (project detail): Draft with AI opens the drawer.
       await page.getByRole('button', { name: 'Draft with AI' }).click()
       const drawer = page.getByRole('dialog', { name: 'Draft briefing with AI' })
       await drawer.getByRole('button', { name: 'Add document' }).waitFor()
       await snap('briefing-drawer')
-      const ask = drawer.getByPlaceholder('Tell the assistant about this campaign…')
-      await ask.fill('A capture campaign for final-year students.')
+      const ask = drawer.getByPlaceholder('Tell the assistant about this project…')
+      await ask.fill('A capture project for final-year students.')
       await ask.press('Enter')
       await drawer
         .getByRole('button', { name: 'Apply this draft to the editor' })

@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
+import { PROJECT_NOT_FOUND } from '@/lib/projects/errors'
 import { withTeamAdmin, parseBody } from '@/lib/api/handler'
-import { AssistantModelError, runBriefingChat } from '@/lib/campaign/briefingAssistant'
+import { AssistantModelError, runBriefingChat } from '@/lib/projects/briefingAssistant'
 import { withClaudeAuth } from '@/lib/agent/userToken'
 import { modelError, parseModelField } from '@/lib/models/requests'
 
@@ -35,12 +36,12 @@ export const POST = withTeamAdmin<Params>(async (req, { params }, user) => {
   if (!pick.ok) return NextResponse.json(pick.body, { status: 400 })
   const requested = pick.value
 
-  const campaign = await prisma.campaign.findFirst({
+  const project = await prisma.project.findFirst({
     where: { id: params.id, isDeleted: false },
     select: { id: true, teamId: true },
   })
-  if (!campaign || campaign.teamId !== user.teamId) {
-    return NextResponse.json({ error: 'Campaign not found' }, { status: 404 })
+  if (!project || project.teamId !== user.teamId) {
+    return NextResponse.json(PROJECT_NOT_FOUND, { status: 404 })
   }
 
   // CLI mode bills the acting user's personal Claude token when connected

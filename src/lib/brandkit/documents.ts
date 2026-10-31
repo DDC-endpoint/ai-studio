@@ -1,8 +1,8 @@
 import { prisma } from "@/lib/prisma"
-import { DOC_IMAGE_MIME_TYPES, MAX_DOC_IMAGES_CONTEXT } from "@/lib/campaign/documents"
+import { DOC_IMAGE_MIME_TYPES, MAX_DOC_IMAGES_CONTEXT } from "@/lib/projects/documents"
 
 // Brand-kit source documents: per-kit uploads (PDF/DOCX/TXT/MD + PNG/JPG) that
-// ground the brand-kit assistant chat — mirrors src/lib/campaign/documents.ts.
+// ground the brand-kit assistant chat — mirrors src/lib/projects/documents.ts.
 // Deliberately NOT artifacts: these must never enter generation prompts
 // (Path B reads only feedToAI artifacts).
 
@@ -22,7 +22,7 @@ export async function collectBrandKitDocTexts(
 
 // Presigned URLs for a kit's uploaded reference IMAGES (the docs bucket is
 // private — the vision model fetches these server-side). Mirrors
-// collectCampaignDocImageUrls, same cap.
+// projectDocImageUrls, same cap.
 export async function collectBrandKitDocImageUrls(kitId: string): Promise<string[]> {
   const { BUCKET_DOCS, getPresignedUrl } = await import("@/lib/storage/minio")
   const images = await prisma.brandKitDocument.findMany({

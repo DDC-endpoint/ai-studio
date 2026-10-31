@@ -1,9 +1,10 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
+import { PROJECT_NOT_FOUND } from '@/lib/projects/errors'
 import { parseBody, withTeamAdmin } from '@/lib/api/handler'
 import { withClaudeAuth } from '@/lib/agent/userToken'
-import { AssistantModelError } from '@/lib/campaign/briefingAssistant'
+import { AssistantModelError } from '@/lib/projects/briefingAssistant'
 import { resolveBrandKit } from '@/lib/brandkit/resolve'
 import { runRuleUpgrade } from '@/lib/kitUpgrade/upgrade'
 
@@ -17,22 +18,22 @@ const bodySchema = z
   .strict()
 
 // 031 FR-29: the briefing host of the 007 design-rule upgrade. Turns vague
-// design phrases in a draft campaign briefing into measurable rules; nothing is
+// design phrases in a draft project briefing into measurable rules; nothing is
 // saved here, the author reviews each edit. Mirrors the kit upgrade route.
 export const POST = withTeamAdmin<Params>(async (req, { params }, user) => {
-  const campaign = await prisma.campaign.findFirst({
+  const project = await prisma.project.findFirst({
     where: { id: params.id, isDeleted: false, teamId: user.teamId },
-    select: { id: true },
+    select: { id: true, defaultBrandKitId: true },
   })
-  if (!campaign) {
-    return NextResponse.json({ error: 'Campaign not found' }, { status: 404 })
+  if (!project) {
+    return NextResponse.json(PROJECT_NOT_FOUND, { status: 404 })
   }
 
   const body = await parseBody(req, bodySchema)
   if (body.response) return body.response
 
-  const activeBriefing = await prisma.campaignBriefing.findFirst({
-    where: { campaignId: campaign.id, isActive: true },
+  const activeBriefing = await prisma.projectBriefing.findFirst({
+    where: { projectId: project.id, isActive: true },
     select: { version: true },
   })
   const activeVersion = activeBriefing?.version ?? 0
@@ -40,7 +41,7 @@ export const POST = withTeamAdmin<Params>(async (req, { params }, user) => {
     return NextResponse.json({ code: 'STALE_BASE', activeVersion }, { status: 409 })
   }
 
-  const kit = await resolveBrandKit(user.teamId, campaign.id)
+  const kit = await resolveBrandKit(user.teamId, undefined, project.defaultBrandKitId)
   const roleKit = { colors: kit?.colors ?? [], fonts: kit?.fonts ?? [] }
 
   try {
@@ -52,7 +53,7 @@ export const POST = withTeamAdmin<Params>(async (req, { params }, user) => {
         userId: user.userId,
         surface: 'ASSISTANT_BRIEFING',
         label: 'briefing-upgrade',
-        logRef: { name: 'campaign', id: campaign.id },
+        logRef: { name: 'project', id: project.id },
       }),
     )
     if (result.status === 'parse-failed') {

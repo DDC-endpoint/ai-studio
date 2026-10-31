@@ -858,14 +858,14 @@ test.describe('Campaigns and projects (T10)', () => {
     expect(stops).toHaveLength(3)
   })
 
-  test('AC-17: a campaign detail shows a visible focus indicator on its first three stops', async ({ page }) => {
-    const camp = await (await api.post('/api/campaigns', { name: `T10 Standalone ${Date.now()}` })).json()
+  test('AC-17: a project detail shows a visible focus indicator on its first three stops', async ({ page }) => {
+    const project = await (await api.post('/api/projects', { name: `T10 Standalone ${Date.now()}` })).json()
     await page.setViewportSize({ width: 1440, height: 900 })
     await pageLogin(page)
-    await page.goto(`/campaigns/${camp.id}`)
-    await expect(page.getByRole('heading', { name: camp.name, level: 1 })).toBeVisible()
+    await page.goto(`/projects/${project.id}`)
+    await expect(page.getByRole('heading', { name: project.name, level: 1 })).toBeVisible()
     // The breadcrumb's back button, the briefing's Draft with AI, its first tab.
-    expect(await tabThreeFromMain(page)).toEqual(['Campaigns', 'Draft with AI', 'Active'])
+    expect(await tabThreeFromMain(page)).toEqual(['Projects', 'Draft with AI', 'Active'])
   })
 
   test('AC-12 + FR-12: campaigns and projects lists at 375px keep their controls and never scroll sideways', async ({ page }) => {
@@ -899,37 +899,36 @@ test.describe('Campaigns and projects (T10)', () => {
     await page.goto(`/projects/${project.id}`)
     await expect(page.getByRole('heading', { name: project.name, level: 1 })).toBeVisible()
     await expect(page.getByRole('navigation', { name: 'Breadcrumb' }).getByRole('button', { name: 'Projects' })).toBeVisible()
-    await expect(page.getByRole('link', { name: camp.name })).toBeVisible()
-    await expect(page.getByRole('combobox')).toHaveCount(1)
+    // The aside's two selects (038 FR-16 added the default post style).
+    await expect(page.getByRole('combobox')).toHaveCount(2)
     await expectNoHorizontalScroll(page, 'project detail at 375px')
   })
 
-  test('AC-12 + FR-12: a campaign detail at 375px, with history, Enhance and the assistant', async ({ page }) => {
+  test('AC-12 + FR-12: a project detail at 375px, with history, Enhance and the assistant', async ({ page }) => {
     test.skip(!MOCKED(), 'needs MOCK_AI for Enhance and the briefing assistant')
-    const { project, camp } = await mintCampaignFixture(api)
+    const { project } = await mintCampaignFixture(api)
     await page.setViewportSize({ width: 375, height: 812 })
     await pageLogin(page)
-    await page.goto(`/campaigns/${camp.id}`)
-    await expect(page.getByRole('heading', { name: camp.name, level: 1 })).toBeVisible()
+    await page.goto(`/projects/${project.id}`)
+    await expect(page.getByRole('heading', { name: project.name, level: 1 })).toBeVisible()
 
-    // The breadcrumb: Projects / <project> / <campaign>.
+    // The breadcrumb: Projects / <project>.
     const crumbs = page.getByRole('navigation', { name: 'Breadcrumb' })
     await expect(crumbs.getByRole('button', { name: 'Projects' })).toBeVisible()
-    await expect(crumbs.getByRole('link', { name: project.name })).toBeVisible()
     // 014 AC-15 (FR-16) supersedes the aria-current tail: the tail crumb stays
     // visible but is aria-hidden, so the name is read once, by the h1.
-    const tail = crumbs.getByText(camp.name, { exact: true })
+    const tail = crumbs.getByText(project.name, { exact: true })
     await expect(tail).toBeVisible()
     await expect(tail).toHaveAttribute('aria-hidden', 'true')
     await expect(crumbs.locator('[aria-current]')).toHaveCount(0)
-    expect(await crumbs.ariaSnapshot()).not.toContain(camp.name)
-    await expect(page.getByRole('heading', { name: camp.name, level: 1 })).toBeVisible()
+    expect(await crumbs.ariaSnapshot()).not.toContain(project.name)
+    await expect(page.getByRole('heading', { name: project.name, level: 1 })).toBeVisible()
 
-    // The briefing, with the aside's three selects (027 FR-08 added the default post style).
-    await expect(page.getByRole('heading', { name: 'Campaign Briefing', level: 2 })).toBeVisible()
+    // The briefing, with the aside's two selects (the default kit and post style).
+    await expect(page.getByRole('heading', { name: 'Project briefing', level: 2 })).toBeVisible()
     await expect(page.getByText('T10 briefing v2, the active one')).toBeVisible()
-    await expect(page.getByRole('combobox')).toHaveCount(3)
-    await expectNoHorizontalScroll(page, 'campaign detail at 375px')
+    await expect(page.getByRole('combobox')).toHaveCount(2)
+    await expectNoHorizontalScroll(page, 'project detail at 375px')
     // History: the version rows, with Restore on the inactive one.
     await page.getByRole('tab', { name: 'History' }).click()
     const history = page.getByRole('region', { name: 'Briefing history' })
@@ -954,7 +953,7 @@ test.describe('Campaigns and projects (T10)', () => {
     await expect(drawer.getByRole('button', { name: 'Add document' })).toBeVisible()
     // 008 FR-21: the header's model picker, covered by the no-scroll check below.
     await expect(drawer.getByRole('combobox', { name: 'Briefing assistant model', exact: true })).toBeVisible()
-    const ask = drawer.getByPlaceholder('Tell the assistant about this campaign…')
+    const ask = drawer.getByPlaceholder('Tell the assistant about this project…')
     await expect(drawer.getByRole('button', { name: 'Send' })).toBeDisabled()
     await expect(drawer.getByRole('button', { name: 'Send' })).toHaveText('Send')
     await ask.fill('A T10 campaign for final-year students.')
@@ -963,7 +962,7 @@ test.describe('Campaigns and projects (T10)', () => {
     await expectNoHorizontalScroll(page, 'briefing assistant at 375px')
     await drawer.getByRole('button', { name: 'Apply this draft to the editor' }).click()
     await expect(drawer).toBeHidden()
-    await expect(page.locator('textarea')).toHaveValue(/Mock campaign briefing draft/)
+    await expect(page.locator('textarea')).toHaveValue(/Mock project briefing draft/)
   })
 })
 

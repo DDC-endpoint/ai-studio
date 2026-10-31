@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import { parseBody, withTeamAdmin } from '@/lib/api/handler'
 import { withClaudeAuth } from '@/lib/agent/userToken'
-import { AssistantModelError } from '@/lib/campaign/briefingAssistant'
+import { AssistantModelError } from '@/lib/projects/briefingAssistant'
 import { runRuleUpgrade } from '@/lib/kitUpgrade/upgrade'
 
 type Params = { id: string }

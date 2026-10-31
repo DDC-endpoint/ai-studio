@@ -130,7 +130,7 @@ const revisionModel = async (draftId: string, revisionNumber: number) =>
   })
 
 // One kit (with a square template) + campaign per worker, shared by the suite.
-let fixture: { kitId: string; kitName: string; templateId: string; templateName: string; campaignId: string } | null = null
+let fixture: { kitId: string; kitName: string; templateId: string; templateName: string; campaignId: string; projectId: string } | null = null
 async function suiteFixture(api: ApiClient) {
   if (fixture) return fixture
   const stamp = Date.now()
@@ -142,7 +142,16 @@ async function suiteFixture(api: ApiClient) {
     })
   ).json()
   const camp = await (await api.post('/api/campaigns', { name: `Models Camp ${stamp}`, brandKitId: kit.id })).json()
-  fixture = { kitId: kit.id, kitName: kit.name, templateId: template.id, templateName: template.name, campaignId: camp.id }
+  // The briefing assistant lives on projects since 038 T2; the brief route still takes a campaign until T3.
+  const project = await (await api.post('/api/projects', { name: `Models Project ${stamp}`, defaultBrandKitId: kit.id })).json()
+  fixture = {
+    kitId: kit.id,
+    kitName: kit.name,
+    templateId: template.id,
+    templateName: template.name,
+    campaignId: camp.id,
+    projectId: project.id,
+  }
   return fixture
 }
 
@@ -516,20 +525,20 @@ test.describe('§Y — model selection: stamps, policy and the recorder', () => 
 
     const surfaces: { what: string; surface: Surface; label: string; run: () => Promise<number> }[] = [
       {
-        what: 'campaign briefing chat',
+        what: 'project briefing chat',
         surface: 'ASSISTANT_BRIEFING',
         label: 'briefing',
         run: async () =>
-          (await api.post(`/api/campaigns/${f.campaignId}/briefing/chat`, {
+          (await api.post(`/api/projects/${f.projectId}/briefing/chat`, {
             messages: [{ role: 'user', content: 'Plan the launch' }],
           })).status(),
       },
       {
-        what: 'campaign Enhance',
+        what: 'project Enhance',
         surface: 'ASSISTANT_BRIEFING',
         label: 'briefing',
         run: async () =>
-          (await api.post(`/api/campaigns/${f.campaignId}/briefing/enhance`, { content: 'rough briefing' })).status(),
+          (await api.post(`/api/projects/${f.projectId}/briefing/enhance`, { content: 'rough briefing' })).status(),
       },
       {
         what: 'post-brief Enhance',
@@ -886,7 +895,7 @@ test.describe('§Y — the pickers (wave 2)', () => {
     }
     // The two assistant chats.
     const turn = { messages: [{ role: 'user', content: 'Plan the launch' }], model: 'OPUS' }
-    await expectRefused('briefing chat', await api.post(`/api/campaigns/${f.campaignId}/briefing/chat`, turn))
+    await expectRefused('briefing chat', await api.post(`/api/projects/${f.projectId}/briefing/chat`, turn))
     await expectRefused('brand-kit chat', await api.post(`/api/admin/brandkits/${f.kitId}/assistant/chat`, turn))
 
     // Nothing ran, and the draft is exactly as it was.
@@ -1254,7 +1263,7 @@ test.describe('§Y — the pickers (wave 2)', () => {
     await page.setViewportSize({ width: 1440, height: 900 })
     await pageLogin(page)
     const openBriefingChat = async () => {
-      await page.goto(`/campaigns/${f.campaignId}`)
+      await page.goto(`/projects/${f.projectId}`)
       await page.getByRole('button', { name: 'Draft with AI' }).click()
       const drawer = page.getByRole('dialog', { name: 'Draft briefing with AI' })
       await expect(picker(drawer, 'Briefing assistant model')).toBeVisible({ timeout: 20_000 })

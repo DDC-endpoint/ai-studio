@@ -28,8 +28,8 @@ vi.mock('@/lib/prisma', () => ({
 }))
 vi.mock('@/lib/agent/vision', () => ({ runVisionModel: h.runVisionModel }))
 // The real resolveAssistantModel / AssistantModelError; only the call is faked.
-vi.mock('@/lib/campaign/briefingAssistant', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/lib/campaign/briefingAssistant')>()),
+vi.mock('@/lib/projects/briefingAssistant', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/projects/briefingAssistant')>()),
   runBriefingModel: h.runBriefingModel,
 }))
 // The mode, deterministically (the local .env may set CLI mode; CI has none).
@@ -56,7 +56,7 @@ vi.mock('@/lib/storage/minio', () => ({
 import { collectBrandKitGrounding, extractBrandKitBlock, runBrandKitChat } from '@/lib/brandkit/assistant'
 import { generateTemplateFromImage } from '@/lib/brandkit/templateFromImage'
 import { draftBrandVoice } from '@/lib/brandkit/voiceDraft'
-import { AssistantModelError } from '@/lib/campaign/briefingAssistant'
+import { AssistantModelError } from '@/lib/projects/briefingAssistant'
 import { buildMockBrandKitReply } from '@/lib/testHooks'
 import { setModelCallSink, type ModelCallRecord } from '@/lib/models/modelCalls'
 

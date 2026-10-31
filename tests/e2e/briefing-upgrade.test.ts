@@ -3,10 +3,10 @@ import { loginAs, type ApiClient } from '../helpers/api'
 import { pageLogin } from '../helpers/ui'
 
 // §AK (docs/e2e-test-plan.md): 031 FR-28 and FR-29, the design-rule upgrade in
-// the campaign briefing editor.
+// the project briefing editor (038 T2 moved it from campaigns).
 //
 // Contract:
-//   POST /api/campaigns/[id]/briefing/upgrade { text, baseVersion }
+//   POST /api/projects/[id]/briefing/upgrade { text, baseVersion }
 //     -> 200 { outcome: 'edits' | 'none', ... } (the kit route's shape)
 //     -> 409 STALE_BASE | 404 | 403 | 400
 //
@@ -33,19 +33,19 @@ async function briefingCalls(api: ApiClient): Promise<Call[]> {
   return calls.filter((c) => c.label === 'briefing-upgrade')
 }
 
-async function makeCampaign(api: ApiClient, label: string, briefing?: string): Promise<{ id: string; name: string }> {
+async function makeProject(api: ApiClient, label: string, briefing?: string): Promise<{ id: string; name: string }> {
   const name = `BU ${label} ${Date.now()}`
-  const res = await api.post('/api/campaigns', { name })
+  const res = await api.post('/api/projects', { name })
   expect(res.status()).toBe(201)
   const camp = await res.json()
   if (briefing !== undefined) {
-    expect((await api.post(`/api/campaigns/${camp.id}/briefing`, { content: briefing })).status()).toBe(201)
+    expect((await api.post(`/api/projects/${camp.id}/briefing`, { content: briefing })).status()).toBe(201)
   }
   return { id: camp.id, name }
 }
 
 function upgrade(api: ApiClient, id: string, text: string, baseVersion = 1) {
-  return api.post(`/api/campaigns/${id}/briefing/upgrade`, { text, baseVersion })
+  return api.post(`/api/projects/${id}/briefing/upgrade`, { text, baseVersion })
 }
 
 const panel = (page: import('@playwright/test').Page) => page.getByRole('region', { name: 'Design rules' })
@@ -66,15 +66,15 @@ test.describe('Briefing design-rule upgrade (031)', () => {
   test('TC-BU-01: the editor flags vague phrases and Upgrade proposes edits through the briefing route', async ({ page }) => {
     if (!MOCKED()) { test.skip(); return }
     test.setTimeout(120_000)
-    const camp = await makeCampaign(admin, '01', TEXT)
+    const camp = await makeProject(admin, '01', TEXT)
 
     await pageLogin(page)
-    await page.goto(`/campaigns/${camp.id}`)
+    await page.goto(`/projects/${camp.id}`)
     await page.getByRole('button', { name: 'Edit as new version' }).click()
     await expect(panel(page).getByRole('list', { name: 'Flagged phrases' }).getByRole('listitem')).toHaveCount(2)
 
     const upgraded = page.waitForResponse(
-      (r) => r.url().endsWith(`/api/campaigns/${camp.id}/briefing/upgrade`) && r.request().method() === 'POST',
+      (r) => r.url().endsWith(`/api/projects/${camp.id}/briefing/upgrade`) && r.request().method() === 'POST',
     )
     await panel(page).getByRole('button', { name: 'Upgrade' }).click()
     const res = await upgraded
@@ -86,10 +86,10 @@ test.describe('Briefing design-rule upgrade (031)', () => {
   test('TC-BU-02: accepting an edit changes the textarea and Save makes a new version', async ({ page }) => {
     if (!MOCKED()) { test.skip(); return }
     test.setTimeout(120_000)
-    const camp = await makeCampaign(admin, '02', TEXT)
+    const camp = await makeProject(admin, '02', TEXT)
 
     await pageLogin(page)
-    await page.goto(`/campaigns/${camp.id}`)
+    await page.goto(`/projects/${camp.id}`)
     await page.getByRole('button', { name: 'Edit as new version' }).click()
     const box = page.getByRole('textbox', { name: 'Briefing' })
     await expect(box).toHaveValue(TEXT)
@@ -102,12 +102,12 @@ test.describe('Briefing design-rule upgrade (031)', () => {
     const next = await box.inputValue()
 
     const saved = page.waitForResponse(
-      (r) => r.url().endsWith(`/api/campaigns/${camp.id}/briefing`) && r.request().method() === 'POST',
+      (r) => r.url().endsWith(`/api/projects/${camp.id}/briefing`) && r.request().method() === 'POST',
     )
     await page.getByRole('button', { name: 'Save as new version' }).click()
     expect((await saved).status()).toBe(201)
 
-    const versions = (await (await admin.get(`/api/campaigns/${camp.id}/briefing`)).json()) as Array<{
+    const versions = (await (await admin.get(`/api/projects/${camp.id}/briefing`)).json()) as Array<{
       version: number
       isActive: boolean
       content: string
@@ -118,7 +118,7 @@ test.describe('Briefing design-rule upgrade (031)', () => {
 
   test('TC-BU-03: a team editor gets 403 from the route and no model is called', async ({ request }) => {
     if (!MOCKED()) { test.skip(); return }
-    const camp = await makeCampaign(admin, '03', TEXT)
+    const camp = await makeProject(admin, '03', TEXT)
     const editor = await loginAs(request, EDITOR_EMAIL, PASSWORD)
     try {
       expect((await upgrade(editor, camp.id, TEXT)).status()).toBe(403)
@@ -130,8 +130,8 @@ test.describe('Briefing design-rule upgrade (031)', () => {
 
   test('TC-BU-04: a stale base is 409 STALE_BASE with the active version and no model call', async () => {
     if (!MOCKED()) { test.skip(); return }
-    const camp = await makeCampaign(admin, '04', TEXT)
-    expect((await admin.post(`/api/campaigns/${camp.id}/briefing`, { content: `${TEXT} Second.` })).status()).toBe(201)
+    const camp = await makeProject(admin, '04', TEXT)
+    expect((await admin.post(`/api/projects/${camp.id}/briefing`, { content: `${TEXT} Second.` })).status()).toBe(201)
 
     const stale = await upgrade(admin, camp.id, TEXT, 1)
     expect(stale.status()).toBe(409)
@@ -142,7 +142,7 @@ test.describe('Briefing design-rule upgrade (031)', () => {
 
   test('TC-BU-05: the model-calls record shows briefing-upgrade on the briefing surface', async () => {
     if (!MOCKED()) { test.skip(); return }
-    const camp = await makeCampaign(admin, '05', TEXT)
+    const camp = await makeProject(admin, '05', TEXT)
     const res = await upgrade(admin, camp.id, TEXT)
     expect(res.status()).toBe(200)
     const body = await res.json()

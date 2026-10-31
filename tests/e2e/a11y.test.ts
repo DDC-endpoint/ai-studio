@@ -541,8 +541,8 @@ async function expectNamedByTerm(page: Page, name: string) {
   await expect(term).toHaveText(name)
 }
 
-const BRIEFING_PLACEHOLDER = "Audience, key messages, themes, do's and don'ts for this campaign…"
-const ASSISTANT_PLACEHOLDER = 'Tell the assistant about this campaign…'
+const BRIEFING_PLACEHOLDER = "Audience, key messages, themes, do's and don'ts for this project…"
+const ASSISTANT_PLACEHOLDER = 'Tell the assistant about this project…'
 
 test.describe('Labels: campaigns and projects (T14)', () => {
   let api: ApiClient
@@ -565,7 +565,7 @@ test.describe('Labels: campaigns and projects (T14)', () => {
     return fixture
   }
 
-  test('AC-11 rows 23, 24 and 20: the campaign aside selects and the new-version briefing are labelled', async ({ page }) => {
+  test('AC-11 rows 23 and 24: the campaign aside selects are labelled', async ({ page }) => {
     const { camp } = await mint()
     await page.setViewportSize({ width: 1440, height: 900 })
     await pageLogin(page)
@@ -575,27 +575,36 @@ test.describe('Labels: campaigns and projects (T14)', () => {
     // Rows 23 and 24.
     await expectNamedByTerm(page, 'Project')
     await expectNamedByTerm(page, 'Brand kit override')
+  })
+
+  test('AC-11 row 20: the project new-version briefing is labelled (038 T2 moved it here)', async ({ page }) => {
+    const { project } = await mint()
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await pageLogin(page)
+    await page.goto(`/projects/${project.id}`)
+    await expect(page.getByRole('heading', { name: project.name, level: 1 })).toBeVisible()
 
     // Row 20: the new-version textarea.
     await page.getByRole('button', { name: 'Edit as new version' }).click()
     await expectLabelled(page, 'Briefing', { tag: 'TEXTAREA', placeholder: BRIEFING_PLACEHOLDER })
   })
 
-  test('AC-11 row 25: the project aside default kit select is labelled', async ({ page }) => {
+  test('AC-11 row 25: the project aside default kit and post style selects are labelled', async ({ page }) => {
     const { project } = await mint()
     await page.setViewportSize({ width: 1440, height: 900 })
     await pageLogin(page)
     await page.goto(`/projects/${project.id}`)
     await expect(page.getByRole('heading', { name: project.name, level: 1 })).toBeVisible()
     await expectNamedByTerm(page, 'Default brand kit')
+    await expectNamedByTerm(page, 'Default post style')
   })
 
   test('AC-11 row 19: the briefing assistant message is named', async ({ page }) => {
-    const { camp } = await mint()
+    const { project } = await mint()
     await page.setViewportSize({ width: 1440, height: 900 })
     await pageLogin(page)
-    await page.goto(`/campaigns/${camp.id}`)
-    await expect(page.getByRole('heading', { name: camp.name, level: 1 })).toBeVisible()
+    await page.goto(`/projects/${project.id}`)
+    await expect(page.getByRole('heading', { name: project.name, level: 1 })).toBeVisible()
     await page.getByRole('button', { name: 'Draft with AI' }).click()
     const drawer = page.getByRole('dialog', { name: 'Draft briefing with AI' })
     await expect(drawer).toBeVisible()
@@ -828,9 +837,9 @@ test.describe('ARIA states (T17)', () => {
     return fixture
   }
 
-  test('AC-12: every tablist is named — /team, an open kit and a campaign', async ({ page }) => {
+  test('AC-12: every tablist is named — /team, an open kit and a project', async ({ page }) => {
     const kit = await mintKit()
-    const { camp } = await mintCampaign()
+    const { project } = await mintCampaign()
     await page.setViewportSize({ width: 1440, height: 900 })
     await pageLogin(page)
 
@@ -849,8 +858,8 @@ test.describe('ARIA states (T17)', () => {
     await openKit(page, kit.name)
     await expectTablistsNamed(page, ['Prompt view'])
 
-    await page.goto(`/campaigns/${camp.id}`)
-    await expect(page.getByRole('heading', { name: camp.name, level: 1 })).toBeVisible()
+    await page.goto(`/projects/${project.id}`)
+    await expect(page.getByRole('heading', { name: project.name, level: 1 })).toBeVisible()
     await expectTablistsNamed(page, ['Briefing view'])
   })
 
@@ -875,7 +884,7 @@ test.describe('ARIA states (T17)', () => {
 
   test('AC-16: with no turns yet, both assistant drawers hold a focusable "Conversation" region', async ({ page }) => {
     const kit = await mintKit()
-    const { camp } = await mintCampaign()
+    const { project } = await mintCampaign()
     await page.setViewportSize({ width: 1440, height: 900 })
     await pageLogin(page)
 
@@ -889,8 +898,8 @@ test.describe('ARIA states (T17)', () => {
     await page.keyboard.press('Escape')
     await expect(kitDrawer).toBeHidden()
 
-    await page.goto(`/campaigns/${camp.id}`)
-    await expect(page.getByRole('heading', { name: camp.name, level: 1 })).toBeVisible()
+    await page.goto(`/projects/${project.id}`)
+    await expect(page.getByRole('heading', { name: project.name, level: 1 })).toBeVisible()
     await page.getByRole('button', { name: 'Draft with AI' }).click()
     const briefingDrawer = page.getByRole('dialog', { name: 'Draft briefing with AI' })
     await expect(briefingDrawer).toBeVisible()

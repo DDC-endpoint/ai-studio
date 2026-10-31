@@ -1,10 +1,10 @@
-// 031 T10 (FR-29): POST /api/campaigns/[id]/briefing/upgrade. Prisma, auth and
+// 031 T10 (FR-29): POST /api/projects/[id]/briefing/upgrade. Prisma, auth and
 // the model are faked; the real route wrapper, detector, validator and seam run.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { NextRequest } from 'next/server'
 
 const h = vi.hoisted(() => ({
-  campaign: vi.fn(),
+  project: vi.fn(),
   briefing: vi.fn(),
   resolveKit: vi.fn(),
   user: vi.fn(),
@@ -15,8 +15,8 @@ const h = vi.hoisted(() => ({
 
 vi.mock('@/lib/prisma', () => ({
   prisma: {
-    campaign: { findFirst: h.campaign },
-    campaignBriefing: { findFirst: h.briefing },
+    project: { findFirst: h.project },
+    projectBriefing: { findFirst: h.briefing },
   },
 }))
 vi.mock('@/lib/brandkit/resolve', () => ({ resolveBrandKit: h.resolveKit }))
@@ -32,7 +32,7 @@ vi.mock('@/lib/agent/userToken', () => ({
   withClaudeAuth: (_u: unknown, _t: unknown, fn: () => unknown) => fn(),
 }))
 vi.mock('@/lib/agent/config', () => ({ pipelineMode: () => 'cli' }))
-vi.mock('@/lib/campaign/briefingAssistant', () => {
+vi.mock('@/lib/projects/briefingAssistant', () => {
   class AssistantModelError extends Error {
     constructor(
       public code: string,
@@ -69,7 +69,7 @@ async function load(mock: boolean) {
     read: () => calls,
     clear: () => (calls.length = 0),
   })
-  return (await import('@/app/api/campaigns/[id]/briefing/upgrade/route')).POST
+  return (await import('@/app/api/projects/[id]/briefing/upgrade/route')).POST
 }
 type Handler = (req: NextRequest, ctx: { params: Promise<{ id: string }> }) => Promise<Response>
 const post = (fn: unknown, body: unknown, id = 'c1') =>
@@ -86,7 +86,7 @@ beforeEach(() => {
   h.user.mockResolvedValue({ userId: 'u1', role: 'editor' })
   h.team.mockResolvedValue({ kind: 'ok', teamId: 'team1', teamRole: 'ADMIN' })
   h.resolve.mockResolvedValue(MODEL)
-  h.campaign.mockResolvedValue({ id: 'c1' })
+  h.project.mockResolvedValue({ id: 'c1', defaultBrandKitId: null })
   h.briefing.mockResolvedValue({ version: 3 })
   h.resolveKit.mockResolvedValue({ colors: ['#0b3d91'], fonts: [{ name: 'Poppins', url: 'u' }] })
   calls = []
@@ -103,15 +103,15 @@ describe('briefing upgrade route', () => {
     h.team.mockResolvedValue({ kind: 'ok', teamId: 'team1', teamRole: 'EDITOR' })
     const POST = await load(false)
     expect((await post(POST, { text: TEXT, baseVersion: 3 })).status).toBe(403)
-    expect(h.campaign).not.toHaveBeenCalled()
+    expect(h.project).not.toHaveBeenCalled()
     expect(h.run).not.toHaveBeenCalled()
   })
 
-  it('404 when the campaign is not in the team (scoped by teamId)', async () => {
-    h.campaign.mockResolvedValue(null)
+  it('404 when the project is not in the team (scoped by teamId)', async () => {
+    h.project.mockResolvedValue(null)
     const POST = await load(false)
     expect((await post(POST, { text: TEXT, baseVersion: 3 })).status).toBe(404)
-    expect(h.campaign.mock.calls[0][0].where).toMatchObject({ id: 'c1', teamId: 'team1' })
+    expect(h.project.mock.calls[0][0].where).toMatchObject({ id: 'c1', teamId: 'team1' })
     expect(h.run).not.toHaveBeenCalled()
   })
 
@@ -142,7 +142,7 @@ describe('briefing upgrade route', () => {
     expect(h.run).not.toHaveBeenCalled()
   })
 
-  it('baseVersion 0 matches a campaign with no briefing', async () => {
+  it('baseVersion 0 matches a project with no briefing', async () => {
     h.briefing.mockResolvedValue(null)
     h.run.mockResolvedValue(reply([]))
     const POST = await load(false)
@@ -170,7 +170,7 @@ describe('briefing upgrade route', () => {
     const all = system + JSON.stringify(messages)
     expect(all).toContain('the headline font')
     expect(all).not.toMatch(/#0b3d91|Poppins/i)
-    expect(logs.some((l) => l.startsWith('[briefing-upgrade] team=team1 campaign=c1 '))).toBe(true)
+    expect(logs.some((l) => l.startsWith('[briefing-upgrade] team=team1 project=c1 '))).toBe(true)
   })
 
   it('502 on an unreadable reply and 422 when no model can run', async () => {
@@ -179,7 +179,7 @@ describe('briefing upgrade route', () => {
     const bad = await post(POST, { text: TEXT, baseVersion: 3 })
     expect(bad.status).toBe(502)
     expect((await bad.json()).code).toBe('UPGRADE_PARSE_FAILED')
-    const { AssistantModelError } = await import('@/lib/campaign/briefingAssistant')
+    const { AssistantModelError } = await import('@/lib/projects/briefingAssistant')
     h.resolve.mockRejectedValue(new AssistantModelError('MODEL_NOT_ALLOWED' as never, 'nope'))
     const res = await post(POST, { text: TEXT, baseVersion: 3 })
     expect(res.status).toBe(422)

@@ -40,6 +40,7 @@ vi.mock('@/lib/prisma', () => ({
     draft: { findUnique: h.draftFindUnique, update: vi.fn() },
     brief: { create: h.briefCreate },
     campaign: { findFirst: async () => ({ id: 'c1', teamId: 'team1' }) },
+    project: { findFirst: async () => ({ id: 'p1', teamId: 'team1' }) },
     brandKit: {
       findUnique: async () => ({ id: 'k1', isDeleted: false, teamId: 'team1' }),
       findFirst: async () => ({ id: 'k1', teamId: 'team1' }),
@@ -203,7 +204,7 @@ const { POST: createBrief } = await import('@/app/api/briefs/route')
 const { POST: regenerateCopy } = await import('@/app/api/drafts/[id]/regenerate-copy/route')
 const { POST: regenerateDesign } = await import('@/app/api/drafts/[id]/regenerate-design/route')
 const { POST: refine } = await import('@/app/api/drafts/[id]/refine/route')
-const { POST: briefingChat } = await import('@/app/api/campaigns/[id]/briefing/chat/route')
+const { POST: briefingChat } = await import('@/app/api/projects/[id]/briefing/chat/route')
 const { POST: brandKitChat } = await import('@/app/api/admin/brandkits/[id]/assistant/chat/route')
 
 let calls: ModelCallRecord[] = []
@@ -312,7 +313,7 @@ const ROUTES: Route[] = [
     touched: () => h.claimDraft.mock.calls.length > 0,
   },
   {
-    name: 'POST /api/campaigns/[id]/briefing/chat',
+    name: 'POST /api/projects/[id]/briefing/chat',
     surface: 'ASSISTANT_BRIEFING',
     defaultKey: 'SONNET',
     status: 200,

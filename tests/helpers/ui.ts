@@ -99,7 +99,8 @@ export async function tabThreeFromMain(page: Page): Promise<string[]> {
   return tabThreeWithVisibleFocus(page)
 }
 
-// A project and a campaign under it with two briefing versions, made through the API.
+// A project with two briefing versions, and a campaign under it (campaigns carry no
+// briefing since 038 T2; the briefing is the project's), made through the API.
 export async function mintCampaignFixture(api: ApiClient) {
   const stamp = `${Date.now()}`
   const project = await (await api.post('/api/projects', { name: `T10 Project ${stamp}` })).json()
@@ -107,7 +108,7 @@ export async function mintCampaignFixture(api: ApiClient) {
     await api.post('/api/campaigns', { name: `T10 Campaign ${stamp}`, projectId: project.id })
   ).json()
   for (const content of ['T10 briefing v1', 'T10 briefing v2, the active one']) {
-    expect((await api.post(`/api/campaigns/${camp.id}/briefing`, { content })).status()).toBe(201)
+    expect((await api.post(`/api/projects/${project.id}/briefing`, { content })).status()).toBe(201)
   }
   return { project, camp }
 }

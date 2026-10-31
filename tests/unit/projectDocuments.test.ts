@@ -1,4 +1,4 @@
-// Campaign source documents: text extraction caps, type gating, and the
+// Project source documents: text extraction caps, type gating, and the
 // prompt-context assembly cap (both providers see the whole context each
 // turn, so the caps are load-bearing for cost and latency).
 
@@ -10,7 +10,7 @@ import {
   isAllowedDocImage,
   MAX_DOC_TEXT_CHARS,
   MAX_DOCS_CONTEXT_CHARS,
-} from '@/lib/campaign/documents'
+} from '@/lib/projects/documents'
 
 describe('parseDocumentText — plain text', () => {
   it('parses utf-8 text and normalises CRLF', async () => {
@@ -39,13 +39,13 @@ describe('parseDocumentText — pdf', () => {
 2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj
 3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >> endobj
 4 0 obj << /Length 60 >> stream
-BT /F1 24 Tf 72 720 Td (Hello campaign PDF) Tj ET
+BT /F1 24 Tf 72 720 Td (Hello project PDF) Tj ET
 endstream endobj
 5 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj
 trailer << /Root 1 0 R /Size 6 >>
 %%EOF`
     const result = await parseDocumentText(Buffer.from(pdf), 'application/pdf', 'doc.pdf')
-    expect(result.text).toContain('Hello campaign PDF')
+    expect(result.text).toContain('Hello project PDF')
   })
 })
 

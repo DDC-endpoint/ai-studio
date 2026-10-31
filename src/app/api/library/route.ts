@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
+import { PROJECT_NOT_FOUND } from '@/lib/projects/errors'
 import { withTeamAuth } from "@/lib/api/handler"
 import { draftVisibilityWhere } from "@/lib/authz/visibility"
 import { resolveExportUrl } from "@/lib/storage/minio"
@@ -15,6 +16,8 @@ export const GET = withTeamAuth(async (req: NextRequest, _ctx, user) => {
   const search = searchParams.get("search")?.trim() ?? ""
   const brandKitId = searchParams.get("brandKitId")?.trim() || null
   const postStyle = searchParams.get("postStyle")?.trim() || null
+  // 038 FR-13: a project id, or "none" for the posts that belong to no project.
+  const projectId = searchParams.get("projectId")?.trim() || null
 
   // An unknown style is a client error, never "no filter" (037 FR-06).
   if (postStyle && !isStyleKey(postStyle)) {
@@ -44,6 +47,21 @@ export const GET = withTeamAuth(async (req: NextRequest, _ctx, user) => {
   // (team-wide admins/super-admins see the whole team).
   if (postStyle) {
     andConditions.push({ brief: { postStyle } })
+  }
+
+  // Project filter. A foreign, deleted or unknown id is the same 404 on every
+  // surface (038 NFR-07), never an empty list.
+  if (projectId === "none") {
+    andConditions.push({ brief: { projectId: null } })
+  } else if (projectId) {
+    const project = await prisma.project.findFirst({
+      where: { id: projectId, teamId: user.teamId, isDeleted: false },
+      select: { id: true },
+    })
+    if (!project) {
+      return NextResponse.json(PROJECT_NOT_FOUND, { status: 404 })
+    }
+    andConditions.push({ brief: { projectId } })
   }
 
   // Kit filter: the brief's own kit, else (no explicit kit) the campaign's.

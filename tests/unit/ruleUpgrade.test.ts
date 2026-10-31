@@ -4,7 +4,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 const h = vi.hoisted(() => ({ resolve: vi.fn(), run: vi.fn() }))
 vi.mock('@/lib/agent/config', () => ({ pipelineMode: () => 'cli' }))
-vi.mock('@/lib/campaign/briefingAssistant', () => ({
+vi.mock('@/lib/projects/briefingAssistant', () => ({
   resolveAssistantModel: h.resolve,
   runBriefingModel: h.run,
 }))

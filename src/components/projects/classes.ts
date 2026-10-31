@@ -1,4 +1,4 @@
-// Class helpers used only by the campaigns and projects screens
+// Class helpers used by the projects screens and, until 038 T5, the campaigns screens
 // (DESIGN_SYSTEM.md §6, §8.6). The shared atoms (FOCUS, EYEBROW, PAGE_TITLE,
 // SECTION_HEAD, ICON, TAG and the rest) come from @/components/ui/atoms
 // (014 FR-02); only these screen-specific strings live here.
@@ -17,7 +17,7 @@ export const CRUMB_CURRENT = 'min-w-0 break-words font-medium text-fg'
 // mb-3) over a --line-subtle rule; the column opens with a 2 px --fg rule (§6).
 export const ASIDE_BLOCK = 'border-b border-line-subtle py-4'
 
-// A row in the campaigns and projects lists: ruled below on --line-subtle
+// A row in the projects lists: ruled below on --line-subtle
 // under the list's 2 px --fg rule (§6).
 export const LIST_ROW = 'flex min-w-0 items-start gap-3 border-b border-line-subtle py-3.5'
 

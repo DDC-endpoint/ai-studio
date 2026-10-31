@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import { withTeamAuth, parseBody } from '@/lib/api/handler'
-import { AssistantModelError, enhancePostBrief } from '@/lib/campaign/briefingAssistant'
+import { AssistantModelError, enhancePostBrief } from '@/lib/projects/briefingAssistant'
 import { withClaudeAuth } from '@/lib/agent/userToken'
 
 // AI rewrite of a post brief from the wizard's Content step. Editor-accessible

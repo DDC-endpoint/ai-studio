@@ -1,5 +1,5 @@
 import { pipelineMode } from '@/lib/agent/config'
-import { resolveAssistantModel, runBriefingModel } from '@/lib/campaign/briefingAssistant'
+import { resolveAssistantModel, runBriefingModel } from '@/lib/projects/briefingAssistant'
 import { modelCallFor, recordModelCall } from '@/lib/models/modelCalls'
 import { MOCK_AI } from '@/lib/testHooks'
 

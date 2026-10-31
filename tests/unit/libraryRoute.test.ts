@@ -3,9 +3,11 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
-const h = vi.hoisted(() => ({ findMany: vi.fn(), count: vi.fn() }))
+const h = vi.hoisted(() => ({ findMany: vi.fn(), count: vi.fn(), projectFind: vi.fn() }))
 
-vi.mock('@/lib/prisma', () => ({ prisma: { draft: { findMany: h.findMany, count: h.count } } }))
+vi.mock('@/lib/prisma', () => ({
+  prisma: { draft: { findMany: h.findMany, count: h.count }, project: { findFirst: h.projectFind } },
+}))
 vi.mock('@/lib/api/handler', () => ({
   withTeamAuth:
     (handler: (req: unknown, ctx: unknown, user: unknown) => unknown) =>
@@ -25,6 +27,7 @@ async function call(query = '') {
 beforeEach(() => {
   h.findMany.mockReset().mockResolvedValue([])
   h.count.mockReset().mockResolvedValue(0)
+  h.projectFind.mockReset().mockResolvedValue({ id: 'proj1' })
 })
 
 describe('GET /api/library (037)', () => {
@@ -63,6 +66,26 @@ describe('GET /api/library (037)', () => {
     expect(and).toContainEqual({ VISIBILITY: true })
     expect(and).toHaveLength(4)
     expect(h.count.mock.calls[0][0].where.AND).toEqual(and)
+  })
+
+  it('038: filters by a project of the caller team', async () => {
+    expect((await call('?projectId=proj1')).status).toBe(200)
+    expect(h.projectFind.mock.calls[0][0].where).toEqual({ id: 'proj1', teamId: 'team1', isDeleted: false })
+    expect(h.findMany.mock.calls[0][0].where.AND).toContainEqual({ brief: { projectId: 'proj1' } })
+  })
+
+  it('038: projectId=none lists the posts with no project and reads no project', async () => {
+    expect((await call('?projectId=none')).status).toBe(200)
+    expect(h.projectFind).not.toHaveBeenCalled()
+    expect(h.findMany.mock.calls[0][0].where.AND).toContainEqual({ brief: { projectId: null } })
+  })
+
+  it('038: a foreign, deleted or unknown project is 404 PROJECT_NOT_FOUND and queries no drafts', async () => {
+    h.projectFind.mockResolvedValue(null)
+    const res = await call('?projectId=other-team-project')
+    expect(res.status).toBe(404)
+    expect((await res.json()).code).toBe('PROJECT_NOT_FOUND')
+    expect(h.findMany).not.toHaveBeenCalled()
   })
 
   it('adds no kit or style clause without the params', async () => {

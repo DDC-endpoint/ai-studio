@@ -1,13 +1,14 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
+import { PROJECT_NOT_FOUND } from '@/lib/projects/errors'
 import { withTeamAdmin, parseBody } from '@/lib/api/handler'
-import { AssistantModelError, enhanceBriefing } from '@/lib/campaign/briefingAssistant'
+import { AssistantModelError, enhanceBriefing } from '@/lib/projects/briefingAssistant'
 import { withClaudeAuth } from '@/lib/agent/userToken'
 
 type Params = { id: string }
 
-// Content may be empty — the assistant then drafts from campaign context alone.
+// Content may be empty — the assistant then drafts from project context alone.
 const enhanceSchema = z.object({
   content: z.string().max(20_000),
 })
@@ -16,12 +17,12 @@ export const POST = withTeamAdmin<Params>(async (req, { params }, user) => {
   const body = await parseBody(req, enhanceSchema)
   if (body.response) return body.response
 
-  const campaign = await prisma.campaign.findFirst({
+  const project = await prisma.project.findFirst({
     where: { id: params.id, isDeleted: false },
     select: { id: true, teamId: true },
   })
-  if (!campaign || campaign.teamId !== user.teamId) {
-    return NextResponse.json({ error: 'Campaign not found' }, { status: 404 })
+  if (!project || project.teamId !== user.teamId) {
+    return NextResponse.json(PROJECT_NOT_FOUND, { status: 404 })
   }
 
   // CLI mode bills the acting user's personal Claude token when connected

@@ -1,11 +1,11 @@
 import { test, expect } from '@playwright/test'
 import { loginAs } from '../helpers/api'
 
-// §N — Campaign briefing assistant: source documents + AI chat + enhance.
+// §N — Project briefing assistant (038 T2 moved it from campaigns): source documents + AI chat + enhance.
 //
 // Contract notes:
-//   - Documents: POST /api/campaigns/[id]/documents (withAdmin, multipart,
-//     PDF/DOCX/TXT/MD, 10MB cap via validateUpload, max 5 per campaign);
+//   - Documents: POST /api/projects/[id]/documents (withAdmin, multipart,
+//     PDF/DOCX/TXT/MD, 10MB cap via validateUpload, max 5 per project);
 //     GET lists metadata (withAuth); DELETE removes (withAdmin).
 //   - Chat: POST .../briefing/chat (withAdmin) — stateless transcript in,
 //     { reply, briefingDraft } out. Under MOCK_AI the reply is deterministic
@@ -22,10 +22,14 @@ const txt = (name: string, body: string) => ({
 })
 
 test.describe('Briefing assistant', () => {
+  let projectId: string
+  // POST /api/briefs/enhance still reads a campaign until 038 T3 moves it to projects.
   let campaignId: string
 
   test.beforeAll(async ({ request }) => {
     const admin = await loginAs(request, ADMIN_EMAIL, PASSWORD)
+    const project = await (await admin.post('/api/projects', { name: `Briefing Assistant E2E ${Date.now()}` })).json()
+    projectId = project.id
     const camp = await (await admin.post('/api/campaigns', { name: 'Briefing Assistant E2E' })).json()
     campaignId = camp.id
     await admin.dispose()
@@ -33,7 +37,7 @@ test.describe('Briefing assistant', () => {
 
   test('document lifecycle: upload, list, type gate, 5-doc cap, delete', async ({ request }) => {
     const admin = await loginAs(request, ADMIN_EMAIL, PASSWORD)
-    const base = `/api/campaigns/${campaignId}/documents`
+    const base = `/api/projects/${projectId}/documents`
 
     // Upload a txt document.
     const up = await admin.multipart(base, txt('strategy.txt', 'Target SMB owners in Colombo.'))
@@ -72,7 +76,7 @@ test.describe('Briefing assistant', () => {
 
   test('chat returns the mock reply with an extractable briefing draft', async ({ request }) => {
     const admin = await loginAs(request, ADMIN_EMAIL, PASSWORD)
-    const res = await admin.post(`/api/campaigns/${campaignId}/briefing/chat`, {
+    const res = await admin.post(`/api/projects/${projectId}/briefing/chat`, {
       messages: [{ role: 'user', content: 'Promote the July webinar to SMBs' }],
     })
     expect(res.status()).toBe(200)
@@ -84,7 +88,7 @@ test.describe('Briefing assistant', () => {
 
   test('chat validates the transcript shape', async ({ request }) => {
     const admin = await loginAs(request, ADMIN_EMAIL, PASSWORD)
-    const base = `/api/campaigns/${campaignId}/briefing/chat`
+    const base = `/api/projects/${projectId}/briefing/chat`
     // Last message must be from the user.
     expect(
       (
@@ -103,28 +107,28 @@ test.describe('Briefing assistant', () => {
 
   test('enhance returns the deterministic mock rewrite (and drafts from empty)', async ({ request }) => {
     const admin = await loginAs(request, ADMIN_EMAIL, PASSWORD)
-    const base = `/api/campaigns/${campaignId}/briefing/enhance`
+    const base = `/api/projects/${projectId}/briefing/enhance`
 
     const withText = await (await admin.post(base, { content: 'my rough briefing' })).json()
     expect(withText.draft).toBe('Enhanced: my rough briefing')
 
     const fromEmpty = await (await admin.post(base, { content: '' })).json()
-    expect(fromEmpty.draft).toBe('Enhanced: Mock briefing drafted from campaign context.')
+    expect(fromEmpty.draft).toBe('Enhanced: Mock briefing drafted from project context.')
 
     await admin.dispose()
   })
 
-  test('unknown campaign 404s on chat and enhance', async ({ request }) => {
+  test('unknown project 404s on chat and enhance', async ({ request }) => {
     const admin = await loginAs(request, ADMIN_EMAIL, PASSWORD)
     expect(
       (
-        await admin.post('/api/campaigns/nonexistent/briefing/chat', {
+        await admin.post('/api/projects/nonexistent/briefing/chat', {
           messages: [{ role: 'user', content: 'hi' }],
         })
       ).status(),
     ).toBe(404)
     expect(
-      (await admin.post('/api/campaigns/nonexistent/briefing/enhance', { content: 'x' })).status(),
+      (await admin.post('/api/projects/nonexistent/briefing/enhance', { content: 'x' })).status(),
     ).toBe(404)
     await admin.dispose()
   })
@@ -148,7 +152,7 @@ test.describe('Briefing assistant', () => {
     const fromTopic = await editor.post(base, { topic: 'Q3 launch', content: '' })
     expect(fromTopic.status()).toBe(200)
     expect((await fromTopic.json()).draft).toBe(
-      'Enhanced: Mock briefing drafted from campaign context.',
+      'Enhanced: Mock briefing drafted from project context.',
     )
 
     // Nothing to work with → 400; unknown campaign → 404.
@@ -162,7 +166,7 @@ test.describe('Briefing assistant', () => {
 
   test('editors are forbidden from upload, delete, chat, and enhance (list is readable)', async ({ request }) => {
     const editor = await loginAs(request, EDITOR_EMAIL, PASSWORD)
-    const base = `/api/campaigns/${campaignId}`
+    const base = `/api/projects/${projectId}`
 
     expect((await editor.get(`${base}/documents`)).status()).toBe(200)
     expect(

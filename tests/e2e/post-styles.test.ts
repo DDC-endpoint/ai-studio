@@ -245,14 +245,32 @@ test.describe('Generation and the facts check', () => {
 
   test('TC-PS-12: a value stated in the topic, the description, the campaign briefing or a campaign document is not flagged; the same value elsewhere is', async () => {
     // Campaign B states 35% and 1,250 in its briefing and 30 March 2027 in a document; it never states $49.
-    const briefing = await admin.post(`/api/campaigns/${campB}/briefing`, {
-      content: 'We now serve 1,250 customers. Launch offer: 35% off for the first month.',
+    // The campaign briefing and document routes are gone (038 T2 moved them to projects), but
+    // generation still reads campaigns until T3 swaps this case to a project: seed the rows directly.
+    test.skip(!dbAvailable, 'needs the test database to seed a campaign briefing and document')
+    const campaign = await prisma!.campaign.findUniqueOrThrow({ where: { id: campB }, select: { teamId: true } })
+    await prisma!.campaignBriefing.create({
+      data: {
+        campaignId: campB,
+        content: 'We now serve 1,250 customers. Launch offer: 35% off for the first month.',
+        version: 1,
+        isActive: true,
+        createdBy: 'e2e',
+      },
     })
-    expect([200, 201]).toContain(briefing.status())
-    const doc = await admin.multipart(`/api/campaigns/${campB}/documents`, {
-      file: { name: 'event.txt', mimeType: 'text/plain', buffer: Buffer.from('The webinar is on 30 March 2027 at the main hall.') },
+    const docText = 'The webinar is on 30 March 2027 at the main hall.'
+    await prisma!.campaignDocument.create({
+      data: {
+        teamId: campaign.teamId,
+        campaignId: campB,
+        name: 'event.txt',
+        contentType: 'text/plain',
+        sizeBytes: docText.length,
+        objectKey: `e2e/${campB}/event.txt`,
+        parsedText: docText,
+        createdBy: 'e2e',
+      },
     })
-    expect(doc.status()).toBe(201)
 
     const inTopic = await generate(admin, { topic: `__MOCK_FACT_PRICE__ Only $49 today ${tag()}` })
     expect(inTopic.factsCheck?.status).toBe('clear')

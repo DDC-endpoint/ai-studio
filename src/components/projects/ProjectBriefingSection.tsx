@@ -12,23 +12,23 @@ import { apiFetch } from '@/lib/apiFetch'
 import { cn } from '@/lib/utils'
 import { SectionHead } from '@/components/ui/SectionHead'
 import { ICON, PILL_BADGE, SCROLL_FOCUS, SMALL_CAPS } from '@/components/ui/atoms'
-import { BriefingAssistantPanel } from '@/components/campaigns/BriefingAssistantPanel'
+import { BriefingAssistantPanel } from '@/components/projects/BriefingAssistantPanel'
 import { RuleReviewPanel } from '@/components/textUpgrade/RuleReviewPanel'
 import { useRuleReview } from '@/components/textUpgrade/useRuleReview'
-import type { CampaignBriefing, UpgradeResponse } from '@/lib/api-types'
+import type { ProjectBriefing, UpgradeResponse } from '@/lib/api-types'
 
-// Versioned campaign briefing editor — the campaign-level context injected
-// into every generation under this campaign (on top of the brand voice).
+// Versioned project briefing editor — the project-level context injected
+// into every generation under this project (on top of the brand voice).
 // Mirrors the brand-kit PromptSection UX (Active / History / New Version,
-// Restore) but on React Query, matching the campaign detail page's data layer.
+// Restore) but on React Query, matching the project detail page's data layer.
 // Writes are admin-only; editors see the active briefing read-only.
 
-interface CampaignBriefingSectionProps {
-  campaignId: string
+interface ProjectBriefingSectionProps {
+  projectId: string
   isTeamAdmin: boolean
 }
 
-export function CampaignBriefingSection({ campaignId, isTeamAdmin }: CampaignBriefingSectionProps) {
+export function ProjectBriefingSection({ projectId, isTeamAdmin }: ProjectBriefingSectionProps) {
   const queryClient = useQueryClient()
   const [draft, setDraft] = useState('')
   const [saving, setSaving] = useState(false)
@@ -40,8 +40,8 @@ export function CampaignBriefingSection({ campaignId, isTeamAdmin }: CampaignBri
   const draftId = React.useId()
 
   const { data: briefings = [] } = useQuery({
-    queryKey: ['campaigns', campaignId, 'briefing'],
-    queryFn: () => apiFetch<CampaignBriefing[]>(`/api/campaigns/${campaignId}/briefing`),
+    queryKey: ['projects', projectId, 'briefing'],
+    queryFn: () => apiFetch<ProjectBriefing[]>(`/api/projects/${projectId}/briefing`),
   })
 
   const active = briefings.find(b => b.isActive)
@@ -49,24 +49,24 @@ export function CampaignBriefingSection({ campaignId, isTeamAdmin }: CampaignBri
   const activeVersion = active?.version ?? 0
   const request = useCallback(
     (text: string) =>
-      apiFetch<UpgradeResponse>(`/api/campaigns/${campaignId}/briefing/upgrade`, {
+      apiFetch<UpgradeResponse>(`/api/projects/${projectId}/briefing/upgrade`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text, baseVersion: activeVersion }),
       }),
-    [campaignId, activeVersion],
+    [projectId, activeVersion],
   )
   const review = useRuleReview({ text: draft, setText: setDraft, request })
 
   function invalidate() {
-    return queryClient.invalidateQueries({ queryKey: ['campaigns', campaignId, 'briefing'] })
+    return queryClient.invalidateQueries({ queryKey: ['projects', projectId, 'briefing'] })
   }
 
   async function saveVersion() {
     if (!draft.trim()) return
     setSaving(true)
     try {
-      await apiFetch(`/api/campaigns/${campaignId}/briefing`, {
+      await apiFetch(`/api/projects/${projectId}/briefing`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ content: draft }),
@@ -86,7 +86,7 @@ export function CampaignBriefingSection({ campaignId, isTeamAdmin }: CampaignBri
     setEnhancing(true)
     try {
       const { draft: aiDraft } = await apiFetch<{ draft: string }>(
-        `/api/campaigns/${campaignId}/briefing/enhance`,
+        `/api/projects/${projectId}/briefing/enhance`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -112,7 +112,7 @@ export function CampaignBriefingSection({ campaignId, isTeamAdmin }: CampaignBri
 
   async function activate(briefingId: string) {
     try {
-      await apiFetch(`/api/campaigns/${campaignId}/briefing/${briefingId}/activate`, { method: 'POST' })
+      await apiFetch(`/api/projects/${projectId}/briefing/${briefingId}/activate`, { method: 'POST' })
       await invalidate()
     } catch (e: unknown) {
       toast.error(e instanceof Error ? e.message : 'Failed to restore version')
@@ -126,13 +126,13 @@ export function CampaignBriefingSection({ campaignId, isTeamAdmin }: CampaignBri
     </div>
   ) : (
     <p className="text-ui-sm text-fg-muted">
-      No briefing yet — posts under this campaign use only the brand voice.
+      No briefing yet — posts under this project use only the brand voice.
     </p>
   )
 
   return (
     <section className="pb-8 pt-[22px]">
-      <SectionHead numeral="i." title="Campaign Briefing" className="mb-3">
+      <SectionHead numeral="i." title="Project briefing" className="mb-3">
         {isTeamAdmin && (
           <Button variant="ghost" size="sm" onClick={() => setAssistantOpen(true)}>
             <MessageSquareText {...ICON} /> Draft with AI
@@ -141,7 +141,7 @@ export function CampaignBriefingSection({ campaignId, isTeamAdmin }: CampaignBri
         {active && <span className="text-fg-muted">v{active.version}</span>}
       </SectionHead>
       <p className="mb-4 text-ui-sm text-fg-muted">
-        Shared context for every post generated under this campaign — injected into captions and
+        Shared context for every post generated under this project — injected into captions and
         design prompts alongside the brand voice.
       </p>
 
@@ -252,7 +252,7 @@ export function CampaignBriefingSection({ campaignId, isTeamAdmin }: CampaignBri
                       value={draft}
                       onChange={e => setDraft(e.target.value)}
                       rows={8}
-                      placeholder="Audience, key messages, themes, do's and don'ts for this campaign…"
+                      placeholder="Audience, key messages, themes, do's and don'ts for this project…"
                       className={cn(fieldClasses, fieldEdge(), 'resize-none leading-relaxed')}
                     />
                   </div>
@@ -273,7 +273,7 @@ export function CampaignBriefingSection({ campaignId, isTeamAdmin }: CampaignBri
                   />
                   {enhancing && (
                     <p className="text-ui-xs text-fg-muted">
-                      Rewriting with brand voice and campaign documents — this can take up to a minute.
+                      Rewriting with brand voice and project documents — this can take up to a minute.
                     </p>
                   )}
                 </>
@@ -287,7 +287,7 @@ export function CampaignBriefingSection({ campaignId, isTeamAdmin }: CampaignBri
 
       {isTeamAdmin && (
         <BriefingAssistantPanel
-          campaignId={campaignId}
+          projectId={projectId}
           open={assistantOpen}
           onClose={() => setAssistantOpen(false)}
           onApply={applyAssistantDraft}

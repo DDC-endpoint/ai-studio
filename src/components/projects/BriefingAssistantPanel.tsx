@@ -18,7 +18,7 @@ import { EYEBROW, FOCUS, ICON, ICON_BUTTON, SCROLL_FOCUS } from '@/components/ui
 // ephemeral — the transcript lives in component state and is sent whole to the
 // stateless chat route each turn.
 
-interface CampaignDocumentMeta {
+interface ProjectDocumentMeta {
   id: string
   name: string
   contentType: string
@@ -34,7 +34,7 @@ interface ChatMessage {
 }
 
 interface BriefingAssistantPanelProps {
-  campaignId: string
+  projectId: string
   open: boolean
   onClose: () => void
   onApply: (text: string) => void
@@ -49,7 +49,7 @@ function formatSize(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`
 }
 
-export function BriefingAssistantPanel({ campaignId, open, onClose, onApply }: BriefingAssistantPanelProps) {
+export function BriefingAssistantPanel({ projectId, open, onClose, onApply }: BriefingAssistantPanelProps) {
   const queryClient = useQueryClient()
   const fileInputRef = useRef<HTMLInputElement>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -70,13 +70,13 @@ export function BriefingAssistantPanel({ campaignId, open, onClose, onApply }: B
   }, [])
 
   const { data: docs = [] } = useQuery({
-    queryKey: ['campaigns', campaignId, 'documents'],
-    queryFn: () => apiFetch<CampaignDocumentMeta[]>(`/api/campaigns/${campaignId}/documents`),
+    queryKey: ['projects', projectId, 'documents'],
+    queryFn: () => apiFetch<ProjectDocumentMeta[]>(`/api/projects/${projectId}/documents`),
     enabled: open,
   })
 
   function invalidateDocs() {
-    return queryClient.invalidateQueries({ queryKey: ['campaigns', campaignId, 'documents'] })
+    return queryClient.invalidateQueries({ queryKey: ['projects', projectId, 'documents'] })
   }
 
   async function uploadFile(file: File) {
@@ -84,7 +84,7 @@ export function BriefingAssistantPanel({ campaignId, open, onClose, onApply }: B
     try {
       const fd = new FormData()
       fd.append('file', file)
-      const doc = await apiFetch<CampaignDocumentMeta>(`/api/campaigns/${campaignId}/documents`, {
+      const doc = await apiFetch<ProjectDocumentMeta>(`/api/projects/${projectId}/documents`, {
         method: 'POST',
         body: fd,
       })
@@ -102,9 +102,9 @@ export function BriefingAssistantPanel({ campaignId, open, onClose, onApply }: B
     }
   }
 
-  async function deleteDoc(doc: CampaignDocumentMeta) {
+  async function deleteDoc(doc: ProjectDocumentMeta) {
     try {
-      await apiFetch(`/api/campaigns/${campaignId}/documents/${doc.id}`, { method: 'DELETE' })
+      await apiFetch(`/api/projects/${projectId}/documents/${doc.id}`, { method: 'DELETE' })
       await invalidateDocs()
     } catch (e: unknown) {
       toast.error(e instanceof Error ? e.message : 'Delete failed')
@@ -125,7 +125,7 @@ export function BriefingAssistantPanel({ campaignId, open, onClose, onApply }: B
     setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 0)
     try {
       const result = await apiFetch<{ reply: string; briefingDraft: string | null }>(
-        `/api/campaigns/${campaignId}/briefing/chat`,
+        `/api/projects/${projectId}/briefing/chat`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -237,7 +237,7 @@ export function BriefingAssistantPanel({ campaignId, open, onClose, onApply }: B
         >
           {messages.length === 0 && (
             <p className="text-ui-sm text-fg-muted">
-              Describe the campaign — goal, audience, timing — and the assistant will interview
+              Describe the project — goal, audience, timing — and the assistant will interview
               you and converge on a briefing draft. Each draft it proposes can be applied to the
               editor.
             </p>
@@ -287,7 +287,7 @@ export function BriefingAssistantPanel({ campaignId, open, onClose, onApply }: B
               id={messageId}
               value={input}
               onChange={e => setInput(e.target.value)}
-              placeholder="Tell the assistant about this campaign…"
+              placeholder="Tell the assistant about this project…"
               className="min-w-0 flex-1 bg-transparent px-3.5 py-2.5 font-display text-ui-base italic text-fg [font-variation-settings:'opsz'_24] placeholder:text-fg-muted focus:outline-none"
             />
             <button

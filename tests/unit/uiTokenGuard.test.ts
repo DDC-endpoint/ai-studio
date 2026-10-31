@@ -311,7 +311,7 @@ describe('Graphite deny-list (032 FR-14, AC-16)', () => {
     expect(findFolioModule('src/components/ui/folio.ts', '')).toHaveLength(1)
     expect(findFolioModule('src/components/team/Folio.tsx', '')).toHaveLength(1)
     expect(findFolioModule('src/components/x.tsx', "import { ROW } from '@/components/ui/atoms'")).toEqual([])
-    expect(findFolioModule('src/components/x.tsx', "import { ROW_TITLE } from '@/components/campaigns/classes'")).toEqual([])
+    expect(findFolioModule('src/components/x.tsx', "import { ROW_TITLE } from '@/components/projects/classes'")).toEqual([])
     expect(findFolioModule('src/components/x.tsx', '// the Folio design system, see folio notes')).toEqual([])
   })
 

@@ -7,7 +7,7 @@ import { ImageLightbox } from '@/components/ui/ImageLightbox'
 import type { AspectRatio } from '@prisma/client'
 import { FOCUS } from '@/components/ui/atoms'
 import { aspectClassFor } from '@/lib/aspectRatio'
-import { postStyleLabel } from '@/components/campaigns/postStyleOptions'
+import { postStyleLabel } from '@/components/projects/postStyleOptions'
 import { formatDateTime } from '@/lib/format'
 
 interface LibraryCardDraft {

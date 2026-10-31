@@ -120,7 +120,9 @@ export interface Campaign {
   _count: { briefs: number }
 }
 
-// GET /api/campaigns/[id]/briefing — versioned campaign briefing rows
+// GET /api/campaigns/[id]/briefing — versioned campaign briefing rows. The route is
+// gone (038 T2 moved it to /api/projects/[id]/briefing); the wizard's CampaignStep
+// still imports the type until 038 T3 replaces it.
 export interface CampaignBriefing {
   id: string
   campaignId: string
@@ -128,6 +130,27 @@ export interface CampaignBriefing {
   version: number
   isActive: boolean
   createdBy: string
+  createdAt: string
+}
+
+// GET /api/projects/[id]/briefing — versioned project briefing rows
+export interface ProjectBriefing {
+  id: string
+  projectId: string
+  content: string
+  version: number
+  isActive: boolean
+  createdBy: string
+  createdAt: string
+}
+
+// GET /api/projects/[id]/documents — a project source document's metadata
+export interface ProjectDocumentMeta {
+  id: string
+  name: string
+  contentType: string
+  sizeBytes: number
+  truncated: boolean
   createdAt: string
 }
 
@@ -151,25 +174,26 @@ export interface ResolvedBrandKitResponse {
 
 // ── Projects ─────────────────────────────────────────────────────────────
 
-// GET /api/projects (list) — defaultBrandKit + _count.campaigns, no
-// `campaigns` relation array.
+// GET /api/projects (list) — defaultBrandKit + postCount (assigned posts).
 export interface ProjectSummary {
   id: string
   name: string
   defaultTone: string | null
+  // 038 FR-05: a post style key, or null (the wizard then falls to General).
+  defaultPostStyle: string | null
   isDeleted: boolean
   defaultBrandKit: BrandKitRef | null
-  _count: { campaigns: number }
+  postCount: number
 }
 
-// GET /api/projects/[id] (detail) — defaultBrandKit + campaigns relation,
-// no `_count`.
+// GET /api/projects/[id] (detail) — the same fields as the list row.
 export interface ProjectDetail {
   id: string
   name: string
   defaultTone: string | null
+  defaultPostStyle: string | null
   defaultBrandKit: BrandKitRef | null
-  campaigns: Array<{ campaign: CampaignRef }>
+  postCount: number
 }
 
 // ── Brand kits (public, non-admin) ──────────────────────────────────────

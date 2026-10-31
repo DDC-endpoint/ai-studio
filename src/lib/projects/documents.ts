@@ -2,11 +2,11 @@ import mammoth from "mammoth"
 import { PDFParse } from "pdf-parse"
 import { prisma } from "@/lib/prisma"
 
-// Campaign source documents: parsing + prompt-context assembly for the AI
+// Project source documents: parsing + prompt-context assembly for the AI
 // briefing assistant. Uploads are parsed once (at upload time) and the text is
-// stored on the CampaignDocument row, so chat turns never re-parse files.
+// stored on the ProjectDocument row, so chat turns never re-parse files.
 
-export const MAX_DOCS_PER_CAMPAIGN = 5
+export const MAX_DOCS_PER_PROJECT = 5
 // Per-file cap on stored parsed text.
 export const MAX_DOC_TEXT_CHARS = 60_000
 // Global cap on document context injected into a prompt (both providers see
@@ -103,26 +103,26 @@ export function buildDocsContext(
   return { text: parts.join("\n\n"), truncated }
 }
 
-// Concatenates a campaign's parsed documents for prompt building. Returns
+// Concatenates a project's parsed documents for prompt building. Returns
 // empty text when no docs exist.
-export async function collectCampaignDocsContext(campaignId: string): Promise<DocsContext> {
-  const docs = await prisma.campaignDocument.findMany({
-    where: { campaignId },
+export async function projectDocsContext(projectId: string): Promise<DocsContext> {
+  const docs = await prisma.projectDocument.findMany({
+    where: { projectId },
     orderBy: { createdAt: "asc" },
     select: { name: true, parsedText: true, truncated: true },
   })
   return buildDocsContext(docs)
 }
 
-// Presigned URLs for a campaign's uploaded reference IMAGES (the docs bucket is
+// Presigned URLs for a project's uploaded reference IMAGES (the docs bucket is
 // private — the vision model fetches these server-side). Capped to keep the
 // vision payload sane.
 export const MAX_DOC_IMAGES_CONTEXT = 6
 
-export async function collectCampaignDocImageUrls(campaignId: string): Promise<string[]> {
+export async function projectDocImageUrls(projectId: string): Promise<string[]> {
   const { BUCKET_DOCS, getPresignedUrl } = await import("@/lib/storage/minio")
-  const images = await prisma.campaignDocument.findMany({
-    where: { campaignId, contentType: { in: DOC_IMAGE_MIME_TYPES } },
+  const images = await prisma.projectDocument.findMany({
+    where: { projectId, contentType: { in: DOC_IMAGE_MIME_TYPES } },
     orderBy: { createdAt: "asc" },
     take: MAX_DOC_IMAGES_CONTEXT,
     select: { objectKey: true },

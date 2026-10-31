@@ -11,9 +11,8 @@ import { PageTitle } from '@/components/ui/PageHead'
 import { EYEBROW, FOCUS, ICON, ICON_SM, TEXT_LINK } from '@/components/ui/atoms'
 import { apiFetch } from '@/lib/apiFetch'
 import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
-import { ASIDE_BLOCK, CRUMB_CURRENT, CRUMB_LINK } from '@/components/campaigns/classes'
-import { CampaignBriefingSection } from '@/components/campaigns/CampaignBriefingSection'
-import { postStyleLabel, postStyleOptions } from '@/components/campaigns/postStyleOptions'
+import { ASIDE_BLOCK, CRUMB_CURRENT, CRUMB_LINK } from '@/components/projects/classes'
+import { postStyleLabel, postStyleOptions } from '@/components/projects/postStyleOptions'
 import type { Campaign, BrandKitSummary, ProjectSummary, ResolvedBrandKitResponse } from '@/lib/api-types'
 
 const SOURCE_LABEL: Record<string, string> = {
@@ -156,9 +155,11 @@ export default function CampaignDetailPage() {
       <PageTitle className="mb-10 break-words">{campaign.name}</PageTitle>
 
       <div className="grid grid-cols-1 gap-x-12 gap-y-10 lg:grid-cols-[minmax(0,1fr)_280px]">
-        {/* The briefing, a numbered section ruled apart (§8.14). */}
-        <div className="min-w-0 divide-y divide-line-subtle border-t-2 border-fg">
-          <CampaignBriefingSection campaignId={params.id} isTeamAdmin={isTeamAdmin} />
+        {/* The briefing and its documents moved to projects (038); campaigns are retired. */}
+        <div className="min-w-0 border-t-2 border-fg">
+          <p className="py-[22px] text-ui-sm text-fg-muted">
+            Briefings and documents now belong to projects. Open a project to write one.
+          </p>
         </div>
 
         {/* Brand kit, details, briefs and projects: ruled blocks in the aside. */}

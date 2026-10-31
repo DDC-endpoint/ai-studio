@@ -1,7 +1,7 @@
 // Briefing assistant pure parts: the ```briefing block extraction the chat UI
 // depends on, and the deterministic MOCK_AI seams the E2E suite asserts on.
 // 008 T8: the three entry points on the resolver (ASSISTANT_BRIEFING) and the
-// shared text call on a ResolvedModel. Prisma, the campaign context, the CLI
+// shared text call on a ResolvedModel. Prisma, the project context, the CLI
 // runner and the Anthropic client are faked; the resolver (policy.ts →
 // decideModel) runs for real on a faked TeamModelPolicy row.
 
@@ -20,6 +20,8 @@ const h = vi.hoisted(() => ({
 vi.mock('@/lib/prisma', () => ({
   prisma: {
     teamModelPolicy: { findUnique: async () => h.policy },
+    project: { findFirst: async () => null },
+    projectBriefing: { findFirst: async () => null },
     userClaudeToken: { findFirst: async () => null },
   },
 }))
@@ -42,9 +44,9 @@ vi.mock('@anthropic-ai/sdk', () => ({
 vi.mock('@/providers/registry', () => ({ resolveAnthropicApiKey: async () => 'sk-ant-FAKE' }))
 vi.mock('@/lib/brandkit/resolve', () => ({ resolveBrandKit: async () => null }))
 vi.mock('@/lib/campaign/briefing', () => ({ getActiveCampaignBriefing: async () => null }))
-vi.mock('@/lib/campaign/documents', () => ({
-  collectCampaignDocsContext: async () => ({ text: '', truncated: false }),
-  collectCampaignDocImageUrls: async () => h.docImageUrls,
+vi.mock('@/lib/projects/documents', () => ({
+  projectDocsContext: async () => ({ text: '', truncated: false }),
+  projectDocImageUrls: async () => h.docImageUrls,
 }))
 vi.mock('@/lib/testHooks', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/testHooks')>()),
@@ -60,7 +62,7 @@ import {
   extractBriefingBlock,
   runBriefingChat,
   runBriefingModel,
-} from '@/lib/campaign/briefingAssistant'
+} from '@/lib/projects/briefingAssistant'
 import { buildMockBriefingReply, buildMockBriefingEnhance } from '@/lib/testHooks'
 import { setModelCallSink, type ModelCallRecord } from '@/lib/models/modelCalls'
 import { internalModel } from '@/lib/models/resolve'
@@ -104,7 +106,7 @@ describe('MOCK_AI briefing seams', () => {
   it('buildMockBriefingEnhance is a deterministic transform', () => {
     expect(buildMockBriefingEnhance('my briefing')).toBe('Enhanced: my briefing')
     expect(buildMockBriefingEnhance('')).toBe(
-      'Enhanced: Mock briefing drafted from campaign context.'
+      'Enhanced: Mock briefing drafted from project context.'
     )
   })
 })
@@ -194,7 +196,7 @@ describe('008 T8: the briefing entry points resolve ASSISTANT_BRIEFING', () => {
     expect(calls).toEqual([])
   })
 
-  it('the chat with campaign images hands the same ResolvedModel to the vision call', async () => {
+  it('the chat with project images hands the same ResolvedModel to the vision call', async () => {
     h.docImageUrls = ['https://minio.invalid/docs/ref.png']
     h.policy = policyRow([{ surface: 'ASSISTANT_BRIEFING', model: 'HAIKU' }])
     const result = await runBriefingChat('c1', messages, 'team1', 'u1')

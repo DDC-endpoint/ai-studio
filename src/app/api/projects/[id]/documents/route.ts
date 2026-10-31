@@ -1,13 +1,14 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { PROJECT_NOT_FOUND } from '@/lib/projects/errors'
 import { withTeamAuth, withTeamAdmin } from '@/lib/api/handler'
 import { BUCKET_DOCS, uploadObject, validateUpload } from '@/lib/storage/minio'
 import {
-  MAX_DOCS_PER_CAMPAIGN,
+  MAX_DOCS_PER_PROJECT,
   isAllowedDocument,
   isAllowedDocImage,
   parseDocumentText,
-} from '@/lib/campaign/documents'
+} from '@/lib/projects/documents'
 
 type Params = { id: string }
 
@@ -22,18 +23,18 @@ const DOC_SELECT = {
 
 // Team tenancy fix: this ran under plain withAuth with no teamId check at
 // all — any authenticated user of ANY team could list another team's
-// campaign-document metadata by campaignId.
+// project-document metadata by projectId.
 export const GET = withTeamAuth<Params>(async (_req, { params }, user) => {
-  const campaign = await prisma.campaign.findFirst({
+  const project = await prisma.project.findFirst({
     where: { id: params.id, isDeleted: false },
     select: { id: true, teamId: true },
   })
-  if (!campaign || campaign.teamId !== user.teamId) {
-    return NextResponse.json({ error: 'Campaign not found' }, { status: 404 })
+  if (!project || project.teamId !== user.teamId) {
+    return NextResponse.json(PROJECT_NOT_FOUND, { status: 404 })
   }
 
-  const docs = await prisma.campaignDocument.findMany({
-    where: { campaignId: params.id },
+  const docs = await prisma.projectDocument.findMany({
+    where: { projectId: params.id },
     orderBy: { createdAt: 'asc' },
     select: DOC_SELECT,
   })
@@ -41,12 +42,12 @@ export const GET = withTeamAuth<Params>(async (_req, { params }, user) => {
 })
 
 export const POST = withTeamAdmin<Params>(async (req, { params }, user) => {
-  const campaign = await prisma.campaign.findFirst({
+  const project = await prisma.project.findFirst({
     where: { id: params.id, isDeleted: false },
     select: { id: true, teamId: true },
   })
-  if (!campaign || campaign.teamId !== user.teamId) {
-    return NextResponse.json({ error: 'Campaign not found' }, { status: 404 })
+  if (!project || project.teamId !== user.teamId) {
+    return NextResponse.json(PROJECT_NOT_FOUND, { status: 404 })
   }
 
   const fd = await req.formData()
@@ -65,10 +66,10 @@ export const POST = withTeamAdmin<Params>(async (req, { params }, user) => {
     )
   }
 
-  const count = await prisma.campaignDocument.count({ where: { campaignId: params.id } })
-  if (count >= MAX_DOCS_PER_CAMPAIGN) {
+  const count = await prisma.projectDocument.count({ where: { projectId: params.id } })
+  if (count >= MAX_DOCS_PER_PROJECT) {
     return NextResponse.json(
-      { error: `A campaign can hold at most ${MAX_DOCS_PER_CAMPAIGN} documents — delete one first` },
+      { error: `A project can hold at most ${MAX_DOCS_PER_PROJECT} documents — delete one first` },
       { status: 400 }
     )
   }
@@ -76,7 +77,7 @@ export const POST = withTeamAdmin<Params>(async (req, { params }, user) => {
   const buffer = Buffer.from(await file.arrayBuffer())
 
   // Images skip text extraction — they are fed to the vision model instead
-  // (collectCampaignDocImageUrls) and store empty parsedText.
+  // (projectDocImageUrls) and store empty parsedText.
   let parsed = { text: '', truncated: false }
   if (!isImage) {
     try {
@@ -97,17 +98,17 @@ export const POST = withTeamAdmin<Params>(async (req, { params }, user) => {
   }
 
   const safeName = file.name.replace(/[^\w.\-]+/g, '_')
-  const objectKey = `${params.id}/${Date.now()}-${safeName}`
+  const objectKey = `projects/${params.id}/${Date.now()}-${safeName}`
   // Normalize image contentType from the extension when the browser omits it —
-  // collectCampaignDocImageUrls selects image docs by this stored value.
+  // projectDocImageUrls selects image docs by this stored value.
   const contentType =
     isImage && !file.type ? (/\.png$/i.test(file.name) ? 'image/png' : 'image/jpeg') : file.type || 'application/octet-stream'
   await uploadObject(buffer, BUCKET_DOCS, objectKey, contentType)
 
-  const doc = await prisma.campaignDocument.create({
+  const doc = await prisma.projectDocument.create({
     data: {
-      teamId: campaign.teamId,
-      campaignId: params.id,
+      teamId: project.teamId,
+      projectId: params.id,
       name: file.name,
       contentType,
       sizeBytes: file.size,

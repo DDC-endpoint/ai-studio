@@ -8,13 +8,14 @@ import { modelCallFor, recordModelCall } from '@/lib/models/modelCalls'
 import type { DecideErrorCode, ResolvedModel } from '@/lib/models/resolve'
 import type { ModelKey } from '@/lib/models/catalogue'
 import { getActiveCampaignBriefing } from '@/lib/campaign/briefing'
-import { collectCampaignDocsContext, collectCampaignDocImageUrls } from '@/lib/campaign/documents'
+import { prisma } from '@/lib/prisma'
+import { projectDocsContext, projectDocImageUrls } from '@/lib/projects/documents'
 import { runVisionModel } from '@/lib/agent/vision'
 import { resolveBrandKit } from '@/lib/brandkit/resolve'
 import { fenceUntrusted, UNTRUSTED_CONTENT_GUARD } from '@/lib/agent/untrusted'
 import { MOCK_AI, buildMockBriefingReply, buildMockBriefingEnhance } from '@/lib/testHooks'
 
-// The AI briefing assistant: a multi-turn chat that converges on a campaign
+// The AI briefing assistant: a multi-turn chat that converges on a project
 // briefing draft, and a one-shot "enhance" rewrite of the briefing editor text.
 // Both run through the same mode-agnostic model call — Anthropic SDK in API
 // mode, `claude -p` in CLI mode (keyless) with the transcript folded into one
@@ -110,16 +111,36 @@ export async function runBriefingModel(
   return textOf(message)
 }
 
-// Shared campaign context (brand voice + source documents + current briefing)
-// for both assistant prompts. `brandKitId` (the brief's own kit selection)
-// overrides the campaign chain, matching generation-time precedence. `teamId`
-// is required (team-tenancy fix, final review C1) — resolveBrandKit needs it
-// to scope every tier, including its team-default fallback.
-async function buildCampaignContext(teamId: string, campaignId?: string, brandKitId?: string): Promise<string> {
+// Shared project context (brand voice + source documents + current briefing)
+// for the assistant prompts. The kit is the explicit pick (`brandKitId`), then the
+// project's default, then the team default. `teamId` is required (team-tenancy
+// fix, final review C1) — resolveBrandKit needs it to scope every tier, and the
+// project is read only inside the team. `campaignId` is the wizard's interim path
+// until 038 T3 moves it to projects: kit and briefing only, no documents.
+interface AssistantContextInput {
+  projectId?: string
+  campaignId?: string
+  brandKitId?: string
+}
+
+async function buildProjectContext(teamId: string, input: AssistantContextInput): Promise<string> {
+  const { projectId, campaignId, brandKitId } = input
+  const project = projectId
+    ? await prisma.project.findFirst({
+        where: { id: projectId, teamId, isDeleted: false },
+        select: { defaultBrandKitId: true },
+      })
+    : null
   const [kit, docs, activeBriefing] = await Promise.all([
-    resolveBrandKit(teamId, campaignId, brandKitId),
-    campaignId ? collectCampaignDocsContext(campaignId) : Promise.resolve({ text: '', truncated: false }),
-    campaignId ? getActiveCampaignBriefing(campaignId) : Promise.resolve(null),
+    resolveBrandKit(teamId, campaignId, brandKitId ?? project?.defaultBrandKitId),
+    projectId ? projectDocsContext(projectId) : Promise.resolve({ text: '', truncated: false }),
+    projectId
+      ? prisma.projectBriefing
+          .findFirst({ where: { projectId, isActive: true }, select: { content: true } })
+          .then((b) => b?.content ?? null)
+      : campaignId
+        ? getActiveCampaignBriefing(campaignId)
+        : Promise.resolve(null),
   ])
 
   const sections: string[] = []
@@ -137,7 +158,7 @@ async function buildCampaignContext(teamId: string, campaignId?: string, brandKi
     )
   }
   if (activeBriefing) {
-    sections.push(`## Current active campaign briefing\n\n${activeBriefing}`)
+    sections.push(`## Current active project briefing\n\n${activeBriefing}`)
   }
   if (sections.length === 0) return ''
   // Prepend the instruction-hierarchy guard whenever any (possibly untrusted)
@@ -162,7 +183,7 @@ export interface BriefingChatResult {
 }
 
 export async function runBriefingChat(
-  campaignId: string,
+  projectId: string,
   messages: ChatMessage[],
   teamId: string,
   userId: string | null,
@@ -181,24 +202,24 @@ export async function runBriefingChat(
   }
 
   const [context, imageUrls] = await Promise.all([
-    buildCampaignContext(teamId, campaignId),
-    collectCampaignDocImageUrls(campaignId),
+    buildProjectContext(teamId, { projectId }),
+    projectDocImageUrls(projectId),
   ])
   const system = [
-    'You are a marketing strategist helping an admin of bistec-studio plan a campaign.',
-    'The briefing is free-text context injected into every AI post generation under this campaign, on top of the brand voice: it should cover the campaign\'s goal, audience, key messages, offers/CTAs, tone adjustments, and any do/don\'t rules.',
+    'You are a marketing strategist helping an admin of bistec-studio plan a project.',
+    'The briefing is free-text context injected into every AI post generation under this project, on top of the brand voice: it should cover the campaign\'s goal, audience, key messages, offers/CTAs, tone adjustments, and any do/don\'t rules.',
     'Interview the admin: ask focused questions about gaps, propose concrete wording, and refine based on their answers. Ground everything in the source documents when they are provided.',
     'When proposing or refining the BRIEFING, include your current best complete briefing draft inside a fenced code block that starts with ```briefing and ends with ``` — the app extracts that block so the admin can apply it to the editor. Keep the draft plain text (no markdown headers inside the block), roughly 100-300 words.',
     imageUrls.length > 0
-      ? 'Reference images uploaded by the marketing team are attached — treat their content (products, layouts, moods, text) as campaign source material alongside the documents.'
+      ? 'Reference images uploaded by the marketing team are attached — treat their content (products, layouts, moods, text) as project source material alongside the documents.'
       : '',
-    context ? `\n# Campaign context\n\n${context}` : '',
+    context ? `\n# Project context\n\n${context}` : '',
   ]
     .filter(Boolean)
     .join('\n')
 
   // Uploaded PNG/JPG reference images ground the chat through the vision model;
-  // text-only campaigns keep the plain chat call.
+  // text-only projects keep the plain chat call.
   let reply: string
   if (imageUrls.length > 0) {
     const lastUser = [...messages].reverse().find((m) => m.role === 'user')
@@ -222,7 +243,7 @@ export async function runBriefingChat(
 }
 
 export async function enhanceBriefing(
-  campaignId: string,
+  projectId: string,
   content: string,
   teamId: string,
   userId: string | null,
@@ -233,20 +254,20 @@ export async function enhanceBriefing(
     return buildMockBriefingEnhance(content)
   }
 
-  const context = await buildCampaignContext(teamId, campaignId)
+  const context = await buildProjectContext(teamId, { projectId })
   const system = [
-    'You improve campaign briefings for bistec-studio. The briefing is free-text context injected into every AI post generation under the campaign, on top of the brand voice.',
-    'Rewrite the briefing the user provides: keep every concrete fact, sharpen vague statements, fill obvious gaps from the campaign context, and structure it so a copywriter and a designer can act on it (goal, audience, key messages, offers/CTAs, tone, do/don\'t rules).',
-    'If the user provides no text, draft a briefing from the campaign context alone.',
+    'You improve project briefings for bistec-studio. The briefing is free-text context injected into every AI post generation under the project, on top of the brand voice.',
+    'Rewrite the briefing the user provides: keep every concrete fact, sharpen vague statements, fill obvious gaps from the project context, and structure it so a copywriter and a designer can act on it (goal, audience, key messages, offers/CTAs, tone, do/don\'t rules).',
+    'If the user provides no text, draft a briefing from the project context alone.',
     'Reply with ONLY the improved briefing as plain text — no preamble, no commentary, no code fences. Roughly 100-300 words.',
-    context ? `\n# Campaign context\n\n${context}` : '',
+    context ? `\n# Project context\n\n${context}` : '',
   ]
     .filter(Boolean)
     .join('\n')
 
   const userMessage = content.trim()
-    ? `Improve this campaign briefing:\n\n${content}`
-    : 'Draft a campaign briefing from the campaign context.'
+    ? `Improve this project briefing:\n\n${content}`
+    : 'Draft a project briefing from the project context.'
 
   const reply = await runBriefingModel(system, [{ role: 'user', content: userMessage }], teamId, model)
   return stripCodeFences(reply).trim()
@@ -257,13 +278,14 @@ export interface EnhancePostBriefInput {
   content: string
   goal?: string
   tone?: string
+  projectId?: string
   campaignId?: string
   brandKitId?: string
 }
 
 // One-shot rewrite of a POST brief (the wizard's Content step) — the
 // per-post twin of enhanceBriefing. Grounded in the same context the
-// generation itself will use: the resolved brand voice plus, when a campaign
+// generation itself will use: the resolved brand voice plus, when a project
 // is selected, its active briefing and source documents.
 export async function enhancePostBrief(
   input: EnhancePostBriefInput,
@@ -276,14 +298,14 @@ export async function enhancePostBrief(
     return buildMockBriefingEnhance(input.content)
   }
 
-  const context = await buildCampaignContext(teamId, input.campaignId, input.brandKitId)
+  const context = await buildProjectContext(teamId, input)
   const system = [
     'You improve briefs for single social media posts in bistec-studio. The brief is the prompt an AI copywriter and an AI designer act on to produce ONE Instagram/LinkedIn image post.',
-    'Rewrite the brief the user provides: keep every concrete fact, sharpen vague statements, make the key message and call-to-action explicit, and add helpful specifics from the campaign context when they clearly apply to this post.',
+    'Rewrite the brief the user provides: keep every concrete fact, sharpen vague statements, make the key message and call-to-action explicit, and add helpful specifics from the project context when they clearly apply to this post.',
     'If the user provides only a topic, draft the brief from the topic and the context.',
-    'Stay focused on this one post — do not restate the whole campaign briefing.',
+    'Stay focused on this one post — do not restate the whole project briefing.',
     'Reply with ONLY the improved brief as plain text — no preamble, no commentary, no code fences, no headings. Roughly 40-120 words.',
-    context ? `\n# Campaign context\n\n${context}` : '',
+    context ? `\n# Project context\n\n${context}` : '',
   ]
     .filter(Boolean)
     .join('\n')
