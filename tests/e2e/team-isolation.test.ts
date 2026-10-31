@@ -196,9 +196,9 @@ test.describe('Cross-tenant isolation (D7)', () => {
     expect((await bistecAdmin.get(`/api/admin/brandkits/${bistecKitId}`)).status()).toBe(200)
   })
 
-  // ── Editor visibility matrix inside Bistec (D6) ─────────────────────────────
-  test('editor sees own + campaign-shared drafts, not the admin\'s private one; team admin sees all three', async () => {
-    // Admin-owned, uncategorized (private) draft — MOCK_AI generation, no campaign.
+  // ── Editor visibility matrix inside Bistec (038 D10) ─────────────────────────────
+  test('editor and team admin both see every team post, an uncategorized one included (038 D10)', async () => {
+    // Admin-owned, uncategorized draft — MOCK_AI generation, no campaign.
     const brief = await (
       await bistecAdmin.post('/api/briefs', {
         topic: `Bistec Admin Private ${Date.now()}`,
@@ -222,8 +222,8 @@ test.describe('Cross-tenant isolation (D7)', () => {
     expect((await findDraftBySearch(bistecEditor, 'Bistec Uncategorized Post'))?.id).toBe(
       bistecUncategorizedDraftId,
     ) // own
-    expect((await findDraftBySearch(bistecEditor, 'Bistec Campaign Post'))?.id).toBe(bistecCampaignDraftId) // campaign-shared
-    expect(await findDraftBySearch(bistecEditor, adminPrivateTopic)).toBeUndefined() // admin's private draft
+    expect((await findDraftBySearch(bistecEditor, 'Bistec Campaign Post'))?.id).toBe(bistecCampaignDraftId)
+    expect((await findDraftBySearch(bistecEditor, adminPrivateTopic))?.id).toBe(adminPrivateDraftId) // admin's uncategorized draft: visible to the whole team
 
     expect((await findDraftBySearch(bistecAdmin, 'Bistec Uncategorized Post'))?.id).toBe(
       bistecUncategorizedDraftId,

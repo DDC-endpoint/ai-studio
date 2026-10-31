@@ -81,7 +81,7 @@ vi.mock('@/lib/api/handler', () => {
     withTeamAdmin: wrap,
   }
 })
-vi.mock('@/lib/authz/visibility', () => ({ canAccessContent: () => true }))
+vi.mock('@/lib/authz/visibility', () => ({ canView: () => true, canEditPost: () => true, NOT_AUTHOR: { code: 'not-author' } }))
 // The mode, deterministically (the local .env may set CLI mode; CI has none).
 vi.mock('@/lib/agent/config', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/agent/config')>()),

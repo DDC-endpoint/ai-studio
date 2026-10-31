@@ -37,7 +37,7 @@ vi.mock('@/lib/api/handler', () => ({
       handler(req, { params: ctx.params }, { userId: 'u1', teamId: 'team1' }),
   withTeamAdmin: (handler: unknown) => handler,
 }))
-vi.mock('@/lib/authz/visibility', () => ({ canAccessContent: () => true }))
+vi.mock('@/lib/authz/visibility', () => ({ canView: () => true, canEditPost: () => true, NOT_AUTHOR: { code: 'not-author' } }))
 vi.mock('@/lib/auth', () => ({ getDraftAccessInfo: h.access }))
 vi.mock('@/lib/storage/minio', () => ({
   resolveExportUrl: async (k: string | null) => k,

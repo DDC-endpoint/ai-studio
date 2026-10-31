@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getDraftAccessInfo } from '@/lib/auth'
 import { withTeamAuth } from '@/lib/api/handler'
-import { canAccessContent } from '@/lib/authz/visibility'
+import { canView, canEditPost, NOT_AUTHOR } from '@/lib/authz/visibility'
 import { CompositePlacementError } from '@/lib/composite/render'
 import { uploadObject, resolveExportUrl, exportKey, BUCKET_EXPORTS } from '@/lib/storage/minio'
 import { dimensionsFor } from '@/lib/aspectRatio'
@@ -27,8 +27,11 @@ export const POST = withTeamAuth<Params>(async (_req, { params }, user) => {
   }
 
   const info = await getDraftAccessInfo(params.id)
-  if (!info || !canAccessContent(user, info)) {
+  if (!info || !canView(user, info)) {
     return NextResponse.json({ error: 'Draft not found' }, { status: 404 })
+  }
+  if (!canEditPost(user, info)) {
+    return NextResponse.json(NOT_AUTHOR, { status: 403 })
   }
 
   // A running async action (regenerate/refine) will move the revision pointer

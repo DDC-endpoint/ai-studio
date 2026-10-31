@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { withTeamAuth } from '@/lib/api/handler'
-import { canAccessContent } from '@/lib/authz/visibility'
+import { canView, canEditPost, NOT_AUTHOR } from '@/lib/authz/visibility'
 import { startBackgroundGeneration } from '@/lib/agent/backgroundGeneration'
 import { CAPTION_CHANNELS } from '@/lib/channels'
 
@@ -15,13 +15,13 @@ type Params = { id: string }
 export const POST = withTeamAuth<Params>(async (_req, { params }, user) => {
   const draft = await prisma.draft.findUnique({
     where: { id: params.id },
-    select: { id: true, status: true, teamId: true, brief: { select: { userId: true, campaignId: true } } },
+    select: { id: true, status: true, teamId: true, brief: { select: { userId: true } } },
   })
-  if (
-    !draft ||
-    !canAccessContent(user, { teamId: draft.teamId, ownerId: draft.brief.userId, campaignId: draft.brief.campaignId })
-  ) {
+  if (!draft || !canView(user, { teamId: draft.teamId })) {
     return NextResponse.json({ error: 'Draft not found' }, { status: 404 })
+  }
+  if (!canEditPost(user, { teamId: draft.teamId, ownerId: draft.brief.userId })) {
+    return NextResponse.json(NOT_AUTHOR, { status: 403 })
   }
 
   if (draft.status !== 'FAILED') {

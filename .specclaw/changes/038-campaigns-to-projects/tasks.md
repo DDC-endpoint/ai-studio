@@ -32,7 +32,7 @@ Each task leaves `tsc`, lint and the unit suite green, so it commits on its own 
 
 ### Wave 1: access tiers
 
-- [ ] `T1` — `canView` and `canEditPost`; every post route gets its tier; the view-only post page
+- [x] `T1` — `canView` and `canEditPost`; every post route gets its tier; the view-only post page
   - Files: src/lib/authz/visibility.ts, src/lib/authz/postActionTiers.ts, src/lib/auth.ts, src/app/api/drafts/[id]/route.ts, src/app/api/drafts/[id]/apply-text/route.ts, src/app/api/drafts/[id]/download/route.ts, src/app/api/drafts/[id]/inline-edit/route.ts, src/app/api/drafts/[id]/refine/route.ts, src/app/api/drafts/[id]/regenerate-copy/route.ts, src/app/api/drafts/[id]/regenerate-design/route.ts, src/app/api/drafts/[id]/rejected/[revisionId]/adopt/route.ts, src/app/api/drafts/[id]/retry/route.ts, src/app/api/drafts/[id]/revisions/route.ts, src/app/api/drafts/[id]/revisions/[rev]/restore/route.ts, src/app/api/generate/assemble-a/route.ts, src/app/api/generate/assemble-b/route.ts, src/app/api/generate/copy/route.ts, src/app/api/generate/image/route.ts, src/app/api/briefs/screenshots/route.ts, src/app/api/library/route.ts, src/app/(app)/page.tsx, src/app/(app)/drafts/[id]/page.tsx, src/components/drafts/ViewOnlyNote.tsx, src/lib/api-types.ts, src/mcp/systemUser.ts, tests/unit/visibility.test.ts, tests/unit/postActionTiers.test.ts, tests/unit/visibilityBoundary.test.ts, tests/unit/draftDetailGet.test.ts, tests/unit/applyTextRoute.test.ts, tests/e2e/post-permissions.test.ts, tests/e2e/team-isolation.test.ts, tests/e2e/library.test.ts, tests/e2e/ui.test.ts
   - Estimate: large
   - Kind: impl

@@ -14,6 +14,8 @@ export interface HeadlineImageNoticeProps {
   canRegenerate: boolean
   // 031 FR-44: Apply to image, offered only while the image is stale.
   canApply?: boolean
+  /** 038 D11: a view-only member sees the line but no action buttons. */
+  readOnly?: boolean
   disabled: boolean
   onEditInline: () => void
   onRegenerateDesign: () => void
@@ -30,6 +32,7 @@ export function HeadlineImageNotice({
   canEditInline,
   canRegenerate,
   canApply = false,
+  readOnly = false,
   disabled,
   onEditInline,
   onRegenerateDesign,
@@ -51,26 +54,49 @@ export function HeadlineImageNotice({
       <p className="font-semibold">Headline</p>
       <p className="mt-1 text-ui-xs text-fg">{text.headline}</p>
       {text.reasonLine && <p className="mt-1 text-ui-xs text-fg">{text.reasonLine}</p>}
-      <div className="mt-3 flex flex-wrap gap-2">
-        <Button variant="secondary" size="sm" onClick={onEditInline} disabled={disabled || !canEditInline} aria-label="Edit inline to fix the headline">
-          Edit inline
-        </Button>
-        {canRegenerate && (
-          <Button variant="secondary" size="sm" onClick={onRegenerateDesign} disabled={disabled} aria-label="Regenerate design to fix the headline">
-            Regenerate design
+      {!readOnly && (
+        <div className="mt-3 flex flex-wrap gap-2">
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={onEditInline}
+            disabled={disabled || !canEditInline}
+            aria-label="Edit inline to fix the headline"
+          >
+            Edit inline
           </Button>
-        )}
-        {canApply && image.state === 'stale' && onApply && (
-          <Button variant="secondary" size="sm" onClick={onApply} disabled={disabled} aria-label="Apply the new headline to the image">
-            Apply to image
-            {beta && (
-              <span data-testid="apply-beta-chip" className={`ml-1.5 text-fg-muted ${SMALL_CAPS}`}>
-                Beta
-              </span>
-            )}
-          </Button>
-        )}
-      </div>
+          {canRegenerate && (
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={onRegenerateDesign}
+              disabled={disabled}
+              aria-label="Regenerate design to fix the headline"
+            >
+              Regenerate design
+            </Button>
+          )}
+          {canApply && image.state === 'stale' && onApply && (
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={onApply}
+              disabled={disabled}
+              aria-label="Apply the new headline to the image"
+            >
+              Apply to image
+              {beta && (
+                <span
+                  data-testid="apply-beta-chip"
+                  className={`ml-1.5 text-fg-muted ${SMALL_CAPS}`}
+                >
+                  Beta
+                </span>
+              )}
+            </Button>
+          )}
+        </div>
+      )}
     </Notice>
   )
 }

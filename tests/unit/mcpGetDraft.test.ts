@@ -71,7 +71,7 @@ vi.mock('@/lib/api/handler', () => {
   const parseBody = async (req: Request) => ({ data: await req.json() })
   return { parseBody, withTeamAuth: wrap }
 })
-vi.mock('@/lib/authz/visibility', () => ({ canAccessContent: () => true }))
+vi.mock('@/lib/authz/visibility', () => ({ canView: () => true, canEditPost: () => true, NOT_AUTHOR: { code: 'not-author' } }))
 vi.mock('@/providers/registry', () => ({
   resolveCopyProvider: async () => ({ generateCaptions: h.generateCaptions }),
 }))

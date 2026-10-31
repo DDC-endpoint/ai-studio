@@ -82,7 +82,7 @@ vi.mock('@/lib/api/handler', () => ({
     (req: unknown, ctx: { params: unknown }) =>
       handler(req, { params: ctx.params }, { userId: 'u1', teamId: 'team1' }),
 }))
-vi.mock('@/lib/authz/visibility', () => ({ canAccessContent: () => true }))
+vi.mock('@/lib/authz/visibility', () => ({ canView: () => true, canEditPost: () => true, NOT_AUTHOR: { code: 'not-author' } }))
 vi.mock('@/lib/drafts/draftActions', () => ({
   claimDraftAction: async () => ({ action: 'REGENERATE_DESIGN', claimId: 'c1' }),
   touchGeneration: async () => {},

@@ -13,6 +13,7 @@ const m = vi.hoisted(() => ({
   commit: vi.fn(),
   trackApplied: vi.fn(),
   trackEdited: vi.fn(),
+  canEditPost: vi.fn(() => true),
 }))
 
 vi.mock('@/lib/prisma', () => ({ prisma: { draft: { findUnique: m.draftFindUnique } } }))
@@ -24,7 +25,11 @@ vi.mock('@/lib/api/handler', () => {
   const parseBody = async (req: Request) => ({ data: await req.json() })
   return { parseBody, withTeamAuth: wrap }
 })
-vi.mock('@/lib/authz/visibility', () => ({ canAccessContent: () => true }))
+vi.mock('@/lib/authz/visibility', () => ({
+  canView: () => true,
+  canEditPost: m.canEditPost,
+  NOT_AUTHOR: { error: 'not author', code: 'not-author' },
+}))
 vi.mock('@/lib/drafts/draftActions', () => ({ claimDraftAction: m.claim, startDraftAction: m.start }))
 vi.mock('@/lib/drafts/revisions', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/drafts/revisions')>()),
@@ -109,6 +114,17 @@ describe('apply-text refusals (FR-38, AC-35)', () => {
       expect(m.trackEdited).not.toHaveBeenCalled()
     })
   }
+
+  it('a member who cannot edit the post gets 403 not-author, and nothing is claimed or written', async () => {
+    m.draftFindUnique.mockResolvedValue(draft())
+    m.canEditPost.mockReturnValueOnce(false)
+    const res = await call()
+    expect(res.status).toBe(403)
+    expect((await res.json()).code).toBe('not-author')
+    expect(m.claim).not.toHaveBeenCalled()
+    expect(m.commit).not.toHaveBeenCalled()
+    expect(m.trackApplied).not.toHaveBeenCalled()
+  })
 
   it('a draft that is not ready is 409', async () => {
     m.draftFindUnique.mockResolvedValue(draft({ status: 'IN_PROGRESS' }))

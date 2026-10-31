@@ -57,9 +57,8 @@ vi.mock('@/lib/prisma', () => {
 vi.mock('@/lib/api/handler', () => ({
   parseBody: async (req: Request) => ({ data: await req.json() }),
   withSuperAdmin: (handler: unknown) => handler,
-  withTeamAuth: (handler: unknown) => handler,
-  withTeamAdmin: (handler: (req: unknown, ctx: unknown, user: unknown) => unknown) => (req: unknown, ctx: unknown) =>
-    handler(req, ctx, { userId: 'u1', teamId: 'team1' }),
+  withTeamAuth: (handler: (req: unknown, ctx: unknown, user: unknown) => unknown) => (req: unknown, ctx: unknown) =>
+    handler(req, ctx, { userId: 'u1', teamId: 'team1', teamRole: 'EDITOR', isSuperAdmin: false }),
 }))
 vi.mock('@/lib/auth', () => ({ requireRole: h.requireRole }))
 
@@ -103,7 +102,7 @@ describe('draft delete (FR-12)', () => {
   const del = () => (draftRoute.DELETE as unknown as (req: Request, ctx: unknown) => Promise<Response>)(new Request('http://x'), { params: { id: 'd1' } })
 
   it('keeps the draft\'s events and nulls their draftId, inside the delete transaction', async () => {
-    h.draftFindUnique.mockResolvedValue({ id: 'd1', briefId: 'b1', teamId: 'team1' })
+    h.draftFindUnique.mockResolvedValue({ id: 'd1', briefId: 'b1', teamId: 'team1', brief: { userId: 'u1' } })
     h.draftCount.mockResolvedValue(1)
     const res = await del()
     expect(res.status).toBe(200)
@@ -113,7 +112,7 @@ describe('draft delete (FR-12)', () => {
   })
 
   it('a draft of another team is a 404 and touches no event', async () => {
-    h.draftFindUnique.mockResolvedValue({ id: 'd1', briefId: 'b1', teamId: 'other' })
+    h.draftFindUnique.mockResolvedValue({ id: 'd1', briefId: 'b1', teamId: 'other', brief: { userId: 'u1' } })
     expect((await del()).status).toBe(404)
     expect(h.eventUpdateMany).not.toHaveBeenCalled()
   })

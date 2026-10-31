@@ -14,6 +14,7 @@ const h = vi.hoisted(() => ({
   copyProviderIsClaude: vi.fn(),
   resolveBrandKit: vi.fn(),
   saveHeadlineEdit: vi.fn(),
+  canEditPost: vi.fn(() => true),
   trackHeadlineEdited: vi.fn(),
   renderBoom: vi.fn(() => {
     throw new Error('the GET must not render or parse')
@@ -40,7 +41,11 @@ vi.mock('@/lib/api/handler', () => {
   const parseBody = async (req: Request) => ({ data: await req.json() })
   return { parseBody, withTeamAuth: wrap, withTeamAdmin: wrap }
 })
-vi.mock('@/lib/authz/visibility', () => ({ canAccessContent: () => true }))
+vi.mock('@/lib/authz/visibility', () => ({
+  canView: () => true,
+  canEditPost: h.canEditPost,
+  NOT_AUTHOR: { error: 'not author', code: 'not-author' },
+}))
 // The real copyProviderIsClaude behind a spy: the call-argument cases stub it,
 // and the select case (018 FR-04) lets it run against the faked Prisma row.
 vi.mock('@/providers/registry', async (importOriginal) => {
@@ -132,6 +137,7 @@ beforeEach(() => {
   h.saveHeadlineEdit.mockReset().mockResolvedValue(true)
   h.trackHeadlineEdited.mockReset().mockResolvedValue(undefined)
   h.renderBoom.mockClear()
+  h.canEditPost.mockReset().mockReturnValue(true)
 })
 
 describe("GET /api/drafts/[id] — captionProviderIsClaude is the draft's own", () => {
@@ -150,6 +156,29 @@ describe("GET /api/drafts/[id] — captionProviderIsClaude is the draft's own", 
     const { body } = await get()
     expect(h.copyProviderIsClaude).toHaveBeenCalledWith('team1', undefined)
     expect(body.captionProviderIsClaude).toBe(true)
+  })
+
+  it('carries canEdit from canEditPost (038 D11)', async () => {
+    h.draftFindUnique.mockResolvedValue(exportedDraft(null))
+    h.copyProviderIsClaude.mockResolvedValue(true)
+    expect((await get()).body.canEdit).toBe(true)
+    h.canEditPost.mockReturnValue(false)
+    const { status, body } = await get()
+    expect(status).toBe(200)
+    expect(body.canEdit).toBe(false)
+    expect(h.canEditPost).toHaveBeenLastCalledWith(expect.anything(), { teamId: 'team1', ownerId: 'u1' })
+  })
+
+  it('PATCH by a member who cannot edit is 403 not-author and saves nothing', async () => {
+    h.draftFindUnique.mockResolvedValue(exportedDraft(null))
+    h.canEditPost.mockReturnValue(false)
+    const res = (await PATCH(
+      new Request('http://test/x', { method: 'PATCH', body: JSON.stringify({ headline: 'New' }) }) as never,
+      { params: { id: 'd1' } } as never,
+    )) as Response
+    expect(res.status).toBe(403)
+    expect((await res.json()).code).toBe('not-author')
+    expect(h.saveHeadlineEdit).not.toHaveBeenCalled()
   })
 
   it('a missing draft is 404 and asks nothing', async () => {

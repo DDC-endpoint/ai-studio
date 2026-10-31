@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { withTeamAuth } from '@/lib/api/handler'
-import { canAccessContent } from '@/lib/authz/visibility'
+import { canView } from '@/lib/authz/visibility'
 import { ensureCurrentExport } from '@/lib/drafts/download'
 import { track } from '@/lib/analytics/track'
 import { parseFactsCheck } from '@/lib/factsCheck/types'
@@ -28,12 +28,9 @@ function slugOf(topic: string): string {
 export const GET = withTeamAuth<{ id: string }>(async (_req, { params }, user) => {
   const draft = await prisma.draft.findUnique({
     where: { id: params.id },
-    include: { brief: { select: { userId: true, topic: true, campaignId: true } } },
+    include: { brief: { select: { userId: true, topic: true } } },
   })
-  if (
-    !draft ||
-    !canAccessContent(user, { teamId: draft.teamId, ownerId: draft.brief.userId, campaignId: draft.brief.campaignId })
-  ) {
+  if (!draft || !canView(user, { teamId: draft.teamId })) {
     return NextResponse.json({ error: 'Draft not found' }, { status: 404 })
   }
 

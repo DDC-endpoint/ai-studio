@@ -9,7 +9,7 @@ import { pageLogin } from '../helpers/ui'
 //     → { drafts:[{id,status,exportUrl(signed),brief:{topic,aspectRatio,postStyle,brandKitName},…}], total, page, pageSize }
 //   pageSize clamped to 1..50. Lists EXPORTED drafts only (037: no status param).
 //   An unknown postStyle is 400.
-//   Admins see all drafts; editors see only their own.
+//   Every member of a team sees every post in it (038 D10); nothing from another team.
 
 const MOCKED = () => !!(process.env.MOCK_AI && process.env.MOCK_PUPPETEER)
 const ADMIN_EMAIL = 'admin@bisteccare.lk'
@@ -18,12 +18,7 @@ const EDITOR_EMAIL = 'editor@bisteccare.lk'
 const EDITOR_PASSWORD = 'BistecStudio2026!'
 
 // Mint an EXPORTED (READY) draft as the admin, returning the draftId.
-// UNCATEGORIZED (no campaignId) — team tenancy's D6 rule makes a
-// campaign-linked brief team-shared (visible to every in-team editor), so a
-// campaign-linked admin fixture would no longer prove "an editor never sees
-// the admin's draft" (it did, pre-tenancy, since there was no sharing
-// concept at all). Uses an explicit brandKitId instead of a campaign so
-// resolveBrandKit still has something concrete to resolve.
+// Uses an explicit brandKitId so resolveBrandKit has something concrete to resolve.
 async function adminDraft(
   admin: ApiClient,
   topic: string,
@@ -58,8 +53,8 @@ test.describe('Library', () => {
   })
   test.afterEach(async () => { await api.dispose() })
 
-  // TC-LIB-01 — Admin sees all; editor sees only their own. Guards H3.
-  test('admin sees all drafts; an editor sees only their own', async ({ request }) => {
+  // TC-LIB-01 — 038 D10: admin and editor both see every post on the team.
+  test('an editor sees the admin post, and the admin sees the editor post', async ({ request }) => {
     if (!MOCKED()) { test.skip(); return }
     const adminDraftId = await adminDraft(api, `LibAdmin-${Date.now()}`)
 
@@ -67,11 +62,11 @@ test.describe('Library', () => {
     try {
       const editorDraftId = await editorDraft(editor, `LibEditor-${Date.now()}`)
 
-      // Editor library: contains the editor's draft, never the admin's.
+      // Editor library: contains the editor's draft and the admin's.
       const editorLib = await (await editor.get('/api/library?pageSize=50')).json()
       const editorIds = editorLib.drafts.map((d: { id: string }) => d.id)
       expect(editorIds).toContain(editorDraftId)
-      expect(editorIds).not.toContain(adminDraftId)
+      expect(editorIds).toContain(adminDraftId)
 
       // Admin library: sees the editor's draft too.
       const adminLib = await (await api.get('/api/library?pageSize=50')).json()

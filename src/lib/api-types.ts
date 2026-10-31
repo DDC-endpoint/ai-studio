@@ -327,6 +327,9 @@ export interface HeadlineImage {
 
 export interface DraftDetail {
   id: string
+  // 038 D11: true for the post's author and for a team admin; false hides the
+  // edit controls on the post page (the routes enforce it either way).
+  canEdit: boolean
   briefId: string
   // The on-image headline; null until the caption call writes a valid one.
   headline: string | null

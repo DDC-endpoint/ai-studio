@@ -24,6 +24,7 @@ import { CaptionPanels } from '@/components/drafts/CaptionPanels'
 import { RefinementPanel } from '@/components/drafts/RefinementPanel'
 import { InlineEditModal } from '@/components/drafts/InlineEditModal'
 import { BackgroundNotice } from '@/components/drafts/BackgroundNotice'
+import { ViewOnlyNote } from '@/components/drafts/ViewOnlyNote'
 import { Notice } from '@/components/ui/Notice'
 import { CompositionNotice } from '@/components/drafts/CompositionNotice'
 import { GeneratedWith, PostStyleLine } from '@/components/drafts/GeneratedWith'
@@ -371,6 +372,8 @@ export default function DraftDetailPage() {
     (flaggedCount > 0
       ? `The facts check flagged values in this post. ${flaggedCount} flagged.`
       : null)
+  // 038 D11: the author and team admins edit; everyone else on the team views.
+  const canEdit = draft.canEdit
   const ratioShort = ASPECT_LABELS[draft.brief.aspectRatio ?? 'SQUARE'].split(' ')[0]
   const currentRevision = revisions.find((r) => r.revisionNumber === draft.currentRevisionNumber)
   // The versions read left to right, oldest first, like the study (§8.13);
@@ -408,7 +411,7 @@ export default function DraftDetailPage() {
         <div className="mt-6 flex flex-wrap items-center gap-2 border-b border-t-2 border-b-line-subtle border-t-fg py-3.5">
           {/* Regenerate design — Path B (freeform) only. Produces a fresh design
               variant; the prior one is saved to history and offered as Undo. */}
-          {isPathB && (
+          {isPathB && canEdit && (
             <Button
               variant="secondary"
               onClick={handleRegenerateDesign}
@@ -424,7 +427,7 @@ export default function DraftDetailPage() {
             </Button>
           )}
           <div className="ml-auto flex flex-wrap justify-end gap-2">
-            {ready && (
+            {ready && canEdit && (
               <Button
                 variant="secondary"
                 onClick={() => setShowInlineEdit(true)}
@@ -445,6 +448,7 @@ export default function DraftDetailPage() {
             </Button>
           </div>
         </div>
+        {!canEdit && <ViewOnlyNote />}
         {/* The download line (037 FR-05): one muted sentence, never blocking. */}
         {downloadLine && (
           <p className="mt-2 text-ui-xs text-fg-muted" data-testid="download-line">
@@ -453,7 +457,7 @@ export default function DraftDetailPage() {
         )}
         {/* The design regenerate's model (008 FR-20), pre-selected from the
             current design's stamp (FR-09). Path B only, like the button. */}
-        {isPathB && ready && (
+        {isPathB && ready && canEdit && (
           <ModelPicker
             id="draft-design-model"
             surface="DESIGN_FREEFORM"
@@ -466,7 +470,7 @@ export default function DraftDetailPage() {
             className="mt-3 sm:max-w-xs"
           />
         )}
-        {isPathB && regenDesign && (
+        {isPathB && canEdit && regenDesign && (
           <p className="mt-3 flex items-center gap-1.5 text-ui-xs text-fg-muted">
             <Loader2 {...ICON} className="animate-spin" /> Designing a new variant — up to a minute…
           </p>
@@ -537,14 +541,16 @@ export default function DraftDetailPage() {
                     <span className="line-clamp-3 text-ui-xs text-fg-muted">
                       {draft.failureReason ?? 'Something went wrong while generating this post.'}
                     </span>
-                    <Button variant="secondary" size="sm" onClick={handleRetry} disabled={retrying}>
-                      {retrying ? (
-                        <Loader2 {...ICON} className="animate-spin" />
-                      ) : (
-                        <RotateCcw {...ICON} />
-                      )}
-                      Retry
-                    </Button>
+                    {canEdit && (
+                      <Button variant="secondary" size="sm" onClick={handleRetry} disabled={retrying}>
+                        {retrying ? (
+                          <Loader2 {...ICON} className="animate-spin" />
+                        ) : (
+                          <RotateCcw {...ICON} />
+                        )}
+                        Retry
+                      </Button>
+                    )}
                   </div>
                 ) : (
                   <div className="flex h-full w-full flex-col items-center justify-center gap-2">
@@ -633,6 +639,7 @@ export default function DraftDetailPage() {
                 canEditInline={ready && !!draft.htmlContent}
                 canRegenerate={isPathB && !!draft.htmlContent}
                 canApply={ready && !!draft.htmlContent}
+                readOnly={!canEdit}
                 disabled={actionPending || regenDesign || applyingText || designUndo.undoing}
                 onEditInline={() => setShowInlineEdit(true)}
                 onRegenerateDesign={handleRegenerateDesign}
@@ -647,7 +654,7 @@ export default function DraftDetailPage() {
               <h2 className={SUB_HEAD}>Revision History</h2>
               {/* Regenerate design's Undo, beside the versions (§8.17). Any design
                   action with a snapshot offers it (031 FR-42). */}
-              {showUndo && (
+              {showUndo && canEdit && (
                 <Button
                   variant="ghost"
                   size="sm"
@@ -732,9 +739,9 @@ export default function DraftDetailPage() {
                     <li key={r.id} className="min-w-0">
                       {/* Cells are narrow, so the clamped instruction is repeated in
                         the tooltip; the accessible name stays "Switch to vN". */}
-                      {isCurrent ? (
+                      {isCurrent || !canEdit ? (
                         <div
-                          aria-current="true"
+                          aria-current={isCurrent ? 'true' : undefined}
                           title={r.instruction ?? undefined}
                           className={VERSION_CELL}
                         >
@@ -760,7 +767,7 @@ export default function DraftDetailPage() {
           </section>
 
           {/* Refinement only makes sense once there's a rendered design to refine. */}
-          {ready && (
+          {ready && canEdit && (
             <RefinementPanel
               draftId={draftId}
               designPath={isPathB ? 'B' : 'A'}
@@ -780,7 +787,12 @@ export default function DraftDetailPage() {
           {/* Captions resolve independently of the image, each panel by its own
               row: a skeleton only while that row is PENDING, so empty text on a
               written row is always an editable field (TC-ASYNC-10). */}
-          <CaptionPanels draft={draft} onSaved={() => fetchDraft()} onActionStarted={fetchDraft} />
+          <CaptionPanels
+            draft={draft}
+            onSaved={() => fetchDraft()}
+            onActionStarted={fetchDraft}
+            canEdit={canEdit}
+          />
         </div>
       </div>
 

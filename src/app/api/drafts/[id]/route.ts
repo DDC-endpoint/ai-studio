@@ -2,8 +2,8 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { DraftAction, DraftStatus } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
-import { withTeamAuth, withTeamAdmin, parseBody } from '@/lib/api/handler'
-import { canAccessContent } from '@/lib/authz/visibility'
+import { withTeamAuth, parseBody } from '@/lib/api/handler'
+import { canView, canEditPost, NOT_AUTHOR } from '@/lib/authz/visibility'
 import { resolveBrandKit } from '@/lib/brandkit/resolve'
 import { BUCKET_DOCS, deleteObject, resolveExportUrl } from '@/lib/storage/minio'
 import { parseCompositeSource } from '@/lib/brief/compositeSource'
@@ -155,7 +155,7 @@ async function loadDraft(id: string) {
 
   // Independent reads, run together (018 FR-04: this GET is the 4 s poll).
   const [kit, notApplied, captionProviderIsClaude] = await Promise.all([
-    resolveBrandKit(draft.teamId, draft.brief.campaignId ?? undefined, draft.brief.brandKitId ?? undefined),
+    resolveBrandKit(draft.teamId, undefined, draft.brief.brandKitId ?? undefined),
     // FR-14/AC-18: a twice-failed refine is a distinct outcome, not the
     // existing error channel — re-derived from the retained rejected row on
     // every poll (Ruling E), never trusted off the stored FK alone.
@@ -172,7 +172,6 @@ async function loadDraft(id: string) {
   return {
     ownerId: draft.brief.userId,
     teamId: draft.teamId,
-    campaignId: draft.brief.campaignId,
     data: {
     id: draft.id,
     briefId: draft.briefId,
@@ -231,14 +230,14 @@ async function loadDraft(id: string) {
 
 export const GET = withTeamAuth<Params>(async (_req, { params }, user) => {
   const result = await loadDraft(params.id)
-  if (
-    !result ||
-    !canAccessContent(user, { teamId: result.teamId, ownerId: result.ownerId, campaignId: result.campaignId })
-  ) {
+  if (!result || !canView(user, { teamId: result.teamId })) {
     return NextResponse.json({ error: 'Draft not found' }, { status: 404 })
   }
 
-  return NextResponse.json(result.data)
+  return NextResponse.json({
+    ...result.data,
+    canEdit: canEditPost(user, { teamId: result.teamId, ownerId: result.ownerId }),
+  })
 })
 
 // Team tenancy fix: this handler used to run under plain withAuth + the
@@ -246,7 +245,7 @@ export const GET = withTeamAuth<Params>(async (_req, { params }, user) => {
 // it let any admin/super-admin bypass ownership entirely), so an admin of
 // ANY team could edit ANY other team's draft copy. Task 8/9's sweeps
 // covered this file's GET and DELETE but missed PATCH. Now withTeamAuth +
-// canAccessContent, matching the GET handler above (the old helper,
+// canView + canEditPost, matching the GET handler above (the old helper,
 // forbiddenIfNotOwner, has since been deleted from src/lib/auth.ts — this
 // was its last real caller).
 //
@@ -260,13 +259,13 @@ export const PATCH = withTeamAuth<Params>(async (req, { params }, user) => {
 
   const existing = await prisma.draft.findUnique({
     where: { id: params.id },
-    select: { status: true, pendingAction: true, teamId: true, headline: true, brief: { select: { userId: true, campaignId: true } } },
+    select: { status: true, pendingAction: true, teamId: true, headline: true, brief: { select: { userId: true } } },
   })
-  if (
-    !existing ||
-    !canAccessContent(user, { teamId: existing.teamId, ownerId: existing.brief.userId, campaignId: existing.brief.campaignId })
-  ) {
+  if (!existing || !canView(user, { teamId: existing.teamId })) {
     return NextResponse.json({ error: 'Draft not found' }, { status: 404 })
+  }
+  if (!canEditPost(user, { teamId: existing.teamId, ownerId: existing.brief.userId })) {
+    return NextResponse.json(NOT_AUTHOR, { status: 403 })
   }
 
   const beingGenerated = () => NextResponse.json({ error: 'This caption is being generated' }, { status: 409 })
@@ -319,20 +318,23 @@ export const PATCH = withTeamAuth<Params>(async (req, { params }, user) => {
   // Editing the headline does not re-render the design either.
 
   const result = await loadDraft(params.id)
-  return NextResponse.json(result?.data)
+  return NextResponse.json(result ? { ...result.data, canEdit: true } : undefined)
 })
 
-// Admin-only hard delete: removes the draft with its revisions, and the parent Brief when no
+// Author-or-team-admin hard delete (038 D11): removes the draft with its revisions, and the parent Brief when no
 // other draft references it. No cascades exist on these relations, so children
 // are deleted first, all in one transaction — except the caption rows
 // (DraftCaption), which cascade with the draft (012 D11).
-export const DELETE = withTeamAdmin<Params>(async (_req, { params }, user) => {
+export const DELETE = withTeamAuth<Params>(async (_req, { params }, user) => {
   const draft = await prisma.draft.findUnique({
     where: { id: params.id },
-    select: { id: true, briefId: true, teamId: true },
+    select: { id: true, briefId: true, teamId: true, brief: { select: { userId: true } } },
   })
-  if (!draft || draft.teamId !== user.teamId) {
+  if (!draft || !canView(user, { teamId: draft.teamId })) {
     return NextResponse.json({ error: 'Draft not found' }, { status: 404 })
+  }
+  if (!canEditPost(user, { teamId: draft.teamId, ownerId: draft.brief.userId })) {
+    return NextResponse.json(NOT_AUTHOR, { status: 403 })
   }
 
   const { briefDeleted, screenshotKey } = await prisma.$transaction(async (tx) => {

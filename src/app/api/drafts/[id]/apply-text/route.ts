@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import { withTeamAuth, parseBody } from '@/lib/api/handler'
-import { canAccessContent } from '@/lib/authz/visibility'
+import { canView, canEditPost, NOT_AUTHOR } from '@/lib/authz/visibility'
 import { dimensionsFor } from '@/lib/aspectRatio'
 import { claimDraftAction, startDraftAction } from '@/lib/drafts/draftActions'
 import { DraftClaimLostError } from '@/lib/drafts/claim'
@@ -50,11 +50,11 @@ export const POST = withTeamAuth<{ id: string }>(async (req, { params }, user) =
   const method = 'splice' as const
 
   const draft = await prisma.draft.findUnique({ where: { id: params.id }, include: { brief: true } })
-  if (
-    !draft ||
-    !canAccessContent(user, { teamId: draft.teamId, ownerId: draft.brief.userId, campaignId: draft.brief.campaignId })
-  ) {
+  if (!draft || !canView(user, { teamId: draft.teamId })) {
     return NextResponse.json({ error: 'Draft not found' }, { status: 404 })
+  }
+  if (!canEditPost(user, { teamId: draft.teamId, ownerId: draft.brief.userId })) {
+    return NextResponse.json(NOT_AUTHOR, { status: 403 })
   }
   if (draft.status !== 'EXPORTED' || !draft.htmlContent) {
     return NextResponse.json(

@@ -80,6 +80,9 @@ export interface CaptionPanelProps {
   undoRef?: React.Ref<CaptionUndoHandle>
   /** Called after an edit is saved, so the parent refetches the draft. */
   onSaved: () => void
+  /** 038 D11: false for a member who is not the author or a team admin. The
+   *  edit controls are not rendered and the text is read-only; Copy stays. */
+  canEdit?: boolean
 }
 
 // One channel's caption (012 FR-18/FR-19): its h3 with the tail (save state,
@@ -98,6 +101,7 @@ export function CaptionPanel({
   onRegenerate,
   undoRef,
   onSaved,
+  canEdit = true,
 }: CaptionPanelProps) {
   const spec = captionSpec(caption.channel)
   // 008 FR-20: this channel's model pick (undefined = the stamp's pre-selection,
@@ -236,8 +240,8 @@ export function CaptionPanel({
   return (
     <div>
       <SectionHead level={3} title={spec.label} id={headingId} className="mb-3">
-        {!pending && <SaveState saving={saving} saved={saved} />}
-        {undo.snapshot !== null && (
+        {canEdit && !pending && <SaveState saving={saving} saved={saved} />}
+        {canEdit && undo.snapshot !== null && (
           <Button
             variant="ghost"
             size="sm"
@@ -259,15 +263,17 @@ export function CaptionPanel({
           <Copy {...ICON} /> Copy
         </Button>
         {/* Any in-flight action blocks a new one — the server would 409 anyway. */}
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={regenerate}
-          disabled={!ready || locked || undo.undoing}
-          aria-label={`${verb} ${spec.label} caption`}
-        >
-          {pending ? <Loader2 {...ICON} className="animate-spin" /> : <Sparkles {...ICON} />} {verb}
-        </Button>
+        {canEdit && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={regenerate}
+            disabled={!ready || locked || undo.undoing}
+            aria-label={`${verb} ${spec.label} caption`}
+          >
+            {pending ? <Loader2 {...ICON} className="animate-spin" /> : <Sparkles {...ICON} />} {verb}
+          </Button>
+        )}
       </SectionHead>
 
       {caption.status === 'FAILED' && (
@@ -317,6 +323,7 @@ export function CaptionPanel({
             onBlur={() => {
               inFlightSave.current = save()
             }}
+            readOnly={!canEdit}
             rows={8}
             className={RULED_TEXTAREA}
             placeholder={`Write the ${spec.label} caption…`}
@@ -348,7 +355,7 @@ export function CaptionPanel({
       {!pending && caption.status !== 'FAILED' && (
         <GeneratedWith stamp={caption.model} substitutedFrom={caption.modelSubstitutedFrom} className="mt-2" />
       )}
-      {ready && (
+      {canEdit && ready && (
         <ModelPicker
           id={`draft-caption-model-${caption.channel.toLowerCase()}`}
           surface="CAPTION"

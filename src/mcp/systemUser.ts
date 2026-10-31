@@ -8,10 +8,10 @@ let cachedId: string | null = null
 // foreign keys. Upserts a dedicated system user and caches its id.
 //
 // Task 13: an MCP/ACP call now acts on behalf of a specific team (the calling
-// ApiKey's team), and team-scoped visibility (canAccessContent /
-// briefVisibilityWhere etc.) reads TeamMembership, not just Brief/Draft.teamId
+// ApiKey's team), and team-scoped access (canView / canEditPost /
+// draftVisibilityWhere) reads TeamMembership, not just Brief/Draft.teamId
 // — so the system user also needs a membership row in every team it has ever
-// been called for, or its own rows would be invisible to that team's members.
+// been called for. Every team member sees its posts; team admins edit them.
 // The membership upsert is idempotent (@@unique([teamId, userId])), so this is
 // safe to call on every generate/publish invocation.
 export async function getSystemUserId(teamId: string): Promise<string> {

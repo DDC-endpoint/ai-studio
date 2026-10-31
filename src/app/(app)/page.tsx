@@ -32,9 +32,7 @@ async function getDashboardData(user: TeamAuthedUser) {
     recentDrafts,
     recentProviders,
   ] = await Promise.all([
-    // KPI counts use the same D6 visibility as the library/posts listings —
-    // a bare { teamId } count shows an editor team-wide numbers their own
-    // list pages then contradict ("13 drafts ready", library shows 2).
+    // KPI counts use the same visibility as the library (038 D10: the whole team).
     prisma.draft.count({ where: { ...draftVisibilityWhere(user), status: 'EXPORTED' } }),
     // Team-wide on purpose (037 D11): the whole team's output this month, by
     // teamId and not through draft visibility, so every member sees one number.
@@ -42,8 +40,7 @@ async function getDashboardData(user: TeamAuthedUser) {
       where: { teamId, status: 'EXPORTED', createdAt: { gte: monthStartUtc(new Date()) } },
     }),
     prisma.availableProvider.count({ where: { isEnabled: true, teamId } }),
-    // D6 visibility (fixes the prior leak: this used to show every team's
-    // drafts to every signed-in user, no scoping at all).
+    // Team-wide visibility (038 D10); never another team's drafts.
     prisma.draft.findMany({
       where: draftVisibilityWhere(user),
       // 25, not 8: the Recent Drafts card shows 8 collapsed and the full list

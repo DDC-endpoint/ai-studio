@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { withTeamAuth } from '@/lib/api/handler'
-import { canAccessContent } from '@/lib/authz/visibility'
+import { canView, canEditPost, NOT_AUTHOR } from '@/lib/authz/visibility'
 import { resolveBrandKit } from '@/lib/brandkit/resolve'
 import { getActiveCampaignBriefing } from '@/lib/campaign/briefing'
 import { runPathBDesign } from '@/lib/agent/pathB'
@@ -46,11 +46,11 @@ export const POST = withTeamAuth<{ id: string }>(async (req, { params }, user) =
     where: { id: params.id },
     include: { brief: true },
   })
-  if (
-    !draft ||
-    !canAccessContent(user, { teamId: draft.teamId, ownerId: draft.brief.userId, campaignId: draft.brief.campaignId })
-  ) {
+  if (!draft || !canView(user, { teamId: draft.teamId })) {
     return NextResponse.json({ error: 'Draft not found' }, { status: 404 })
+  }
+  if (!canEditPost(user, { teamId: draft.teamId, ownerId: draft.brief.userId })) {
+    return NextResponse.json(NOT_AUTHOR, { status: 403 })
   }
 
   if (draft.brief.designMode !== 'GENERATE') {

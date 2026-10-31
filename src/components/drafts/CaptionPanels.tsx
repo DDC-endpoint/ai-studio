@@ -36,6 +36,8 @@ export interface CaptionPanelsProps {
    *  refetch the draft and start polling `pendingAction`. Awaited: each panel
    *  settles its Undo only on state read after this refetch (change 015). */
   onActionStarted: () => void | Promise<unknown>
+  /** 038 D11: false for a member who is not the author or a team admin. */
+  canEdit?: boolean
 }
 
 // The regenerate-copy bodies (012 FR-11): {} is "Regenerate all" (the
@@ -51,7 +53,7 @@ const ALL_CAPTIONS = CAPTION_CHANNELS.map((s) => s.channel)
 // order. Each panel owns its Regenerate and its Undo (FR-19). A background
 // failure is shown by the page's pendingActionError line; a channel's own
 // failure by its panel.
-export function CaptionPanels({ draft, onSaved, onActionStarted }: CaptionPanelsProps) {
+export function CaptionPanels({ draft, onSaved, onActionStarted, canEdit = true }: CaptionPanelsProps) {
   // True while a regenerate POST is in flight and until the refetch after its
   // 202 has landed, so no panel can fire a second request (which would 409) in
   // the gap before pendingAction is seen. The background run is tracked via
@@ -127,13 +129,15 @@ export function CaptionPanels({ draft, onSaved, onActionStarted }: CaptionPanels
             <Loader2 {...ICON} className="animate-spin" aria-hidden /> Regenerating…
           </span>
         )}
-        <Button variant="ghost" size="sm" onClick={regenerateAll} disabled={!ready || locked}>
-          {regenerating ? <Loader2 {...ICON} className="animate-spin" /> : <Sparkles {...ICON} />} Regenerate all
-        </Button>
+        {canEdit && (
+          <Button variant="ghost" size="sm" onClick={regenerateAll} disabled={!ready || locked}>
+            {regenerating ? <Loader2 {...ICON} className="animate-spin" /> : <Sparkles {...ICON} />} Regenerate all
+          </Button>
+        )}
       </SectionHead>
       {/* "Regenerate all"'s model (008 FR-20), pre-selected per FR-09's
           mixed-stamp rule: the rows' common stamp, else the team default. */}
-      {ready && (
+      {canEdit && ready && (
         <ModelPicker
           id="draft-all-captions-model"
           surface="CAPTION"
@@ -166,6 +170,7 @@ export function CaptionPanels({ draft, onSaved, onActionStarted }: CaptionPanels
           editLocked={draft.pendingAction === 'REGENERATE_COPY'}
           onRegenerate={(model) => regenerate({ headline: true, model }, 'Failed to regenerate the headline')}
           onSaved={onSaved}
+          canEdit={canEdit}
         />
         {draft.captions.map((caption) => (
           <CaptionPanel
@@ -181,6 +186,7 @@ export function CaptionPanels({ draft, onSaved, onActionStarted }: CaptionPanels
             }
             undoRef={undoRefs.get(caption.channel)}
             onSaved={onSaved}
+            canEdit={canEdit}
           />
         ))}
       </div>

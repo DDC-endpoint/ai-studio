@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import { withTeamAuth, parseBody } from '@/lib/api/handler'
-import { canAccessContent } from '@/lib/authz/visibility'
+import { canView, canEditPost, NOT_AUTHOR } from '@/lib/authz/visibility'
 import { resolveImageProvider } from '@/providers/registry'
 import { imageSizeFor } from '@/providers/imageCapabilities'
 import { persistDataUrlImage } from '@/lib/storage/minio'
@@ -15,11 +15,11 @@ export const POST = withTeamAuth(async (req: NextRequest, _ctx, user) => {
   const { briefId, prompt } = body.data
 
   const brief = await prisma.brief.findUnique({ where: { id: briefId } })
-  if (
-    !brief ||
-    !canAccessContent(user, { teamId: brief.teamId, ownerId: brief.userId, campaignId: brief.campaignId })
-  ) {
+  if (!brief || !canView(user, { teamId: brief.teamId })) {
     return NextResponse.json({ error: 'Brief not found' }, { status: 404 })
+  }
+  if (!canEditPost(user, { teamId: brief.teamId, ownerId: brief.userId })) {
+    return NextResponse.json(NOT_AUTHOR, { status: 403 })
   }
 
   try {
