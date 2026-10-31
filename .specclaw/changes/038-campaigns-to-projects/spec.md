@@ -545,4 +545,4 @@ The proposal (`proposal.md`) and its "Decisions after the party review (user, 20
 
 ## Questions for the user
 
-- **Q1. May an editor delete their own post?** Today `DELETE /api/drafts/[id]` is team admin only (`src/app/api/drafts/[id]/route.ts:329`). The program decision lists delete with edit ("only the author and team admins edit, refine, regenerate, change the kit of or delete a post"), which would let an editor delete a post they made. **Default taken: yes.** Delete moves to `canEditPost`, as the decision reads. If you want delete to stay admin only, T1 keeps `withTeamAdmin` on that one handler, and the tier table marks it `admin`.
+- **Q1. May an editor delete their own post?** Today `DELETE /api/drafts/[id]` is team admin only (`src/app/api/drafts/[id]/route.ts:329`). The program decision lists delete with edit ("only the author and team admins edit, refine, regenerate, change the kit of or delete a post"), which would let an editor delete a post they made. **Answered (user, 2026-10-31): yes, author or team admin.** Delete moves to `canEditPost` in T1, as the decision reads.
