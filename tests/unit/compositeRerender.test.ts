@@ -66,7 +66,7 @@ vi.mock('@/lib/api/handler', () => ({
       handler(req, { params: ctx.params }, { userId: 'u1', teamId: 'team1' }),
 }))
 vi.mock('@/lib/authz/visibility', () => ({ canView: () => true, canEditPost: () => true, NOT_AUTHOR: { code: 'not-author' } }))
-vi.mock('@/lib/auth', () => ({ getDraftAccessInfo: async () => ({ teamId: 'team1', ownerId: 'u1', campaignId: null }) }))
+vi.mock('@/lib/auth', () => ({ getDraftAccessInfo: async () => ({ teamId: 'team1', ownerId: 'u1' }) }))
 vi.mock('@/lib/brandkit/resolve', () => ({
   resolveBrandKit: async () => ({ id: 'kit', name: 'Kit', colors: [], fonts: [], logos: [], artifacts: [] }),
 }))
@@ -152,7 +152,7 @@ function draft(over: Record<string, unknown> = {}) {
     exportUrl: null,
     pendingAction: null,
     currentRevisionNumber: 2,
-    brief: { id: 'b1', userId: 'u1', campaignId: null, brandKitId: null, aspectRatio: 'SQUARE', designMode: 'GENERATE' },
+    brief: { id: 'b1', userId: 'u1', brandKitId: null, aspectRatio: 'SQUARE', designMode: 'GENERATE' },
     ...over,
   }
 }

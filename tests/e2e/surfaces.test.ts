@@ -7,7 +7,7 @@ import {
   ONE_PX_PNG,
   expectNoHorizontalScroll,
   mintBrandKitFixture,
-  mintCampaignFixture,
+  mintProjectFixture,
   mintExportedDraft,
   pageLogin,
   tabThreeFromMain,
@@ -112,10 +112,10 @@ async function exportedDraft(api: ApiClient): Promise<{ id: string; topic: strin
   return cached
 }
 
-// Make the campaign create fail, so each submit toasts its error without
+// Make the project create fail, so each submit toasts its error without
 // writing anything.
-async function stubCampaignCreateFailure(page: Page) {
-  await page.route('**/api/campaigns', (route: Route) => {
+async function stubProjectCreateFailure(page: Page) {
+  await page.route('**/api/projects', (route: Route) => {
     if (route.request().method() !== 'POST') return route.continue()
     return route.fulfill({
       status: 500,
@@ -126,10 +126,10 @@ async function stubCampaignCreateFailure(page: Page) {
 }
 
 async function fireToast(page: Page): Promise<Locator> {
-  await stubCampaignCreateFailure(page)
-  await page.goto('/campaigns')
-  await page.getByRole('button', { name: 'New Campaign' }).click()
-  await page.getByPlaceholder('e.g. Summer Product Launch').fill('Surfaces toast campaign')
+  await stubProjectCreateFailure(page)
+  await page.goto('/projects')
+  await page.getByRole('button', { name: 'New Project' }).click()
+  await page.getByPlaceholder('e.g. Q3 Product Launch').fill('Surfaces toast project')
   await page.getByRole('button', { name: 'Create', exact: true }).click()
   await expect(page.getByText('Surfaces toast', { exact: true })).toBeVisible()
   return page.locator('[data-sonner-toast]').first()
@@ -584,7 +584,7 @@ test.describe('Brief wizard (T8)', () => {
     await page.goto('/brief')
     const cont = page.getByRole('button', { name: /continue/i })
 
-    // Step 1 — Campaign
+    // Step 1 — Project
     await expect(page.getByRole('heading', { name: 'Select a project' })).toBeVisible()
     await expect(page.getByRole('button', { name: /No project/ })).toHaveAttribute('aria-pressed', 'true')
     await expect(page.getByRole('button', { name: 'Back' })).toBeDisabled()
@@ -833,9 +833,9 @@ test.describe('Draft review (T9)', () => {
   })
 })
 
-// ── Campaigns and projects (T10: AC-12, AC-17, FR-12) ────────────────────────
+// ── Projects (T10: AC-12, AC-17, FR-12) ────────────────────────
 
-test.describe('Campaigns and projects (T10)', () => {
+test.describe('Projects (T10)', () => {
   let api: ApiClient
   test.beforeEach(async ({ request }) => {
     api = await loginAs(request, ADMIN_EMAIL, ADMIN_PASSWORD)
@@ -844,17 +844,17 @@ test.describe('Campaigns and projects (T10)', () => {
     await api.dispose()
   })
 
-  test('AC-17: the campaigns list shows a visible focus indicator on its first three stops', async ({ page }) => {
+  test('AC-17: the projects list shows a visible focus indicator on its first three stops', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 })
     await pageLogin(page)
-    await page.goto('/campaigns')
-    await expect(page.getByRole('heading', { name: 'Campaigns', level: 1 })).toBeVisible()
+    await page.goto('/projects')
+    await expect(page.getByRole('heading', { name: 'Projects', level: 1 })).toBeVisible()
     await expect(page.getByText('Loading…')).toHaveCount(0)
-    await expect(page.getByRole('heading', { level: 2 }).first()).toBeVisible()
-    // The two header actions, then the first group's project link or campaign
-    // link (which one depends on the test DB's data).
+    await expect(page.locator('main a[href^="/projects/"]').first()).toBeVisible()
+    // The two header actions, then the first project link (which one depends
+    // on the test DB's data).
     const stops = await tabThreeFromMain(page)
-    expect(stops.slice(0, 2)).toEqual(['Show deleted', 'New Campaign'])
+    expect(stops.slice(0, 2)).toEqual(['Show deleted', 'New Project'])
     expect(stops).toHaveLength(3)
   })
 
@@ -868,24 +868,10 @@ test.describe('Campaigns and projects (T10)', () => {
     expect(await tabThreeFromMain(page)).toEqual(['Projects', 'Draft with AI', 'Active'])
   })
 
-  test('AC-12 + FR-12: campaigns and projects lists at 375px keep their controls and never scroll sideways', async ({ page }) => {
-    const { project, camp } = await mintCampaignFixture(api)
+  test('AC-12 + FR-12: the projects list and detail at 375px keep their controls and never scroll sideways', async ({ page }) => {
+    const { project } = await mintProjectFixture(api)
     await page.setViewportSize({ width: 375, height: 812 })
     await pageLogin(page)
-
-    await page.goto('/campaigns')
-    await expect(page.getByRole('link', { name: camp.name })).toBeVisible()
-    await expect(page.getByRole('link', { name: project.name })).toBeVisible()
-    await expect(page.getByRole('button', { name: `Delete ${camp.name}` })).toBeVisible()
-    await expect(page.getByRole('button', { name: 'Show deleted' })).toBeVisible()
-    await page.getByRole('button', { name: 'New Campaign' }).click()
-    await expect(page.getByRole('button', { name: 'New Campaign' })).toHaveAttribute('aria-expanded', 'true')
-    await expect(page.getByRole('textbox', { name: 'Campaign name' })).toBeVisible()
-    await expect(page.getByRole('combobox', { name: 'Project' })).toBeVisible()
-    await expect(page.getByRole('combobox', { name: 'Brand kit' })).toBeVisible()
-    await expect(page.getByRole('button', { name: 'Create', exact: true })).toBeDisabled()
-    await expect(page.getByRole('button', { name: 'Cancel', exact: true })).toBeVisible()
-    await expectNoHorizontalScroll(page, 'campaigns list (create form open) at 375px')
 
     await page.goto('/projects')
     await expect(page.getByRole('heading', { name: 'Projects', level: 1 })).toBeVisible()
@@ -894,6 +880,9 @@ test.describe('Campaigns and projects (T10)', () => {
     await page.getByRole('button', { name: 'New Project' }).click()
     await expect(page.getByRole('textbox', { name: 'Project name' })).toBeVisible()
     await expect(page.getByRole('combobox', { name: 'Default brand kit' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Show deleted' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Create', exact: true })).toBeDisabled()
+    await expect(page.getByRole('button', { name: 'Cancel', exact: true })).toBeVisible()
     await expectNoHorizontalScroll(page, 'projects list (create form open) at 375px')
 
     await page.goto(`/projects/${project.id}`)
@@ -906,7 +895,7 @@ test.describe('Campaigns and projects (T10)', () => {
 
   test('AC-12 + FR-12: a project detail at 375px, with history, Enhance and the assistant', async ({ page }) => {
     test.skip(!MOCKED(), 'needs MOCK_AI for Enhance and the briefing assistant')
-    const { project } = await mintCampaignFixture(api)
+    const { project } = await mintProjectFixture(api)
     await page.setViewportSize({ width: 375, height: 812 })
     await pageLogin(page)
     await page.goto(`/projects/${project.id}`)
@@ -956,7 +945,7 @@ test.describe('Campaigns and projects (T10)', () => {
     const ask = drawer.getByPlaceholder('Tell the assistant about this project…')
     await expect(drawer.getByRole('button', { name: 'Send' })).toBeDisabled()
     await expect(drawer.getByRole('button', { name: 'Send' })).toHaveText('Send')
-    await ask.fill('A T10 campaign for final-year students.')
+    await ask.fill('A T10 project for final-year students.')
     await ask.press('Enter')
     await expect(drawer.getByRole('button', { name: 'Apply this draft to the editor' })).toBeVisible({ timeout: 30_000 })
     await expectNoHorizontalScroll(page, 'briefing assistant at 375px')

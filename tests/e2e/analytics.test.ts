@@ -93,9 +93,7 @@ async function createBrief(api: ApiClient, topic: string, projectId?: string) {
 // A rendered, EXPORTED draft; the captions it carries are remembered so the
 // no-text check can look for them.
 async function exportedDraft(api: ApiClient, topic: string): Promise<{ id: string } & Record<string, unknown>> {
-  // No campaign per draft: the team's default kit serves, and a suite that is run
-  // several times must not push the seeded fixtures out of the campaign list
-  // (GET /api/campaigns returns the newest 200; team-isolation reads its fixture there).
+  // No project per draft: the team's default kit serves.
   const brief = await createBrief(api, topic)
   const assemble = await api.post('/api/generate/assemble-b', { briefId: brief.id })
   expect(assemble.status()).toBe(202)

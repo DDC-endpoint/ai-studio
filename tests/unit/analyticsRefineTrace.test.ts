@@ -107,7 +107,7 @@ function draft() {
     designModel: null,
     designModelSubstitutedFrom: null,
     pendingConflict: null,
-    brief: { id: 'b1', userId: 'u1', campaignId: null, brandKitId: null, aspectRatio: 'SQUARE', designMode: 'GENERATE' },
+    brief: { id: 'b1', userId: 'u1', brandKitId: null, aspectRatio: 'SQUARE', designMode: 'GENERATE' },
   }
 }
 

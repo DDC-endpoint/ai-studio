@@ -48,7 +48,7 @@ interface PageTitleProps {
 }
 
 // The page-title h1 alone, for detail pages whose head is a breadcrumb plus a
-// title (campaigns/[id], projects/[id], drafts/[id], choose-team).
+// title (projects/[id], drafts/[id], choose-team).
 export function PageTitle({ children, className }: PageTitleProps) {
   return <h1 className={cn(PAGE_TITLE, className)}>{children}</h1>
 }

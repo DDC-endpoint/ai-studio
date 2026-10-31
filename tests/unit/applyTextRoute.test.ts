@@ -62,7 +62,7 @@ function draft(over: Record<string, unknown> = {}) {
     designModelSubstitutedFrom: null,
     composition: null,
     postStyle: null,
-    brief: { userId: 'u1', teamId: 'team1', campaignId: null, aspectRatio: 'SQUARE' },
+    brief: { userId: 'u1', teamId: 'team1', aspectRatio: 'SQUARE' },
     ...over,
   }
 }

@@ -106,7 +106,6 @@ const brief = {
   id: 'b1',
   teamId: 'team1',
   userId: 'u1',
-  campaignId: null,
   brandKitId: null,
   designMode: 'GENERATE',
   aspectRatio: 'SQUARE',

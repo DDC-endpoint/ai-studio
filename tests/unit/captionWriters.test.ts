@@ -147,7 +147,6 @@ const brief = {
   teamId: 'team1',
   userId: 'u1',
   topic: 'The brief topic',
-  campaignId: null,
   brandKitId: null,
   designMode: 'GENERATE',
   aspectRatio: 'SQUARE',
@@ -484,7 +483,7 @@ describe('retry route (FR-10)', () => {
   const ctx = { params: { id: 'd1' } } as never
 
   it('sets IN_PROGRESS and every caption row back to PENDING in the same update, then reruns', async () => {
-    db.draft = { id: 'd1', status: 'FAILED', teamId: 'team1', brief: { userId: 'u1', campaignId: null } }
+    db.draft = { id: 'd1', status: 'FAILED', teamId: 'team1', brief: { userId: 'u1' } }
     const res = (await retry(req, ctx)) as Response
     expect(res.status).toBe(202)
     expect(db.draftUpdates).toHaveLength(1)
@@ -517,7 +516,7 @@ describe('retry route (FR-10)', () => {
       id: 'd1',
       status: 'FAILED',
       teamId: 'team1',
-      brief: { userId: 'u1', campaignId: null },
+      brief: { userId: 'u1' },
     }
     await retry(req, ctx)
     const { updateMany, createMany } = db.draftUpdates[0].data.captions as {
@@ -533,7 +532,7 @@ describe('retry route (FR-10)', () => {
   })
 
   it('a non-FAILED draft is left alone (409)', async () => {
-    db.draft = { id: 'd1', status: 'EXPORTED', teamId: 'team1', brief: { userId: 'u1', campaignId: null } }
+    db.draft = { id: 'd1', status: 'EXPORTED', teamId: 'team1', brief: { userId: 'u1' } }
     const res = (await retry(req, ctx)) as Response
     expect(res.status).toBe(409)
     expect(db.draftUpdates).toHaveLength(0)

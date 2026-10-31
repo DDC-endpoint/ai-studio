@@ -95,7 +95,7 @@ test.describe('UI flows', () => {
     // The wizard exposes a Continue affordance on the first step.
     await expect(page.getByRole('button', { name: /continue/i })).toBeVisible()
     // NOTE: a full Continue→Generate walk needs stable test ids on the step
-    // controls (campaign/platform/template pickers); covered structurally by the
+    // controls (project/platform/template pickers); covered structurally by the
     // API-level generation tests (path-a/path-b).
   })
 

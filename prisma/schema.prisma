@@ -336,7 +336,6 @@ model Project {
   isDeleted         Boolean           @default(false)
   deletedAt         DateTime?
   createdAt         DateTime          @default(now())
-  campaigns         ProjectCampaign[]
   briefs            Brief[]
   briefings         ProjectBriefing[]
   documents         ProjectDocument[]
@@ -380,82 +379,11 @@ model ProjectBriefing {
   @@unique([projectId, version])
 }
 
-model Campaign {
-  id           String             @id @default(cuid())
-  teamId       String
-  name         String
-  brandKitId   String?
-  brandKit     BrandKit?          @relation("CampaignBrandKit", fields: [brandKitId], references: [id])
-  defaultTone  String?
-  // 027: pre-fills the wizard, the queue and (as the default) MCP/ACP. Plain TEXT,
-  // validated in code (src/lib/postStyles), so a retired key needs no migration.
-  defaultPostStyle String?
-  isDeleted    Boolean            @default(false)
-  deletedAt    DateTime?
-  createdAt    DateTime           @default(now())
-  projects     ProjectCampaign[]
-  briefs       Brief[]
-  briefings    CampaignBriefing[]
-  documents    CampaignDocument[]
-
-  @@index([teamId])
-}
-
-// A source document (strategy deck, product one-pager, …) handed in by an
-// admin to ground the AI briefing assistant. The original file lives in the
-// private campaign-docs MinIO bucket; parsedText is the extracted plain text
-// (capped — `truncated` marks a cut) injected into briefing chat/enhance prompts.
-model CampaignDocument {
-  id          String   @id @default(cuid())
-  teamId      String
-  campaignId  String
-  campaign    Campaign @relation(fields: [campaignId], references: [id])
-  name        String
-  contentType String
-  sizeBytes   Int
-  objectKey   String
-  parsedText  String   @db.Text
-  truncated   Boolean  @default(false)
-  createdBy   String
-  createdAt   DateTime @default(now())
-
-  @@index([campaignId])
-  @@index([teamId])
-}
-
-// Versioned free-text campaign briefing — the campaign-level "80% of the brief"
-// injected into copy/design prompts for every post under the campaign, on top of
-// the brand kit's voice prompt. Versioning mirrors BrandKitPrompt: exactly one
-// isActive row per campaign; restore = re-activate an old version.
-model CampaignBriefing {
-  id         String   @id @default(cuid())
-  campaignId String
-  campaign   Campaign @relation(fields: [campaignId], references: [id])
-  content    String   @db.Text
-  version    Int      @default(1)
-  isActive   Boolean  @default(false)
-  createdBy  String
-  createdAt  DateTime @default(now())
-
-  @@unique([campaignId, version])
-}
-
-model ProjectCampaign {
-  projectId  String
-  campaignId String
-  project    Project  @relation(fields: [projectId], references: [id])
-  campaign   Campaign @relation(fields: [campaignId], references: [id])
-
-  @@id([projectId, campaignId])
-}
-
 model Brief {
   id                  String             @id @default(cuid())
   teamId              String
   userId              String
   user                User               @relation(fields: [userId], references: [id])
-  campaignId          String?
-  campaign            Campaign?          @relation(fields: [campaignId], references: [id])
   // 038: a post belongs to zero or one project. Deleting a project unassigns its posts in code.
   projectId           String?
   project             Project?           @relation(fields: [projectId], references: [id], onDelete: SetNull)
@@ -492,7 +420,6 @@ model Brief {
   drafts              Draft[]
 
   @@index([userId])
-  @@index([campaignId])
   @@index([projectId])
   @@index([brandKitId])
   @@index([teamId])
@@ -629,7 +556,6 @@ model BrandKit {
   templates BrandKitTemplate[]
   documents BrandKitDocument[]
   projects  Project[]           @relation("ProjectBrandKit")
-  campaigns Campaign[]          @relation("CampaignBrandKit")
   briefs    Brief[]             @relation("BriefBrandKit")
 
   @@index([isDefault, isDeleted])

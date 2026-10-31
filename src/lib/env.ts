@@ -79,7 +79,7 @@ const envSchema = z.object({
   MINIO_BUCKET_IMAGES: z.string().default('generated-images'),
   MINIO_BUCKET_EXPORTS: z.string().default('exported-designs'),
   MINIO_BUCKET_BRANDKITS: z.string().default('brand-kits'),
-  // Campaign source documents (briefing assistant) — private bucket.
+  // Project source documents (briefing assistant) — private bucket. The default name predates 038 (campaign documents).
   MINIO_BUCKET_DOCS: z.string().default('campaign-docs'),
 
   // --- AI providers ---

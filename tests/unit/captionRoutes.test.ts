@@ -76,7 +76,7 @@ function exportedDraft(over: Record<string, unknown> = {}) {
     teamId: 'team1',
     status: 'EXPORTED',
     pendingAction: null,
-    brief: { userId: 'u1', teamId: 'team1', campaignId: null, brandKitId: null, copyProviderKey: null },
+    brief: { userId: 'u1', teamId: 'team1', brandKitId: null, copyProviderKey: null },
     ...over,
   }
 }

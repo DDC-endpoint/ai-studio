@@ -8,7 +8,7 @@ import {
   briefDraftIds,
   expectNoHorizontalScroll,
   mintBrandKitFixture,
-  mintCampaignFixture,
+  mintProjectFixture,
   mintExportedDraft,
   pageLogin,
   tabThreeFromMain,
@@ -26,15 +26,16 @@ import {
 //   T12: AC-09 (FR-10, tabular figures on the body).
 //   T13: AC-11 (FR-12) for rows 1–5 (login, library, brief) and AC-13 (FR-14,
 //        the login h1).
-//   T14: AC-11 (FR-12) for rows 18, 19, 20 (briefing assistant, campaign
-//        briefing) and 23, 24, 25 (the campaign and project aside selects).
+//   T14: AC-11 (FR-12) for rows 18, 19, 20 (briefing assistant, project
+//        briefing) and 25 (the project aside selects; rows 23 and 24 went
+//        with the campaign page in 038).
 //   T15: AC-11 (FR-12) for rows 26 and 27 (the draft caption and refine prompt).
 //   T16: AC-11 (FR-12) for rows 7–11 (/team register form and channel rows) and
 //        AC-18 (FR-19, the provider toggle's On/Off word).
 //   T17: ARIA states — AC-12 (FR-13, named tablists), AC-15's breadcrumb part
 //        on the project page (FR-16), AC-16 (FR-17, static scroll regions) and
 //        AC-17 (FR-18, 24 × 24 remove targets). AC-14 (the stepper) and the
-//        campaign breadcrumb live in surfaces.test.ts, in the 011 cases they
+//        project breadcrumb live in surfaces.test.ts, in the 011 cases they
 //        supersede.
 //   T18: AC-19 (A4, the axe-core scan on the listed routes and rules), and
 //        AC-07's no-kit-open state (Add Kit is the one accent fill).
@@ -141,16 +142,16 @@ test.describe('Field labels (T9)', () => {
     expect(reference.textTransform).toBe('uppercase')
     expect(reference.fontSize).toBe('11px')
 
-    // The campaign create form: an Input label and a Select label.
-    await page.goto('/campaigns')
-    await expect(page.getByRole('heading', { name: 'Campaigns', level: 1 })).toBeVisible()
-    await page.getByRole('button', { name: 'New Campaign' }).click()
-    const name = page.getByRole('textbox', { name: 'Campaign name', exact: true })
-    const project = page.getByRole('combobox', { name: 'Project', exact: true })
+    // The project create form: an Input label and a Select label.
+    await page.goto('/projects')
+    await expect(page.getByRole('heading', { name: 'Projects', level: 1 })).toBeVisible()
+    await page.getByRole('button', { name: 'New Project' }).click()
+    const name = page.getByRole('textbox', { name: 'Project name', exact: true })
+    const kit = page.getByRole('combobox', { name: 'Default brand kit', exact: true })
     await expect(name).toBeVisible()
-    await expect(project).toBeVisible()
-    expect(await labelStyle(await labelFor(page, name)), 'the "Campaign name" Input label').toEqual(reference)
-    expect(await labelStyle(await labelFor(page, project)), 'the "Project" Select label').toEqual(reference)
+    await expect(kit).toBeVisible()
+    expect(await labelStyle(await labelFor(page, name)), 'the "Project name" Input label').toEqual(reference)
+    expect(await labelStyle(await labelFor(page, kit)), 'the "Default brand kit" Select label').toEqual(reference)
   })
 
   test('AC-05 + AC-11 row 6: the brief brand kit select is named "Brand Kit"', async ({ page }) => {
@@ -235,16 +236,16 @@ test.describe('Control heights (T10)', () => {
     await api.dispose()
   })
 
-  test('AC-06: the campaign form Input, Select and md Button are --control-md tall', async ({ page }) => {
+  test('AC-06: the project form Input, Select and md Button are --control-md tall', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 })
     await pageLogin(page)
-    await page.goto('/campaigns')
-    await expect(page.getByRole('heading', { name: 'Campaigns', level: 1 })).toBeVisible()
-    await page.getByRole('button', { name: 'New Campaign' }).click()
+    await page.goto('/projects')
+    await expect(page.getByRole('heading', { name: 'Projects', level: 1 })).toBeVisible()
+    await page.getByRole('button', { name: 'New Project' }).click()
     const form = page.locator('form').filter({ has: page.getByRole('button', { name: 'Create', exact: true }) })
     await expectControlHeights(page, [
-      ['"Campaign name" Input', form.getByRole('textbox', { name: 'Campaign name', exact: true }), 'md'],
-      ['"Project" Select', form.getByRole('combobox', { name: 'Project', exact: true }), 'md'],
+      ['"Project name" Input', form.getByRole('textbox', { name: 'Project name', exact: true }), 'md'],
+      ['"Default brand kit" Select', form.getByRole('combobox', { name: 'Default brand kit', exact: true }), 'md'],
       ['"Create" md Button', form.getByRole('button', { name: 'Create', exact: true }), 'md'],
     ])
   })
@@ -546,7 +547,7 @@ test.describe('Labels: login, library, brief (T13)', () => {
   })
 })
 
-// ── T14: labels on campaigns and projects (AC-11 rows 18–20, 23–25) ─────────
+// ── T14: labels on projects (AC-11 rows 19, 20 and 25) ──────────────────────
 
 // AC-11 rows 23–25: the select is named by the visible dt it points at.
 async function expectNamedByTerm(page: Page, name: string) {
@@ -564,38 +565,23 @@ async function expectNamedByTerm(page: Page, name: string) {
 const BRIEFING_PLACEHOLDER = "Audience, key messages, themes, do's and don'ts for this project…"
 const ASSISTANT_PLACEHOLDER = 'Tell the assistant about this project…'
 
-test.describe('Labels: campaigns and projects (T14)', () => {
+test.describe('Labels: projects (T14)', () => {
   let api: ApiClient
-  // Every campaign and project a case mints is deleted after it.
-  const minted: { project: { id: string }; camp: { id: string } }[] = []
+  // Every project a case mints is deleted after it.
+  const minted: { project: { id: string } }[] = []
   test.beforeEach(async ({ request }) => {
     api = await loginAs(request, ADMIN_EMAIL, ADMIN_PASSWORD)
   })
   test.afterEach(async () => {
-    for (const { project, camp } of minted.splice(0)) {
-      await api.del(`/api/campaigns/${camp.id}`)
-      await api.del(`/api/projects/${project.id}`)
-    }
+    for (const { project } of minted.splice(0)) await api.del(`/api/projects/${project.id}`)
     await api.dispose()
   })
 
   async function mint() {
-    const fixture = await mintCampaignFixture(api)
+    const fixture = await mintProjectFixture(api)
     minted.push(fixture)
     return fixture
   }
-
-  test('AC-11 rows 23 and 24: the campaign aside selects are labelled', async ({ page }) => {
-    const { camp } = await mint()
-    await page.setViewportSize({ width: 1440, height: 900 })
-    await pageLogin(page)
-    await page.goto(`/campaigns/${camp.id}`)
-    await expect(page.getByRole('heading', { name: camp.name, level: 1 })).toBeVisible()
-
-    // Rows 23 and 24.
-    await expectNamedByTerm(page, 'Project')
-    await expectNamedByTerm(page, 'Brand kit override')
-  })
 
   test('AC-11 row 20: the project new-version briefing is labelled (038 T2 moved it here)', async ({ page }) => {
     const { project } = await mint()
@@ -828,13 +814,11 @@ async function expectAtLeast24(control: Locator, what: string) {
 test.describe('ARIA states (T17)', () => {
   let api: ApiClient
   const mintedKits: string[] = []
-  const mintedCampaigns: string[] = []
   const mintedProjects: string[] = []
   test.beforeEach(async ({ request }) => {
     api = await loginAs(request, ADMIN_EMAIL, ADMIN_PASSWORD)
   })
   test.afterEach(async () => {
-    for (const id of mintedCampaigns.splice(0)) await api.del(`/api/campaigns/${id}`)
     for (const id of mintedProjects.splice(0)) await api.del(`/api/projects/${id}`)
     for (const id of mintedKits.splice(0)) await api.del(`/api/admin/brandkits/${id}`)
     await api.dispose()
@@ -850,16 +834,15 @@ test.describe('ARIA states (T17)', () => {
     mintedKits.push(kit.id)
     return kit as { id: string; name: string }
   }
-  const mintCampaign = async () => {
-    const fixture = await mintCampaignFixture(api)
-    mintedCampaigns.push(fixture.camp.id)
+  const mintProject = async () => {
+    const fixture = await mintProjectFixture(api)
     mintedProjects.push(fixture.project.id)
     return fixture
   }
 
   test('AC-12: every tablist is named — /team, an open kit and a project', async ({ page }) => {
     const kit = await mintKit()
-    const { project } = await mintCampaign()
+    const { project } = await mintProject()
     await page.setViewportSize({ width: 1440, height: 900 })
     await pageLogin(page)
 
@@ -904,7 +887,7 @@ test.describe('ARIA states (T17)', () => {
 
   test('AC-16: with no turns yet, both assistant drawers hold a focusable "Conversation" region', async ({ page }) => {
     const kit = await mintKit()
-    const { project } = await mintCampaign()
+    const { project } = await mintProject()
     await page.setViewportSize({ width: 1440, height: 900 })
     await pageLogin(page)
 
@@ -928,7 +911,7 @@ test.describe('ARIA states (T17)', () => {
   })
 
   test('AC-15 (breadcrumb): on a project page the tail crumb is visible but aria-hidden, and the h1 carries the name', async ({ page }) => {
-    const { project } = await mintCampaign()
+    const { project } = await mintProject()
     await page.setViewportSize({ width: 1440, height: 900 })
     await pageLogin(page)
     await page.goto(`/projects/${project.id}`)
@@ -989,7 +972,6 @@ test.describe('axe scan (T18)', () => {
   let api: ApiClient
   let before: Set<string>
   const mintedKits: string[] = []
-  const mintedCampaigns: string[] = []
   const mintedProjects: string[] = []
   test.beforeEach(async ({ page, request }) => {
     api = await loginAs(request, ADMIN_EMAIL, ADMIN_PASSWORD)
@@ -1003,7 +985,6 @@ test.describe('axe scan (T18)', () => {
     for (const id of await briefDraftIds(api)) {
       if (!before.has(id)) await api.del(`/api/brief-drafts/${id}`)
     }
-    for (const id of mintedCampaigns.splice(0)) await api.del(`/api/campaigns/${id}`)
     for (const id of mintedProjects.splice(0)) await api.del(`/api/projects/${id}`)
     for (const id of mintedKits.splice(0)) await api.del(`/api/admin/brandkits/${id}`)
     await api.dispose()
@@ -1015,7 +996,7 @@ test.describe('axe scan (T18)', () => {
     await expectNoAxeViolations(page, '/login', { settle: true })
   })
 
-  test('AC-19: the dashboard, /library, /campaigns, /settings and /admin/users', async ({ page }) => {
+  test('AC-19: the dashboard, /library, /projects, /settings and /admin/users', async ({ page }) => {
     await pageLogin(page)
     await expect(page.getByRole('heading', { level: 1 })).toBeVisible()
     await expectNoAxeViolations(page, '/', { settle: true })
@@ -1024,9 +1005,9 @@ test.describe('axe scan (T18)', () => {
     await expect(page.getByRole('heading', { name: 'Library', level: 1 })).toBeVisible()
     await expectNoAxeViolations(page, '/library', { settle: true })
 
-    await page.goto('/campaigns')
-    await expect(page.getByRole('heading', { name: 'Campaigns', level: 1 })).toBeVisible()
-    await expectNoAxeViolations(page, '/campaigns', { settle: true })
+    await page.goto('/projects')
+    await expect(page.getByRole('heading', { name: 'Projects', level: 1 })).toBeVisible()
+    await expectNoAxeViolations(page, '/projects', { settle: true })
 
     await page.goto('/settings')
     await expect(page.getByRole('heading', { level: 1 })).toBeVisible()
@@ -1098,15 +1079,10 @@ test.describe('axe scan (T18)', () => {
     await expectNoAxeViolations(page, '/brief step 2 with the image style picker', { settle: true })
   })
 
-  test('AC-19: /campaigns/[id] and /projects/[id]', async ({ page }) => {
-    const { project, camp } = await mintCampaignFixture(api)
-    mintedCampaigns.push(camp.id)
+  test('AC-19: /projects/[id]', async ({ page }) => {
+    const { project } = await mintProjectFixture(api)
     mintedProjects.push(project.id)
     await pageLogin(page)
-
-    await page.goto(`/campaigns/${camp.id}`)
-    await expect(page.getByRole('heading', { name: camp.name, level: 1 })).toBeVisible()
-    await expectNoAxeViolations(page, '/campaigns/[id]', { settle: true })
 
     await page.goto(`/projects/${project.id}`)
     await expect(page.getByRole('heading', { name: project.name, level: 1 })).toBeVisible()

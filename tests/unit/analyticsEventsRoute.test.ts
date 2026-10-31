@@ -28,7 +28,6 @@ vi.mock('@/lib/prisma', () => ({
     },
     brief: { create: h.briefCreate },
     availableProvider: { findFirst: vi.fn().mockResolvedValue(null) },
-    campaign: { findFirst: vi.fn().mockResolvedValue(null) },
     brandKit: { findFirst: vi.fn().mockResolvedValue(null) },
     brandKitTemplate: { findUnique: vi.fn().mockResolvedValue(null) },
   },
@@ -194,7 +193,7 @@ describe('POST /api/events', () => {
 describe('brief.abandoned', () => {
   const payload = (step: number) => ({
     step,
-    campaignId: '',
+    projectId: '',
     aspectRatio: 'SQUARE',
     brandKitId: '',
     designMode: 'TEMPLATE',

@@ -698,18 +698,18 @@ test.describe('The project default post style', () => {
     expect(((await (await admin.get(`/api/projects/${projA}`)).json()) as { defaultPostStyle: string | null }).defaultPostStyle).toBeNull()
   })
 
-  test('TC-PS-37: the create form takes a default post style', async ({ page }) => {
-    await pageLogin(page)
-    await page.goto('/campaigns')
-    await page.getByRole('button', { name: 'New Campaign' }).click()
-    const nm = `PS created ${tag()}`
-    await page.getByLabel('Campaign name').fill(nm)
-    await page.getByRole('combobox', { name: 'Default post style' }).selectOption('tip')
-    const created = page.waitForResponse((r) => r.request().method() === 'POST' && new URL(r.url()).pathname === '/api/campaigns')
-    await page.getByRole('button', { name: 'Create', exact: true }).click()
-    const body = (await (await created).json()) as { id: string; defaultPostStyle: string }
+  // The project create form has no post style select (the project page does, TC-PS-36),
+  // so the create route is checked directly.
+  test('TC-PS-37: the create route takes a default post style and refuses an unknown one', async () => {
+    const created = await admin.post('/api/projects', { name: `PS created ${tag()}`, defaultPostStyle: 'tip' })
+    expect(created.status()).toBe(201)
+    const body = (await created.json()) as { id: string; defaultPostStyle: string }
     expect(body.defaultPostStyle).toBe('tip')
-    await admin.del(`/api/campaigns/${body.id}`)
+    await admin.del(`/api/projects/${body.id}`)
+
+    const refused = await admin.post('/api/projects', { name: `PS refused ${tag()}`, defaultPostStyle: 'nope' })
+    expect(refused.status()).toBe(400)
+    expect((await refused.json()).code).toBe('UNKNOWN_POST_STYLE')
   })
 })
 

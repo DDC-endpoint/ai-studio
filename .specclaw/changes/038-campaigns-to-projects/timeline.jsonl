@@ -16,3 +16,7 @@
 {"ev":"stop","span":"W3","at":"2026-10-31T08:37:59Z","ts":1793435879,"status":"ok"}
 {"ev":"start","span":"W4","kind":"wave","label":"wave 4","at":"2026-10-31T08:37:59Z","ts":1793435879}
 {"ev":"start","span":"T4","kind":"task","label":"assign and apply","parent":"W4","model":"sonnet","attempt":"1","at":"2026-10-31T08:37:59Z","ts":1793435879}
+{"ev":"stop","span":"T4","at":"2026-10-31T09:16:27Z","ts":1793438187,"status":"ok"}
+{"ev":"stop","span":"W4","at":"2026-10-31T09:16:27Z","ts":1793438187,"status":"ok"}
+{"ev":"start","span":"W5","kind":"wave","label":"wave 5","at":"2026-10-31T09:16:28Z","ts":1793438188}
+{"ev":"start","span":"T5","kind":"task","label":"drop campaigns","parent":"W5","model":"sonnet","attempt":"1","at":"2026-10-31T09:16:28Z","ts":1793438188}

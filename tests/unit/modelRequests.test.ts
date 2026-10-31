@@ -39,7 +39,6 @@ vi.mock('@/lib/prisma', () => ({
   prisma: {
     draft: { findUnique: h.draftFindUnique, update: vi.fn() },
     brief: { create: h.briefCreate },
-    campaign: { findFirst: async () => ({ id: 'c1', teamId: 'team1' }) },
     project: { findFirst: async () => ({ id: 'p1', teamId: 'team1' }) },
     brandKit: {
       findUnique: async () => ({ id: 'k1', isDeleted: false, teamId: 'team1' }),
@@ -356,7 +355,6 @@ function draft(over: Record<string, unknown> = {}) {
       id: 'b1',
       userId: 'u1',
       teamId: 'team1',
-      campaignId: null,
       brandKitId: null,
       copyProviderKey: null,
       aspectRatio: 'SQUARE',

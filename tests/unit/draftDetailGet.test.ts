@@ -110,7 +110,6 @@ function exportedDraft(copyProviderKey: string | null) {
       id: 'b1',
       userId: 'u1',
       teamId: 'team1',
-      campaignId: null,
       brandKitId: null,
       copyProviderKey,
       topic: 'T',

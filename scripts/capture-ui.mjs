@@ -145,7 +145,7 @@ async function findOrCreateDraft(page) {
 async function firstId(page, path) {
   try {
     const rows = await getJson(page, path)
-    const list = Array.isArray(rows) ? rows : (rows.campaigns ?? rows.projects ?? [])
+    const list = Array.isArray(rows) ? rows : (rows.projects ?? [])
     return list[0]?.id ?? null
   } catch {
     return null
@@ -178,7 +178,7 @@ async function shoot(page, file) {
 // ── The states pass (033 T2) ────────────────────────────────────────────────
 
 const KIT_NAME = 'Capture states kit'
-const CAMPAIGN_NAME = 'Capture states campaign'
+const PROJECT_NAME = 'Capture states project'
 // kit-upgrade.test.ts HEARTS_TEXT: four vague phrases the rule panel flags.
 const HEARTS_TEXT = [
   'Hearts Academy posts use a teal-to-green gradient.',
@@ -252,10 +252,10 @@ async function findOrCreateNoticeDraft(page, kitId, spec) {
   return draftId
 }
 
-// The kit, the campaign and the notice drafts the states need, reused by name
+// The kit, the project and the notice drafts the states need, reused by name
 // or topic so reruns do not pile up data. Failures are recorded per item.
 async function prepareStateData(page) {
-  const data = { kit: null, campaignId: null, projectId: null, notices: {} }
+  const data = { kit: null, projectId: null, notices: {} }
   try {
     const kits = await getJson(page, '/api/admin/brandkits')
     data.kit = kits.find((k) => k.name === KIT_NAME) ?? null
@@ -272,25 +272,11 @@ async function prepareStateData(page) {
     return data
   }
   try {
-    const campaigns = await getJson(page, '/api/campaigns')
-    let campaign = campaigns.find((c) => c.name === CAMPAIGN_NAME)
-    if (!campaign) {
-      campaign = await postJson(page, '/api/campaigns', {
-        name: CAMPAIGN_NAME,
-        brandKitId: data.kit.id,
-      })
-    }
-    data.campaignId = campaign.id
-  } catch (err) {
-    skipped.push({ state: 'campaign data', reason: err.message })
-  }
-  // The briefing and its assistant live on projects since 038 T2.
-  try {
     const projects = await getJson(page, '/api/projects')
-    let project = projects.find((p) => p.name === CAMPAIGN_NAME)
+    let project = projects.find((p) => p.name === PROJECT_NAME)
     if (!project) {
       project = await postJson(page, '/api/projects', {
-        name: CAMPAIGN_NAME,
+        name: PROJECT_NAME,
         defaultBrandKitId: data.kit.id,
       })
       await postJson(page, `/api/projects/${project.id}/briefing`, {
@@ -394,7 +380,7 @@ const STATES = [
     ready: (d) => d.projectId,
     run: async (page, data, snap) => {
       await page.goto(`/projects/${data.projectId}`)
-      await page.getByRole('heading', { name: CAMPAIGN_NAME, level: 1 }).waitFor()
+      await page.getByRole('heading', { name: PROJECT_NAME, level: 1 }).waitFor()
       // surfaces.test.ts (project detail): Draft with AI opens the drawer.
       await page.getByRole('button', { name: 'Draft with AI' }).click()
       const drawer = page.getByRole('dialog', { name: 'Draft briefing with AI' })
@@ -545,7 +531,6 @@ async function main() {
       await signIn(page)
 
       const draftId = sampleDraftId
-      const campaignId = await firstId(page, '/api/campaigns')
       const projectId = await firstId(page, '/api/projects')
 
       const screens = [
@@ -553,8 +538,6 @@ async function main() {
         ['library', '/library'],
         ['brief', '/brief'],
         draftId && ['draft', `/drafts/${draftId}`],
-        ['campaigns', '/campaigns'],
-        campaignId && ['campaign-detail', `/campaigns/${campaignId}`],
         ['projects', '/projects'],
         projectId && ['project-detail', `/projects/${projectId}`],
         ['brandkits', '/admin/brandkits'],

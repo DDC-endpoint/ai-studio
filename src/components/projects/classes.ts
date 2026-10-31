@@ -1,4 +1,4 @@
-// Class helpers used by the projects screens and, until 038 T5, the campaigns screens
+// Class helpers used by the projects screens
 // (DESIGN_SYSTEM.md §6, §8.6). The shared atoms (FOCUS, EYEBROW, PAGE_TITLE,
 // SECTION_HEAD, ICON, TAG and the rest) come from @/components/ui/atoms
 // (014 FR-02); only these screen-specific strings live here.

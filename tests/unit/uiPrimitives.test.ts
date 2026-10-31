@@ -75,9 +75,9 @@ describe('PageHead', () => {
 describe('PageTitle', () => {
   it('renders an h1 in the page-title style plus the caller classes', () => {
     const html = renderToStaticMarkup(
-      h(PageTitle, { className: 'mb-10 break-words', children: 'Campaign' }),
+      h(PageTitle, { className: 'mb-10 break-words', children: 'Project' }),
     )
-    expect(html).toBe(`<h1 class="${attr(PAGE_TITLE)} mb-10 break-words">Campaign</h1>`)
+    expect(html).toBe(`<h1 class="${attr(PAGE_TITLE)} mb-10 break-words">Project</h1>`)
   })
 })
 

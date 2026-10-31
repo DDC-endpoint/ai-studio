@@ -95,7 +95,7 @@ import { discardOnLostClaim, RevisionConflictError } from '@/lib/drafts/revision
 import { DraftClaimLostError } from '@/lib/drafts/claim'
 
 const brief = {
-  id: 'b1', teamId: 'team1', userId: 'u1', campaignId: null, brandKitId: null,
+  id: 'b1', teamId: 'team1', userId: 'u1', brandKitId: null,
   designMode: 'GENERATE', aspectRatio: 'SQUARE', copyProviderKey: null,
 } as never
 const req = new Request('http://test/x', { method: 'POST' }) as never

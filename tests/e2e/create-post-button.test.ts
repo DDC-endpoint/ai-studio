@@ -97,14 +97,14 @@ test.describe('Create post button (011 FR-01 – FR-03)', () => {
     await api.dispose()
   })
 
-  // AC-01 — visible bottom-right on /, /library and /campaigns, each
+  // AC-01 — visible bottom-right on /, /library and /projects, each
   // navigating to /brief; absent on /brief itself. (Amended by 020: the draft
   // page is excluded, see AC-01b.)
   test('AC-01: shown bottom-right on app pages, links to /brief, absent on /brief', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 })
     await pageLogin(page)
 
-    for (const path of ['/', '/library', '/campaigns']) {
+    for (const path of ['/', '/library', '/projects']) {
       await page.goto(path)
       const link = page.getByRole('link', { name: 'Create post', exact: true })
       await expect(link).toBeVisible()
@@ -195,7 +195,7 @@ test.describe('Create post button (011 FR-01 – FR-03)', () => {
     expect(focus.outlineWidth).not.toBe('0px')
   })
 
-  // AC-03 — three toasts never cover the button. The campaign create is made
+  // AC-03 — three toasts never cover the button. The project create is made
   // to fail (stubbed 500), and each failure toasts its error; the form stays
   // open, so it can be submitted three times. Checked at desktop and at
   // Sonner's full-width mobile layout.
@@ -204,7 +204,7 @@ test.describe('Create post button (011 FR-01 – FR-03)', () => {
       await page.setViewportSize(viewport)
       await pageLogin(page)
       let n = 0
-      await page.route('**/api/campaigns', (route: Route) => {
+      await page.route('**/api/projects', (route: Route) => {
         if (route.request().method() !== 'POST') return route.continue()
         n += 1
         return route.fulfill({
@@ -214,10 +214,10 @@ test.describe('Create post button (011 FR-01 – FR-03)', () => {
         })
       })
 
-      await page.goto('/campaigns')
+      await page.goto('/projects')
       await expect(fab(page)).toBeVisible()
-      await page.getByRole('button', { name: 'New Campaign' }).click()
-      await page.getByPlaceholder('e.g. Summer Product Launch').fill('FAB toast campaign')
+      await page.getByRole('button', { name: 'New Project' }).click()
+      await page.getByPlaceholder('e.g. Q3 Product Launch').fill('FAB toast project')
       const create = page.getByRole('button', { name: 'Create', exact: true })
       for (let i = 1; i <= 3; i++) {
         await create.click()

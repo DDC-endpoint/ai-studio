@@ -192,7 +192,6 @@ function brief(designMode: 'GENERATE' | 'TEMPLATE' = 'GENERATE') {
     goal: null,
     tone: null,
     channels: [],
-    campaignId: null,
     brandKitId: null,
     referenceTemplateId: null,
     briefImages: null,

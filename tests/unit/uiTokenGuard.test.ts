@@ -356,7 +356,7 @@ describe('Shared-name guard (014 FR-05, AC-02)', () => {
       "export const PILL_BADGE = 'x'", // 12 (021 T2)
       'export function GateNotice({ title }: Props) {', // 13 (021 T2)
       "const ROW = 'border-b py-3'", // 14 (021 T8)
-      "export const ROW_TITLE = 'x'", // 15: a longer name (campaigns/classes.ts)
+      "export const ROW_TITLE = 'x'", // 15: a longer name (projects/classes.ts)
     ].join('\n')
     const lines = (hits: string[]) => hits.map((h) => h.split(':')[1])
     expect(lines(findSharedCopies('src/components/team/ApiKeysCard.tsx', sample))).toEqual([

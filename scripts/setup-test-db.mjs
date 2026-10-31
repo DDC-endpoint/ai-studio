@@ -73,7 +73,7 @@ run('npx prisma migrate deploy', { DATABASE_URL: TEST_DB_URL })
 // 3. Seed the baseline (each script reads DATABASE_URL etc. from .env.test).
 //    seed-editor adds the non-admin account the RBAC/IDOR E2E tests log in as.
 //    seed-teams adds the team-tenancy fixtures (Bistec + ClientX teams,
-//    memberships, per-team campaign/kit/brief/draft) — must run after
+//    memberships, per-team project/kit/brief/draft) — must run after
 //    seed-admin/seed-editor (it looks both users up by email) and before the
 //    baseline brandkit/hearts-talk/cli-provider seeds, which now stamp their
 //    rows onto the "Bistec" team. The migrations leave a fresh DB with no

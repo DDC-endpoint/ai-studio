@@ -1,4 +1,4 @@
-// 037 AC-12: the removed publishing, scheduling and held-generation modules
+// 037 AC-12 and 038 AC-20: the removed publishing, scheduling and held-generation modules
 // stay removed. No file under src/ may import them or name the held reason, so
 // a revert or a stray copy fails here.
 import { describe, it, expect } from 'vitest'
@@ -23,6 +23,8 @@ const FORBIDDEN: Array<[label: string, pattern: RegExp]> = [
   ['heldReason', /\bheldReason\b/],
   ['src/lib/social', /lib\/social(?:\/|['"])/],
   ['src/lib/publish', /lib\/publish(?:\/|['"])/],
+  ['@/lib/campaign', /lib\/campaign(?:\/|['"])/],
+  ['@/components/campaigns', /components\/campaigns(?:\/|['"])/],
 ]
 
 describe('removed modules (037 AC-12)', () => {
@@ -46,6 +48,10 @@ describe('removed modules (037 AC-12)', () => {
       'src/app/api/posts',
       'src/app/api/team/channels',
       'src/app/api/test/scheduler-tick',
+      'src/lib/campaign',
+      'src/components/campaigns',
+      'src/app/api/campaigns',
+      'src/app/(app)/campaigns',
     ]) {
       expect(existsSync(join(ROOT, path)), path).toBe(false)
     }

@@ -189,7 +189,7 @@ test.describe('AGUI design refinement', () => {
   // draft gets 403 `not-author` (the full per-route matrix is post-permissions).
   test('an in-team editor cannot refine a draft owned by the admin (403 not-author)', async ({ request }) => {
     if (!process.env.MOCK_AI || !process.env.MOCK_PUPPETEER) { test.skip(); return }
-    const draft = await createExportedDraft(api) // owned by the admin, under a campaign (beforeEach loginAs)
+    const draft = await createExportedDraft(api) // owned by the admin (beforeEach loginAs)
     if (!draft) { test.skip(); return }
 
     const editor = await loginAs(request, EDITOR_EMAIL, EDITOR_PASSWORD)

@@ -117,7 +117,7 @@ describe('AC-18: the import edges', () => {
 describe('AC-01: the five columns are optional with no default', () => {
   const COLUMNS: Array<[string, string]> = [
     ['Brief', 'postStyle'],
-    ['Campaign', 'defaultPostStyle'],
+    ['Project', 'defaultPostStyle'],
     ['Draft', 'postStyle'],
     ['Draft', 'factsCheck'],
     ['DraftRevision', 'postStyle'],
@@ -139,7 +139,7 @@ describe('AC-01: the five columns are optional with no default', () => {
         .find((x) => x.name === model)!
         .fields.find((x) => x.name === field)!.type
     expect(type('Brief', 'postStyle')).toBe('String')
-    expect(type('Campaign', 'defaultPostStyle')).toBe('String')
+    expect(type('Project', 'defaultPostStyle')).toBe('String')
     expect(type('Draft', 'postStyle')).toBe('Json')
     expect(type('Draft', 'factsCheck')).toBe('Json')
     expect(type('DraftRevision', 'postStyle')).toBe('Json')
@@ -152,10 +152,10 @@ describe('AC-01: the five columns are optional with no default', () => {
       Prisma.BriefUncheckedCreateInput,
       'postStyle'
     > satisfies Prisma.BriefUncheckedCreateInput
-    const campaign = null as unknown as Omit<
-      Prisma.CampaignUncheckedCreateInput,
+    const project = null as unknown as Omit<
+      Prisma.ProjectUncheckedCreateInput,
       'defaultPostStyle'
-    > satisfies Prisma.CampaignUncheckedCreateInput
+    > satisfies Prisma.ProjectUncheckedCreateInput
     const draft = null as unknown as Omit<
       Prisma.DraftUncheckedCreateInput,
       'postStyle' | 'factsCheck'
@@ -164,7 +164,7 @@ describe('AC-01: the five columns are optional with no default', () => {
       Prisma.DraftRevisionUncheckedCreateInput,
       'postStyle'
     > satisfies Prisma.DraftRevisionUncheckedCreateInput
-    expect([brief, campaign, draft, revision]).toHaveLength(4)
+    expect([brief, project, draft, revision]).toHaveLength(4)
   })
 })
 

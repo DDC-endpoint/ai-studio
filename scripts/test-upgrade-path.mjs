@@ -47,6 +47,9 @@ const GUARD_PREFIX = '022 legacy_caption_carryover'
 const GUARD_037_PREFIX = '037 remove_scheduling_publishing refused:'
 const PRE_037 = '20261030120000_apply_text_action' // the migration before 037
 const REMOVE_PUBLISHING = '20261031120000_remove_scheduling_publishing' // 037
+const GUARD_038_PREFIX = '038 drop_campaigns refused:'
+const PRE_038 = '20261101120000_project_inputs' // the migration before 038's drop
+const DROP_CAMPAIGNS = '20261101130000_drop_campaigns' // 038
 const PERSONAL_KEY_MIGRATION = '20261028120000_personal_image_key_provider' // 031 C
 
 // Scenario 3's sabotage: one exact replacement in the carry-over's INSERT, so
@@ -114,7 +117,7 @@ const ALL_MIGRATIONS = readdirSync(MIGRATIONS_DIR, { withFileTypes: true })
   .map((d) => d.name)
   .sort()
 
-for (const name of [MAIN_HEAD, PRE_CARRYOVER, CARRYOVER, DROP_LEGACY, DROP_TEAM, PERSONAL_KEY_MIGRATION, PRE_037, REMOVE_PUBLISHING]) {
+for (const name of [MAIN_HEAD, PRE_CARRYOVER, CARRYOVER, DROP_LEGACY, DROP_TEAM, PERSONAL_KEY_MIGRATION, PRE_037, REMOVE_PUBLISHING, PRE_038, DROP_CAMPAIGNS]) {
   if (!ALL_MIGRATIONS.includes(name)) {
     console.error(`FAIL setup: migration ${name} not found in prisma/migrations`)
     process.exit(1)
@@ -168,6 +171,16 @@ function deployFromTemp(migrations, patch) {
 // The operator script, run against the scratch database only (DATABASE_URL is explicit).
 function runClearScript(args) {
   const res = spawnSync(process.execPath, [join(ROOT, 'scripts', 'clear-publishing-data.mjs'), ...args], {
+    cwd: ROOT,
+    encoding: 'utf8',
+    env: { ...process.env, DATABASE_URL: SCRATCH_URL },
+  })
+  return { status: res.status, output: `${res.stdout ?? ''}${res.stderr ?? ''}` }
+}
+
+// The 038 operator script, run against the scratch database only (DATABASE_URL is explicit).
+function runClearCampaigns(args) {
+  const res = spawnSync(process.execPath, [join(ROOT, 'scripts', 'clear-campaign-data.mjs'), ...args], {
     cwd: ROOT,
     encoding: 'utf8',
     env: { ...process.env, DATABASE_URL: SCRATCH_URL },
@@ -552,6 +565,94 @@ async function scenario4() {
   }
 }
 
+async function scenario5() {
+  const failures = []
+  const check = (ok, msg) => {
+    if (!ok) failures.push(msg)
+  }
+
+  await freshScratch()
+  mustDeploy('to the migration before 038', deployFromTemp(upTo(PRE_038)))
+  await seedMainBase()
+  await db.$executeRaw`
+    INSERT INTO "Project" ("id", "teamId", "name") VALUES ('upg_project', ${TEAM}, 'Upgrade project')`
+  await db.$executeRaw`
+    INSERT INTO "Campaign" ("id", "teamId", "name") VALUES ('upg_campaign', ${TEAM}, 'Upgrade campaign')`
+  await db.$executeRaw`
+    INSERT INTO "ProjectCampaign" ("projectId", "campaignId") VALUES ('upg_project', 'upg_campaign')`
+  await db.$executeRaw`
+    INSERT INTO "CampaignBriefing" ("id", "campaignId", "content", "createdBy")
+    VALUES ('upg_cbriefing', 'upg_campaign', 'Briefing text', ${USER})`
+  await db.$executeRaw`
+    INSERT INTO "CampaignDocument" ("id", "teamId", "campaignId", "name", "contentType", "sizeBytes", "objectKey", "parsedText", "createdBy")
+    VALUES ('upg_cdoc', ${TEAM}, 'upg_campaign', 'deck.pdf', 'application/pdf', 10, 'upg_campaign/1-deck.pdf', 'text', ${USER})`
+  await db.$executeRaw`
+    INSERT INTO "Brief" ("id", "teamId", "userId", "campaignId", "topic", "goal", "tone", "channels", "designMode", "copyProviderKey")
+    VALUES ('upg_cbrief', ${TEAM}, ${USER}, 'upg_campaign', 'Campaign post', 'awareness', 'friendly',
+            ARRAY['INSTAGRAM']::"Channel"[], 'GENERATE'::"DesignMode", 'cli')`
+  await db.$executeRaw`
+    INSERT INTO "Draft" ("id", "teamId", "briefId", "headline", "status", "htmlContent", "exportUrl", "currentRevisionNumber")
+    VALUES ('upg_cdraft', ${TEAM}, 'upg_cbrief', 'Campaign post', 'EXPORTED'::"DraftStatus",
+            '<!doctype html><html><body>x</body></html>', 'exports/upg_cdraft.png', 1)`
+  const tables = ['Campaign', 'CampaignBriefing', 'CampaignDocument', 'ProjectCampaign']
+  const readAll = async (t) => json(await db.$queryRawUnsafe(`SELECT * FROM "${t}"`))
+  const before = {}
+  for (const t of tables) before[t] = await readAll(t)
+
+  // 038 AC-16: the head deploy fails closed and changes nothing.
+  const refused = deployFull()
+  check(refused.status !== 0, 'the head deploy succeeded while campaign rows existed')
+  check(refused.output.includes(GUARD_038_PREFIX), `the 038 message is missing:\n${refused.output}`)
+  check(
+    /1 Campaign, 1 CampaignBriefing, 1 CampaignDocument, 1 ProjectCampaign, 1 briefs with a campaign/.test(refused.output),
+    'the 038 message does not name the five counts',
+  )
+  for (const t of tables) {
+    check(await tableExists(t), `${t} is gone after the refused deploy`)
+    if (await tableExists(t)) check((await readAll(t)) === before[t], `${t} changed in the refused deploy`)
+  }
+  check(await columnExists('Brief', 'campaignId'), 'Brief.campaignId is gone after the refused deploy')
+
+  // Recovery: mark the failed migration rolled back, clear the data, deploy head.
+  const resolved = runPrisma(['migrate', 'resolve', '--rolled-back', DROP_CAMPAIGNS, '--schema', SCHEMA])
+  check(resolved.status === 0, `migrate resolve --rolled-back exited ${resolved.status}:\n${resolved.output}`)
+  const dry = runClearCampaigns([])
+  check(dry.status === 3, `clear-campaign-data dry run exited ${dry.status}, expected 3:\n${dry.output}`)
+  const [{ still }] = await db.$queryRawUnsafe(`SELECT count(*)::int AS still FROM "Campaign"`)
+  check(still === 1, `the dry run changed the campaign rows (${still})`)
+  const cleared = runClearCampaigns(['--yes'])
+  check(cleared.status === 0, `clear-campaign-data --yes exited ${cleared.status}:\n${cleared.output}`)
+  mustDeploy('full deploy to head', deployFull())
+
+  // 038 AC-17: the old tables and column are gone; the new ones exist.
+  for (const t of tables) check(!(await tableExists(t)), `${t} still exists at head`)
+  check(!(await columnExists('Brief', 'campaignId')), 'Brief.campaignId still exists at head')
+  for (const t of ['ProjectBriefing', 'ProjectDocument']) check(await tableExists(t), `${t} is missing at head`)
+  check(await columnExists('Brief', 'projectId'), 'Brief.projectId is missing at head')
+  check(await columnExists('Draft', 'generationInputs'), 'Draft.generationInputs is missing at head')
+  check(await columnExists('Project', 'defaultPostStyle'), 'Project.defaultPostStyle is missing at head')
+
+  // The brief survives, unassigned; the head client reads its draft.
+  const [brief] = await db.$queryRawUnsafe(`SELECT "projectId" FROM "Brief" WHERE id = 'upg_cbrief'`)
+  check(brief !== undefined, 'the brief did not survive the clear and the drop')
+  check(brief !== undefined && brief.projectId === null, `the brief's projectId is ${json(brief?.projectId)}, expected null`)
+  try {
+    const draft = await db.draft.findUnique({ where: { id: 'upg_cdraft' }, include: { brief: true } })
+    check(draft !== null && draft.brief.projectId === null, 'head client: the draft or its brief did not read back')
+  } catch (err) {
+    failures.push(`head client read failed: ${err.message}`)
+  }
+
+  // Schema diff: the head database matches schema.prisma (NFR-05).
+  const diff = runPrisma(['migrate', 'diff', '--from-url', SCRATCH_URL, '--to-schema-datamodel', SCHEMA, '--exit-code'])
+  check(diff.status === 0, `prisma migrate diff exited ${diff.status}:\n${diff.output}`)
+
+  return {
+    failures,
+    detail: `038 refused with the five counts and left every row unchanged, recovered through resolve and the clear script (dry run exit ${dry.status}, --yes exit ${cleared.status}), tables and column gone, the brief kept with projectId null, head client read OK, migrate diff exit ${diff.status}`,
+  }
+}
+
 // ── Main ─────────────────────────────────────────────────────────────────────
 
 async function main() {
@@ -565,6 +666,7 @@ async function main() {
       ['scenario 2 (already dropped: carry-over is a no-op)', scenario2],
       ['scenario 3 (content guard bites, atomically)', scenario3],
       ['scenario 4 (031: a pre-existing personal image key resolves as openai)', scenario4],
+      ['scenario 5 (038: the campaign drop fails closed, then recovers)', scenario5],
     ]) {
       const t0 = Date.now()
       let result

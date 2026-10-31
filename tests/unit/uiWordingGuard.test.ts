@@ -12,7 +12,7 @@ import { join, relative, resolve } from 'node:path'
 const ROOT = process.cwd()
 const SCOPES = [resolve(ROOT, 'src/app/(app)'), resolve(ROOT, 'src/components')]
 
-// One list, so a later task adds a pattern in one place (T5 added `OpenAI key`).
+// One list, so a later task adds a pattern in one place (T5 added `OpenAI key`; 038 added `campaign`, which became "project").
 export const WORDING_PATTERNS: Array<[string, RegExp]> = [
   ['Path A', /\bPath A\b/],
   ['Path B', /\bPath B\b/],
@@ -25,6 +25,7 @@ export const WORDING_PATTERNS: Array<[string, RegExp]> = [
   ['Organise', /\bOrganise\b/],
   ['New Brief', /\bNew Brief\b/],
   ['OpenAI key', /\bOpenAI key\b/],
+  ['campaign', /\bcampaigns?\b/i],
 ]
 
 const EXCEPTION = 'wording-exception:'
@@ -141,6 +142,7 @@ describe('UI wording guard (031 FR-06)', () => {
       Organise: "const a = 'Organise your work'",
       'New Brief': '<h1>New Brief</h1>',
       'OpenAI key': '<p>Connect your OpenAI key</p>',
+      campaign: '<h1>Campaign</h1>',
     }
     for (const [label] of WORDING_PATTERNS) {
       const hits = findWordingViolations('x.tsx', samples[label])

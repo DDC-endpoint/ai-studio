@@ -128,7 +128,6 @@ const brief = (over: Record<string, unknown> = {}) =>
     id: 'b1',
     teamId: 'team1',
     userId: 'u1',
-    campaignId: null,
     brandKitId: null,
     topic: 'Spring sale',
     description: 'Two weeks only',

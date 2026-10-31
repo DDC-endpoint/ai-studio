@@ -106,7 +106,7 @@ Each task leaves `tsc`, lint and the unit suite green, so it commits on its own 
 
 ### Wave 5: drop campaigns
 
-- [ ] `T5` — Fail-closed drop migration, down script, clear and sweep scripts, upgrade scenario 5, seeds, and the rest of the campaign surface removed
+- [x] `T5` — Fail-closed drop migration, down script, clear and sweep scripts, upgrade scenario 5, seeds, and the rest of the campaign surface removed
   - Files: prisma/schema.prisma, prisma/migrations/20261101130000_drop_campaigns/migration.sql, prisma/rollback/038-drop-campaigns.down.sql, scripts/clear-campaign-data.mjs, scripts/lib/clearCampaigns.mjs, scripts/sweep-campaign-documents.mjs, scripts/lib/sweepCampaignDocs.mjs, scripts/test-upgrade-path.mjs, scripts/seed-teams.mjs, scripts/setup-test-db.mjs, scripts/capture-ui.mjs, scripts/check-folio-restore.mjs, src/app/api/campaigns/route.ts, src/app/api/campaigns/[id]/route.ts, src/app/(app)/campaigns/page.tsx, src/app/(app)/campaigns/[id]/page.tsx, src/components/campaigns/_, src/components/layout/AppShell.tsx, src/app/api/projects/route.ts, src/app/api/projects/[id]/route.ts, src/app/(app)/projects/page.tsx, src/lib/api-types.ts, src/lib/brief/briefDraftPayload.ts, src/lib/env.ts, src/components/ui/PageHead.tsx, tests/unit/clearCampaigns.test.ts, tests/unit/sweepCampaignDocs.test.ts, tests/unit/removedModules.test.ts, tests/unit/uiWordingGuard.test.ts, tests/e2e/removed-routes.test.ts, tests/e2e/team-isolation.test.ts, tests/e2e/surfaces.test.ts, tests/e2e/a11y.test.ts, tests/e2e/ui.test.ts, tests/e2e/auth.test.ts, tests/e2e/_, tests/helpers/ui.ts
   - Estimate: large
   - Depends: T4

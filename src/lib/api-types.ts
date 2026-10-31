@@ -96,30 +96,6 @@ export interface ProjectRef {
   name: string
 }
 
-export interface CampaignRef {
-  id: string
-  name: string
-  isDeleted?: boolean
-}
-
-// ── Campaigns ────────────────────────────────────────────────────────────
-
-// GET /api/campaigns, GET /api/campaigns/[id] — both `include` the same
-// shape (brandKit, projects, _count.briefs); the list additionally relies
-// on `isDeleted`, which Prisma returns on both since neither route uses a
-// narrowing `select`.
-export interface Campaign {
-  id: string
-  name: string
-  defaultTone: string | null
-  // 027 FR-08: a post style key, or null (the wizard then falls to General).
-  defaultPostStyle: string | null
-  isDeleted: boolean
-  brandKit: BrandKitRef | null
-  projects: Array<{ project: ProjectRef }>
-  _count: { briefs: number }
-}
-
 // GET /api/projects/[id]/briefing — versioned project briefing rows
 export interface ProjectBriefing {
   id: string
