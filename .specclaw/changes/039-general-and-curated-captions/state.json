@@ -1,9 +1,12 @@
 {
   "change": "039-general-and-curated-captions",
-  "phase": "proposal",
+  "phase": "tasks",
   "branch": "",
   "size": "architectural",
   "phases": {
-    "proposal": { "status": "approved", "at": "2026-10-30T14:07:49Z" }
+    "proposal": { "status": "approved", "at": "2026-10-30T14:07:49Z" },
+    "spec": { "status": "done", "at": "2026-10-31T23:56:35Z" },
+    "design": { "status": "done", "at": "2026-10-31T23:56:36Z" },
+    "tasks": { "status": "done", "at": "2026-10-31T23:56:37Z" }
   }
 }
