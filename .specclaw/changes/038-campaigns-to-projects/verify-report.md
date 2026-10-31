@@ -11,7 +11,7 @@ All 30 acceptance criteria pass. The first verifier pass found one FAIL (AC-14) 
 - ✅ **AC-01 (view tier):** every member sees every team post — `draftVisibilityWhere = u => ({ teamId: u.teamId })`; unit `visibility.test.ts`; E2E TC-PERM-02 and team-isolation "editor and team admin both see every team post".
 - ✅ **AC-02 (edit tier, 403):** TC-PERM-01 loops all 16 edit routes (PATCH headline, **PATCH caption** added at verify, DELETE, apply-text, apply-project, inline-edit, refine, regenerate copy/design, retry, restore, adopt, assemble-a/b, generate copy/image): 403 `not-author`, snapshot unchanged, zero model calls. **TC-PERM-05b** (added at verify): the author (editor), a team admin and a super admin get 200 on PATCH caption and 202 on regenerate copy.
 - ✅ **AC-03 (tier coverage):** `postActionTiers.test.ts` — every handler has a tier, every tier a handler, the predicate matches the tier, every DraftAction has an edit route; **a fixture handler with no entry fails the matcher** (added at verify).
-  - ⚠️ Deviation: the tier values are `view | edit | none`; spec FR-03 names `view | assign | edit`. `assign` is folded into `view` (PUT project is any-member, `canView`), and `none` marks the brief-creating routes, which act on the caller's own new objects. The predicate rule is equivalent. Spec text not amended.
+  - Note: the tier values are `view | edit | none`. The plan named `view | assign | edit`; the user chose to amend FR-03 to the shipped names (2026-11-01). The assign route is `view` (any member), and `none` marks the `briefs/**` handlers.
 - ✅ **AC-04 (read boundary):** `visibilityBoundary.test.ts` walks `src/app/**` and `src/mcp/**`; the fixture route filtering `prisma.draft` by `teamId` without the import fails; `canAccessContent` and `briefVisibilityWhere` are gone (the FR-04 walk was added by the orchestrator at T1).
 - ✅ **AC-05 (cross-team project ids):** team-isolation (brief, enhance, ACP: 404 `PROJECT_NOT_FOUND`, same body as an unknown id; assign, apply and library across teams, both directions); projects TC-PROJ-04 (project, briefing, documents, chat, library filter: one 404 body).
 - ✅ **AC-06 (MCP/ACP 2.1.0):** `acpManifest.test.ts`, `mcpGenerate.test.ts` (`campaignId`/`campaign` → `CAMPAIGN_RETIRED` before any read; unknown, foreign or non-string `projectId` → `PROJECT_NOT_FOUND`); E2E acp.
@@ -52,7 +52,7 @@ All 30 acceptance criteria pass. The first verifier pass found one FAIL (AC-14) 
 
 ## Issues Found
 
-1. **Spec FR-03 names the tiers `view | assign | edit`; the code ships `view | edit | none`.** The behaviour matches the spec's intent (assign is any-member, so it checks `canView`). **Fix:** amend FR-03's wording, or rename the tiers; left for the user to decide.
+1. **Resolved: FR-03 tier names.** The plan named `view | assign | edit`; the code ships `view | edit | none` with the same behaviour. The user chose to amend the spec (2026-11-01), and FR-03 and the tier table now say what shipped.
 2. **The project cap is not atomic** (count, then create). **Fix (optional):** serialise the create, or accept a soft cap.
 3. **Design deviation, recorded:** the post page's Project block sits below Captions (design.md amended at T4; above Captions it broke 021 AC-12).
 

@@ -102,7 +102,7 @@ The proposal (`proposal.md`) and its "Decisions after the party review (user, 20
   | `/api/drafts/[id]/retry`                                  | POST                      | edit                                                                                                                  |
   | `/api/drafts/[id]/revisions`                              | GET                       | view                                                                                                                  |
   | `/api/drafts/[id]/revisions/[rev]/restore`                | POST                      | edit                                                                                                                  |
-  | `/api/drafts/[id]/project` (new)                          | PUT                       | assign (`canView`)                                                                                                    |
+  | `/api/drafts/[id]/project` (new)                          | PUT                       | view (`canView`): any member assigns, moves or unassigns                                                              |
   | `/api/drafts/[id]/apply-project` (new)                    | POST                      | edit                                                                                                                  |
   | `/api/generate/assemble-a`, `assemble-b`, `copy`, `image` | POST                      | edit, on the brief (each calls a model)                                                                               |
   | `/api/briefs/screenshots?draftId=`                        | GET                       | view                                                                                                                  |
@@ -196,9 +196,9 @@ The proposal (`proposal.md`) and its "Decisions after the party review (user, 20
   Down script: `prisma/rollback/038-project-inputs.down.sql`.
 
 - **FR-02 (access tiers).** As D10 and D11. Every route in the D11 table calls its tier's predicate. `DELETE /api/drafts/[id]` moves from `withTeamAdmin` to `withTeamAuth` + `canEditPost`. The draft `GET` returns `canEdit`. The draft page hides the edit controls when it is false.
-- **FR-03 (tier coverage).** `src/lib/authz/postActionTiers.ts` exports `POST_ACTION_TIERS`, keyed `"<route file> <METHOD>"`, with the values `'view' | 'assign' | 'edit'`. `tests/unit/postActionTiers.test.ts` checks that:
-  - every exported handler under `src/app/api/drafts/**` and `src/app/api/generate/**` has an entry, and every entry has a handler;
-  - an `edit` handler's file calls `canEditPost(`, and a `view` or `assign` handler's file calls `canView(` or `draftVisibilityWhere(`;
+- **FR-03 (tier coverage).** `src/lib/authz/postActionTiers.ts` exports `POST_ACTION_TIERS`, keyed `"<route file> <METHOD>"`, with the values `'view' | 'edit' | 'none'`. (Amended at verify, 2026-11-01: the plan named `'view' | 'assign' | 'edit'`. Assigning is open to every member, so the assign route is the `view` tier. `none` marks the `src/app/api/briefs/**` handlers, which create a brief or an upload for the caller's team, or list the caller's own uploads through `draftVisibilityWhere`, and act on no existing post.) `tests/unit/postActionTiers.test.ts` checks that:
+  - every exported handler under `src/app/api/drafts/**`, `src/app/api/generate/**` and `src/app/api/briefs/**` has an entry, and every entry has a handler;
+  - an `edit` handler calls `canView(`, `canEditPost(` and answers `NOT_AUTHOR`; a `view` handler calls `canView(` and never answers `NOT_AUTHOR` (it may call `canEditPost(` to report `canEdit`); a `none` handler never answers `NOT_AUTHOR`;
   - every `DraftAction` value maps to at least one `edit` entry.
 - **FR-04 (read boundary).** `tests/unit/visibilityBoundary.test.ts`: every file under `src/app/**` and `src/mcp/**` that queries `prisma.draft` or `prisma.brief` either imports `@/lib/authz/visibility` or is on an allow-list with its reason. The allow-list:
   - the dashboard's "Posts this month", which is team-wide by design (037 D11);
