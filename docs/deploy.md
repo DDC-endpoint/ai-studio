@@ -125,3 +125,18 @@ Migration `20261031120000_remove_scheduling_publishing` drops publishing, schedu
 5. Revoke the Instagram and LinkedIn app access by hand, in each provider's app settings. Dropping a stored token does not revoke the grant.
 
 The `scheduler` container keeps its name and now runs only the analytics retention loop.
+
+## 10. Upgrading to the build with projects instead of campaigns (change 038)
+
+Migration `20261101130000_drop_campaigns` drops `Campaign`, `CampaignDocument`, `CampaignBriefing`, `ProjectCampaign` and `Brief.campaignId`. It is fail-closed: a `DO` precondition refuses to run while any row exists in those tables or any post still names a campaign (`038 drop_campaigns refused: ...`). The additive migration `20261101120000_project_inputs` ran before it and moved the briefing, documents and defaults onto projects. A fresh deploy has no campaigns and needs no step. A database that ran an older build needs the sequence below, from a checkout with Node 22 or later.
+
+**Posts made before 038 become visible to the whole team.** Every member now sees every post; only the author and team admins edit, refine, regenerate, change the kit of or delete one.
+
+1. Back up first: `pg_dump` the database.
+2. Dry run: `DATABASE_URL=... node scripts/clear-campaign-data.mjs`. It prints the row counts and the number of posts that become team-visible, and exits 3 if any rows exist (2 without an explicit `DATABASE_URL`).
+3. Delete the rows: run the same command with `--yes` (one transaction).
+4. Apply the migration: `npm run db:migrate` (on a server, `docker compose up -d` applies it on boot).
+5. If the migration ran first and its precondition stopped it, mark it rolled back, then do steps 2 to 4: `npx prisma migrate resolve --rolled-back 20261101130000_drop_campaigns`.
+6. Sweep the campaign document objects from `campaign-docs`: `DATABASE_URL=... MINIO_ENDPOINT=... MINIO_ACCESS_KEY=... MINIO_SECRET_KEY=... MINIO_BUCKET_DOCS=campaign-docs node scripts/sweep-campaign-documents.mjs` (dry run; it needs all five variables, with real MinIO keys, never `minioadmin`). Exit 3 means keys would be removed; run it again with `--yes`. Exit 4 means the drop migration has not finished, so do step 4 first. It keeps `brandkits/`, `screenshots/` and `projects/`.
+
+The bucket keeps its name `campaign-docs`. The down scripts are `prisma/rollback/038-project-inputs.down.sql` and `prisma/rollback/038-drop-campaigns.down.sql`; both restore the schema only, never data.

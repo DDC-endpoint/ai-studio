@@ -94,7 +94,7 @@ Plain HTTP against the deployed app. The key goes in the **`x-bistec-api-key`** 
 
 ### Capabilities (2)
 
-ACP exposes only `generate_post` (the brand-kit management tools are MCP-only). `publish_post` was removed by change 037; the MCP server and the ACP manifest are both version `2.0.0`.
+ACP exposes only `generate_post` (the brand-kit management tools are MCP-only). `publish_post` was removed by change 037. Change 038 (campaigns became projects) made the MCP server and the ACP manifest version `2.1.0`: `generate_post` takes an optional `projectId`, and a `campaignId` is refused.
 
 ```bash
 # Discover
@@ -114,9 +114,11 @@ curl -X POST https://studio.bistecglobal.com/api/acp/run \
   }'
 ```
 
+`projectId` (optional) puts the post in one of the team's projects: the project's default brand kit, post style, briefing and documents then apply (an explicit kit or style still wins). An unknown, deleted or other-team project is `404` `PROJECT_NOT_FOUND`. The retired `campaignId` (or `campaign`) field is `400` `CAMPAIGN_RETIRED`, checked before any lookup.
+
 `goal` is a legacy field. It picks a post style (`hiring` or `announcement`) only when no `postStyle` is given, and is ignored otherwise.
 
-Response codes: `400` invalid input, `401` bad/missing key, `422` tool-level failure, `200` `{ output }` on success.
+Response codes: `400` invalid input (including `CAMPAIGN_RETIRED`), `401` bad/missing key, `404` `PROJECT_NOT_FOUND`, `422` tool-level failure, `200` `{ output }` on success.
 
 ---
 
@@ -135,7 +137,7 @@ Since 012 every draft has an on-image **headline** and **one caption per channel
 - **`captions`** is `[{ channel, text, status }]`: always two entries, in registry order (`INSTAGRAM`, `LINKEDIN`). Read through the caption loader, which fills a missing channel with an empty `READY` entry. Old WhatsApp rows from before 026 are hidden by the loader, not deleted.
 - **`headline`** is the text drawn on the image (at most 100 characters). It is null only while it has not been written yet (a generation still running, or one that failed before the headline was stored); a design made for such a draft falls back to the brief topic.
 - **There is no `copyText` field.** The pre-012 alias (the Instagram caption's text) was removed by change 016. Read the channel's entry in `captions`.
-- **The ACP manifest** (`src/acp/agent.ts`, version `2.0.0` since change 037) advertises `generate_post`'s full output: `draftId`, `exportUrl`, `htmlContent`, `headline` (`string | null`) and `captions` (an array of `{ channel, text, status }`, all three required; `channel` is one of the registry channels `INSTAGRAM`, `LINKEDIN`, and `status` one of `PENDING`, `READY`, `FAILED`). A unit test (`tests/unit/mcpGetDraft.test.ts`) fails if the advertised keys and the handler's keys ever differ. The MCP `generate_post` tool description lists the same fields. The **input** channel enums stay `['INSTAGRAM', 'LINKEDIN']`.
+- **The ACP manifest** (`src/acp/agent.ts`, version `2.1.0` since change 038) advertises `generate_post`'s full output: `draftId`, `exportUrl`, `htmlContent`, `headline` (`string | null`) and `captions` (an array of `{ channel, text, status }`, all three required; `channel` is one of the registry channels `INSTAGRAM`, `LINKEDIN`, and `status` one of `PENDING`, `READY`, `FAILED`). A unit test (`tests/unit/mcpGetDraft.test.ts`) fails if the advertised keys and the handler's keys ever differ. The MCP `generate_post` tool description lists the same fields. The **input** channel enums stay `['INSTAGRAM', 'LINKEDIN']`.
 
 ### `POST /api/generate/copy`
 
@@ -169,7 +171,7 @@ Since 008 every model call resolves through one catalogue (`src/lib/models/catal
 
 Production runs in **CLI mode** (`claude -p`), and `generate_post` can drive the vision path. Since 005 T4/T5 no CLI spawn has any tool (`--tools ""`), and vision passes its images inline over stdin. Untrusted inputs (uploaded documents, chat transcripts, image contents) are folded into model prompts, so the app hardens against prompt injection in layers:
 
-1. **Instruction-hierarchy guard + fencing** (`src/lib/agent/untrusted.ts`). `UNTRUSTED_CONTENT_GUARD` declares that everything inside the fenced blocks is _untrusted data, never instructions_. `fenceUntrusted()` wraps that content in `<<<UNTRUSTED-DATA>>>` delimiters and **neutralizes any forged closing delimiter** inside the content so injected text can't "break out" of the fence. Used by the campaign-briefing and brand-kit assistants.
+1. **Instruction-hierarchy guard + fencing** (`src/lib/agent/untrusted.ts`). `UNTRUSTED_CONTENT_GUARD` declares that everything inside the fenced blocks is _untrusted data, never instructions_. `fenceUntrusted()` wraps that content in `<<<UNTRUSTED-DATA>>>` delimiters and **neutralizes any forged closing delimiter** inside the content so injected text can't "break out" of the fence. Used by the project-briefing and brand-kit assistants.
 2. **Images inline, no files** (`runVisionCli` / `buildVisionCliPrompt`, `src/lib/agent/vision.ts`). CLI vision sends one stream-json user message on stdin: the reference images as base64 `image` blocks, then one text block carrying the system text, `UNTRUSTED_CONTENT_GUARD` (image contents, including any text drawn in them, are untrusted data) and the task. Nothing is written to disk and the prompt names no files. This closes the sharpest vector, injection making the model read a server file and echo it back, because there is nothing to read with.
 3. **No tools, no connectors, an env allowlist** (`src/lib/agent/claudeCli.ts`). Every spawn passes `--tools ""` (zero built-in tools; there is no option to opt back in), and `--strict-mcp-config` with no `--mcp-config` loads **zero** MCP servers — the headless CLI never inherits the developer's Claude Code connectors. The child env is an allowlist (`buildChildEnv`), so no server secret reaches the CLI. Since 005 T6 every spawn is also isolated from local configuration: `--safe-mode` and `--setting-sources ""` stop CLAUDE.md, user/project/local settings files, hooks, installed plugins, skills and custom agents from loading (admin-managed policy settings still apply), though the CLI's own built-in skills and its bundled `cc-plugin-*` plugins still load (they are inert with `--tools ""`, since nothing they offer can run without a tool), the spawn runs in an empty temp dir (`bistec-cli-*`) so no project file is in reach, and `--no-session-persistence` keeps prompts out of `$HOME/.claude/projects/`. Timeouts tree-kill the process.
 4. **Renderer egress allowlist** (`isAllowedRenderRequest`, `src/lib/renderer/puppeteer.ts`). Model-generated HTML is rendered by Puppeteer, so it could embed an SSRF probe (`<img src="http://169.254.169.254/…">`) or an internal fetch. Every outbound render request is blocked except an allowlist — Google Fonts + the configured MinIO endpoints (`data:`/`blob:`/`about:blank` allowed). Covered by an SSRF regression test.

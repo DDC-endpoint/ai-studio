@@ -132,7 +132,7 @@ Each task leaves `tsc`, lint and the unit suite green, so it commits on its own 
 
 ### Wave 6: docs and the full gate
 
-- [ ] `T6` — Docs, the full E2E mock run, push and CI
+- [x] `T6` — Docs, the full E2E mock run, push and CI
   - Files: CLAUDE.md, README.md, docs/deploy.md, docs/cold-start.md, docs/mcp-acp-guide.md, docs/e2e-test-plan.md, docs/ui-reference/DESIGN_SYSTEM.md, .github/workflows/e2e.yml, .env.example
   - Estimate: medium
   - Depends: T5

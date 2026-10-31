@@ -289,3 +289,16 @@ Migration `20261031120000_remove_scheduling_publishing` is fail-closed: it refus
 3. `npm run db:migrate`.
 4. If the migration ran first and its precondition stopped it: `npx prisma migrate resolve --rolled-back 20261031120000_remove_scheduling_publishing`, then steps 1 to 3.
 5. Revoke the Instagram and LinkedIn app access by hand. Dropping a token does not revoke the grant.
+
+## Upgrading a database that ran a build with campaigns (change 038)
+
+Migration `20261101130000_drop_campaigns` is fail-closed: it refuses to run while any campaign, campaign document, campaign briefing or project-campaign row exists, or any post names a campaign. A fresh database needs nothing. A local database that ran an older build needs, in order (posts made before 038 become visible to the whole team):
+
+1. `pg_dump` the database.
+2. Dry run: `DATABASE_URL=... node scripts/clear-campaign-data.mjs`. It prints the counts and the team-visible post count, and exits 3 if rows exist.
+3. The same command with `--yes`.
+4. `npm run db:migrate`.
+5. If the migration ran first and its precondition stopped it: `npx prisma migrate resolve --rolled-back 20261101130000_drop_campaigns`, then steps 2 to 4.
+6. `DATABASE_URL=... MINIO_ENDPOINT=... MINIO_ACCESS_KEY=... MINIO_SECRET_KEY=... MINIO_BUCKET_DOCS=campaign-docs node scripts/sweep-campaign-documents.mjs` (dry run, exit 3 when keys exist, exit 4 before the migration finished, exit 2 for a missing or `minioadmin` key), then again with `--yes`.
+
+Down scripts (schema only): `prisma/rollback/038-project-inputs.down.sql`, `prisma/rollback/038-drop-campaigns.down.sql`.

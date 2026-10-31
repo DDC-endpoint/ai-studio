@@ -578,7 +578,7 @@ The page heads, section heads, notices and field labels are shared components in
 **The components:**
 
 - **`PageHead({ eyebrow?, title, lead?, actions?, actionsClassName?, className? })`** renders the page's `h1`, always level 1. The eyebrow is small caps in `--fg-muted` above the title, which then takes `mt-2`. The lead is a `--text-sm` `--fg-muted` paragraph. `actions` sits on the right and drops below the title at 375 px. Its wrapper does not shrink below its content, so a button never overflows; a caller with a fixed-width control that should shrink at md widths (the library search) passes `actionsClassName="min-w-0"`.
-- **`PageTitle({ children, className? })`** is the `h1` alone, for detail pages whose head is a breadcrumb plus a title (a campaign, a project, a draft, choose-team).
+- **`PageTitle({ children, className? })`** is the `h1` alone, for detail pages whose head is a breadcrumb plus a title (a project, a draft, choose-team).
 - **`SectionHead({ title, numeral?, level = 2, id?, className?, children? })`** renders an `h2` in the §8.14 section style, or with `level={3}` an `h3` in the §5.2 sub-head style.
   - The numeral is an `aria-hidden` span outside the heading's name.
   - `id` goes on the heading, for `aria-labelledby`.
@@ -595,11 +595,11 @@ The page heads, section heads, notices and field labels are shared components in
 **The use rule.**
 
 - A screen uses the component wherever its head is "numeral + title + tail" or "eyebrow + title + lead + actions".
-- A bespoke heading uses the class strings from `ui/atoms.ts` instead. Today that covers the dashboard's Activity and Recent Drafts heads, the campaigns group head with its link, the project head, the kit title with its inline marks, the brief `StepHead` and the admin `GateNotice` (`src/components/ui/GateNotice.tsx`).
+- A bespoke heading uses the class strings from `ui/atoms.ts` instead. Today that covers the dashboard's Activity and Recent Drafts heads, the projects group head with its link, the project head, the kit title with its inline marks, the brief `StepHead` and the admin `GateNotice` (`src/components/ui/GateNotice.tsx`).
 
 **No primitive owns its outer margin.** The caller passes the spacing in `className`: `mb-8` after a page head (`mb-10` on `/brief`), `mb-3` under a section head, `pb-2.5` where a rule follows. Pass spacing only: `cn` is a plain join, so a `className` that repeats a property the primitive already sets is settled by CSS source order, not by the order of the classes.
 
-**The residue rule.** A screen group's own style module (`brief/cardCls.ts`, `campaigns/classes.ts`, `admin/brandkits/classes.ts`) keeps only helpers that one screen group uses and that are defined nowhere else, composed from the `ui` atoms. `BLOCK` and `ROW` (team and settings) live in `ui/atoms.ts`, and `GateNotice` is its own module, `ui/GateNotice.tsx`. No module is named `folio`. A module never redefines a shared name.
+**The residue rule.** A screen group's own style module (`brief/cardCls.ts`, `projects/classes.ts`, `admin/brandkits/classes.ts`) keeps only helpers that one screen group uses and that are defined nowhere else, composed from the `ui` atoms. `BLOCK` and `ROW` (team and settings) live in `ui/atoms.ts`, and `GateNotice` is its own module, `ui/GateNotice.tsx`. No module is named `folio`. A module never redefines a shared name.
 
 **The guard.** `tests/unit/uiTokenGuard.test.ts` fails when any file under `src/` outside `src/components/ui/` declares a `const` or `function` with a shared name. The names are `FOCUS`, `SCROLL_FOCUS`, `SMALL_CAPS`, `EYEBROW`, `FIELD_LABEL`, `PAGE_TITLE`, `PAGE_LEAD`, `SECTION_HEAD`, `SECTION_NUMERAL`, `SUB_HEAD`, `KIT_TITLE`, `STEP_HEAD`, `STEP_NUMERAL`, `STEP_LEAD`, `GROUP_HEAD`, `ASIDE_HEAD`, `NOTICE`, `WARN_NOTICE`, `ICON`, `ICON_SM`, `ICON_BUTTON`, `TEXT_LINK`, `TAG`, `TABLE_HEAD_ROW`, `ROW`, `COMPACT_FIELD`, `COMPACT_TEXTAREA`, `PILL_BADGE`, `PageHead`, `PageTitle`, `SectionHead`, `SectionHeader`, `Notice`, `FieldLabel`, `StatusWord` and `GateNotice`. A copy has no legitimate exception, so `// ui-exception:` does not apply to this guard. Import the atom, or give a genuinely different thing a different name (the shell's 36 px icon button is `SHELL_ICON_BUTTON`). A file in the guard's `PENDING_RESTYLE` list is exempt until its restyle task removes it (see §11).
 
@@ -708,7 +708,7 @@ A look that is not available is disabled with its reason, never hidden. Light an
 
 ### 8.24 The rule review panel
 
-`RuleReviewPanel` (`src/components/textUpgrade/`) sits under the text field it reviews: the brand-kit voice prompt editor (`PromptSection`) and the campaign briefing editor (`CampaignBriefingSection`). It draws a `RuleReview` from `useRuleReview` and holds no state of its own.
+`RuleReviewPanel` (`src/components/textUpgrade/`) sits under the text field it reviews: the brand-kit voice prompt editor (`PromptSection`) and the project briefing editor (`ProjectBriefingSection`, `src/components/projects/`). It draws a `RuleReview` from `useRuleReview` and holds no state of its own.
 
 **Anatomy.** A `section` (`role="region"`, `aria-label="Design rules"`) of stacked blocks, 12 px apart:
 
@@ -798,7 +798,7 @@ A look that is not available is disabled with its reason, never hidden. Light an
 - **Status is never colour alone.** Chips and refine outcomes always carry a text label.
 - **Targets.** Controls take their height from the `--control-*` tokens (§3.1, §8.2, §8.3): `--control-md` by default, `--control-sm` for small controls, both above WCAG 2.2's 24 × 24 px minimum.
   - **The 24 px box (014 FR-18).** A remove or delete target is at least 24 × 24 px as **its own border box** (`boundingBox()` at zoom 1), not by the spacing exception's hit area. An icon-only remove button that is not an `ICON_BUTTON` (30 × 30) is `inline-flex h-6 w-6 items-center justify-center`, as the ColorEditor and FontEditor "Remove …" buttons and the Recent Drafts "Discard unfinished brief" are.
-- **Every field has a label (014 FR-12).** A visible, associated label (§8.3): the `label` prop, `FieldLabel htmlFor`, or `aria-labelledby` a visible heading or `dt` (the draft caption and refine prompt, the campaign and project aside selects). A placeholder is never a field's only name. `aria-label` alone is kept only where a visible label would repeat a sibling's (each row's "Post topic" in the proposed schedule).
+- **Every field has a label (014 FR-12).** A visible, associated label (§8.3): the `label` prop, `FieldLabel htmlFor`, or `aria-labelledby` a visible heading or `dt` (the draft caption and refine prompt, the project aside selects). A placeholder is never a field's only name. `aria-label` alone is kept only where a visible label would repeat a sibling's (each row's "Post topic" in the proposed schedule).
 - **Every tablist has a name (014 FR-13).** `SegmentedToggle` takes a **required** `label`, rendered as the `tablist`'s `aria-label` ("Filter by status", "Provider slot", "Prompt view", "Briefing view", "Size", "Design", "Edit mode"). `tsc` fails without it.
 - **Stepper steps not yet reached are `aria-disabled="true"` (014 FR-15).** They stay focusable, so the tab order is unchanged; the current step is `aria-current="step"`, and done steps carry neither.
 - **A name is read once (014 FR-16).** Decorative duplicates are `aria-hidden`: a kit row's colour swatches (they keep their `title`), and a breadcrumb's current-page crumb, which stays visible while the `h1` beneath carries the name.
@@ -880,6 +880,7 @@ Anything else that seems to need an exception is a missing token. Raise it rathe
 | **post**, not "brief"                                      | page titles, buttons, lists, toasts, empty states and errors for the thing a user creates (`/brief` page title "New post"; "Create post"); the Content step's text field is "Description" | routes (`/brief`), API fields, Prisma models (`Brief`, `Post`), analytics names, code, docs about code. The publish record is "published post" in the UI where it must be told apart |
 | **Template** / **Freeform**, not "Path A" / "Path B"       | every UI label, column and badge                                                                                                                                                          | `designMode` values, code, docs about code, E2E test names                                                                                                                           |
 | **Brand kit** (sentence case; "brand kits" plural)         | all UI text, the nav item, model-catalogue labels shown in the UI                                                                                                                         | route segments (`/admin/brandkits`), code identifiers                                                                                                                                |
+| **Project**, not "campaign"                                | page titles, nav, the wizard step, the library filter, buttons, toasts and errors for a group of posts with shared defaults (`/projects`)                                                 | the retired `campaignId` field and its `CAMPAIGN_RETIRED` code, the bucket `campaign-docs`, operator scripts                                                                         |
 | **Team settings**                                          | the `/team` page title, nav and every pointer to it ("Team settings > AI providers")                                                                                                      | the route `/team`                                                                                                                                                                    |
 | **Captions** / **Images** for the `COPY` / `IMAGE` slots   | `/team` toggles, tags, headings and server messages shown to users. Helper text: "Captions: writes captions and headlines."                                                               | the enum values `COPY` and `IMAGE`                                                                                                                                                   |
 | **Image generation key**                                   | the personal key card and every pointer to it                                                                                                                                             | the route `/api/me/openai-key`, the table `UserOpenAiKey`                                                                                                                            |
@@ -888,7 +889,8 @@ Anything else that seems to need an exception is a missing token. Raise it rathe
 
 **UI to code mapping** (what a UI word means in the code):
 
-- post ↔ `Brief` (the thing a user creates); published post ↔ `Post`
+- post ↔ `Brief` (the thing a user creates)
+- project ↔ `Project` (038: it took over the briefing, documents and defaults of the retired campaign)
 - Template ↔ `designMode: TEMPLATE`; Freeform ↔ `designMode: GENERATE`
 - Captions ↔ the `COPY` provider slot; Images ↔ the `IMAGE` provider slot
 - Image generation key ↔ `UserOpenAiKey` (route `/api/me/openai-key`)

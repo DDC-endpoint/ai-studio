@@ -20,3 +20,7 @@
 {"ev":"stop","span":"W4","at":"2026-10-31T09:16:27Z","ts":1793438187,"status":"ok"}
 {"ev":"start","span":"W5","kind":"wave","label":"wave 5","at":"2026-10-31T09:16:28Z","ts":1793438188}
 {"ev":"start","span":"T5","kind":"task","label":"drop campaigns","parent":"W5","model":"sonnet","attempt":"1","at":"2026-10-31T09:16:28Z","ts":1793438188}
+{"ev":"stop","span":"T5","at":"2026-10-31T21:27:55Z","ts":1793482075,"status":"ok"}
+{"ev":"stop","span":"W5","at":"2026-10-31T21:27:55Z","ts":1793482075,"status":"ok"}
+{"ev":"start","span":"W6","kind":"wave","label":"wave 6","at":"2026-10-31T21:28:08Z","ts":1793482088}
+{"ev":"start","span":"T6","kind":"task","label":"docs and full gate","parent":"W6","model":"sonnet","attempt":"1","at":"2026-10-31T21:28:08Z","ts":1793482088}

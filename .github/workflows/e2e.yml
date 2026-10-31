@@ -125,7 +125,7 @@ jobs:
         #   rows onto the Bistec team). Without seed-teams the editor has no
         #   team membership, so every team-scoped route 403s for it (breaking
         #   the D6 editor-visibility cases across agui-refinement, briefing-
-        #   assistant, campaign-scheduling, library), and clientx.admin does
+        #   assistant, library, post-permissions), and clientx.admin does
         #   not exist, so the team-isolation suite's login fails outright.
         run: |
           node scripts/seed-admin.mjs
