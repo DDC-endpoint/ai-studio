@@ -68,7 +68,6 @@ vi.mock('@/lib/renderer/fontSet', () => ({ getFontSetId: () => 'fonts-test' }))
 vi.mock('@/lib/brandkit/resolve', () => ({
   resolveBrandKit: async () => ({ id: 'kit', name: 'Kit', colors: [], fonts: [], logos: [], artifacts: [] }),
 }))
-vi.mock('@/lib/campaign/briefing', () => ({ getActiveCampaignBriefing: async () => null }))
 vi.mock('@/providers/registry', () => ({
   resolveCopyProvider: async () => ({
     generateCaptions: async (_b: unknown, _t: unknown, model: { arg: string }) => ({

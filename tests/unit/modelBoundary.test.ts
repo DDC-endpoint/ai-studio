@@ -24,6 +24,7 @@
 // captionWriters / renderStamps / draftActionModels.
 
 import { describe, it, expect, vi, beforeEach, afterEach, afterAll } from 'vitest'
+import { ctxFor } from '../helpers/postContext'
 
 const h = vi.hoisted(() => ({
   mode: 'cli' as 'api' | 'cli',
@@ -263,7 +264,7 @@ const SURFACES: Array<{ surface: Surface; reply: string; run: () => Promise<unkn
   {
     surface: 'INTERNAL_BACKGROUND',
     reply: '{"needed": false, "prompt": ""}',
-    run: () => generateBackgroundForBrief(brief, kit, 'Headline', null, { userId: USER, teamId: TEAM }),
+    run: () => generateBackgroundForBrief(brief, ctxFor(kit), 'Headline', { userId: USER, teamId: TEAM }),
   },
   {
     surface: 'INTERNAL_VERIFIER',

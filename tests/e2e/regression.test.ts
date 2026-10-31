@@ -21,10 +21,9 @@ const REAL_RENDER = process.env.MOCK_PUPPETEER !== 'true'
 
 async function createExportedDraft(api: ApiClient, topic = 'Reg Test'): Promise<string> {
   const kit = await (await api.post('/api/admin/brandkits', { name: `Reg Kit ${topic}`, colors: ['#0284c7'] })).json()
-  const camp = await (await api.post('/api/campaigns', { name: `Reg Camp ${topic}`, brandKitId: kit.id })).json()
   const brief = await (await api.post('/api/briefs', {
     topic, goal: 'g', tone: 'professional', channels: ['INSTAGRAM'],
-    designMode: 'GENERATE', copyProviderKey: 'cli', campaignId: camp.id,
+    designMode: 'GENERATE', copyProviderKey: 'cli', brandKitId: kit.id,
   })).json()
   const assembled = await (await api.post('/api/generate/assemble-b', { briefId: brief.id })).json()
   await waitForDraft(api, assembled.draftId)

@@ -35,10 +35,9 @@ async function pageLogin(page: Page) {
 // browser session can open it).
 async function apiDraft(api: ApiClient, topic: string): Promise<string> {
   const kit = await (await api.post('/api/admin/brandkits', { name: `UI Kit ${topic}`, colors: ['#0284c7'] })).json()
-  const camp = await (await api.post('/api/campaigns', { name: `UI Camp ${topic}`, brandKitId: kit.id })).json()
   const brief = await (await api.post('/api/briefs', {
     topic, goal: 'g', tone: 'professional', channels: ['INSTAGRAM'],
-    designMode: 'GENERATE', copyProviderKey: 'cli', campaignId: camp.id,
+    designMode: 'GENERATE', copyProviderKey: 'cli', brandKitId: kit.id,
   })).json()
   const assembled = await (await api.post('/api/generate/assemble-b', { briefId: brief.id })).json()
   await waitForDraft(api, assembled.draftId)
@@ -68,7 +67,7 @@ test.describe('UI flows', () => {
     await pageLogin(page)
     await page.goto('/brief')
     // Step labels from src/app/(app)/brief/page.tsx STEPS.
-    for (const label of ['Campaign', 'Size & Design', 'Content', 'Images', 'Review']) {
+    for (const label of ['Project', 'Size & Design', 'Content', 'Images', 'Review']) {
       await expect(page.getByText(label, { exact: false }).first()).toBeVisible()
     }
     // The wizard exposes a Continue affordance on the first step.

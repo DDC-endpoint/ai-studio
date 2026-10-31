@@ -7,6 +7,7 @@ import { imageSizeFor } from "@/providers/imageCapabilities"
 import type { AspectRatio } from "@prisma/client"
 import type { BrandKitContext, GenerationActor } from "./types"
 import type { CompositeRender } from "@/lib/composite/render"
+import type { PostContext } from "@/lib/projects/context"
 
 export async function toolGenerateImage(
   prompt: string,
@@ -65,69 +66,21 @@ export async function toolRenderHtml(
   return { url: (await resolveExportUrl(key))!, key, headlineCheck, fontsMissing }
 }
 
-export async function toolGetBrandKitContext(briefId: string): Promise<BrandKitContext> {
-  const brief = await prisma.brief.findUniqueOrThrow({
-    where: { id: briefId },
+// 038 FR-20: the API-mode agent's getBrandKitContext tool returns the kit of the
+// run's own PostContext. It takes no model-supplied id (the old `briefId` read any
+// brief by id with no team check) and keeps no second copy of the kit precedence.
+export async function toolGetBrandKitContext(ctx: PostContext | null | undefined): Promise<BrandKitContext> {
+  const empty: BrandKitContext = { colors: [], fonts: [], logoUrl: null, voicePrompt: null, artifactUrls: [] }
+  if (!ctx?.kit) return empty
+
+  const kit = await prisma.brandKit.findFirst({
+    where: { id: ctx.kit.id, teamId: ctx.teamId, isDeleted: false },
     include: {
-      brandKit: {
-        include: {
-          prompts: { where: { isActive: true }, take: 1 },
-          artifacts: { where: { feedToAI: true } },
-        },
-      },
-      campaign: {
-        include: {
-          brandKit: {
-            include: {
-              prompts: { where: { isActive: true }, take: 1 },
-              artifacts: { where: { feedToAI: true } },
-            },
-          },
-          projects: {
-            take: 1,
-            include: {
-              project: {
-                include: {
-                  defaultBrandKit: {
-                    include: {
-                      prompts: { where: { isActive: true }, take: 1 },
-                      artifacts: { where: { feedToAI: true } },
-                    },
-                  },
-                },
-              },
-            },
-          },
-        },
-      },
+      prompts: { where: { isActive: true }, take: 1 },
+      artifacts: { where: { feedToAI: true } },
     },
   })
-
-  // Resolve: explicit brief kit → campaign brand kit → project default → team default
-  const explicitKit = brief.brandKit && !brief.brandKit.isDeleted ? brief.brandKit : null
-  const campaignKit = brief.campaign?.brandKit ?? null
-  const projectKit = brief.campaign?.projects[0]?.project?.defaultBrandKit ?? null
-
-  let kit = explicitKit ?? campaignKit ?? projectKit
-
-  if (!kit) {
-    // Same C1 fix as lib/brandkit/resolve.ts: this tool re-implements the
-    // precedence chain independently (it's the API-mode agent's
-    // getBrandKitContext tool, not a caller of resolveBrandKit) and had the
-    // identical unscoped last-resort lookup — a cross-tenant brand-kit leak
-    // by default. Scope it to the brief's own team.
-    kit = await prisma.brandKit.findFirst({
-      where: { teamId: brief.teamId, isDefault: true, isDeleted: false },
-      include: {
-        prompts: { where: { isActive: true }, take: 1 },
-        artifacts: { where: { feedToAI: true } },
-      },
-    })
-  }
-
-  if (!kit) {
-    return { colors: [], fonts: [], logoUrl: null, voicePrompt: null, artifactUrls: [] }
-  }
+  if (!kit) return empty
 
   const colors = Array.isArray(kit.colors) ? (kit.colors as string[]) : []
   const fonts = Array.isArray(kit.fonts)

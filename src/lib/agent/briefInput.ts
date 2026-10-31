@@ -1,5 +1,5 @@
 import type { Brief } from '@prisma/client'
-import type { ResolvedBrandKit } from '@/lib/brandkit/resolve'
+import type { PostContext } from '@/lib/projects/context'
 import { parseCompositeSource } from '@/lib/brief/compositeSource'
 import type { BriefInput } from '@/providers/interfaces/CopyProvider'
 import {
@@ -95,15 +95,12 @@ export function imageRulesAtStamp(stamp: unknown, draftId: string): string | und
   return checklistPromptText(parsed.key, parsed.version, 'image') || undefined
 }
 
-// Builds the provider-facing BriefInput from a Brief row (+ optional resolved
-// brand kit for voice context, + optional active campaign briefing). Shared by
-// every copy-generation call site (assemble-a, assemble-b, the copy route,
-// regenerate-copy, ACP) so the shape stays identical everywhere.
-export function buildBriefInput(
-  brief: Brief,
-  kit?: ResolvedBrandKit | null,
-  campaignBriefing?: string | null,
-): BriefInput {
+// Builds the provider-facing BriefInput from a Brief row and the post's project
+// context (038 D6): the context carries the kit (voice) and the project briefing.
+// Shared by every copy-generation call site (assemble-a, assemble-b, the copy
+// route, regenerate-copy, ACP) so the shape stays identical everywhere.
+export function buildBriefInput(brief: Brief, ctx: PostContext): BriefInput {
+  const kit = ctx.kit
   // 027: throws for a stored key that does not resolve (fail closed).
   const captionRules = resolveBriefStyle(brief)?.captionRules
   return {
@@ -114,7 +111,7 @@ export function buildBriefInput(
     channels: brief.channels,
     brandName: kit?.name,
     brandVoice: kit?.voicePrompt ?? undefined,
-    campaignBriefing: campaignBriefing ?? undefined,
+    projectBriefing: ctx.briefing?.content ?? undefined,
     ...(captionRules ? { captionRules } : {}),
   }
 }

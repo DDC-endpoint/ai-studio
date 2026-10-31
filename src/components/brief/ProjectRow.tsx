@@ -2,19 +2,19 @@
 
 import React from 'react'
 import { Check } from 'lucide-react'
-import type { Campaign } from '@/lib/api-types'
+import type { ProjectSummary } from '@/lib/api-types'
 import { rowCls } from './cardCls'
 
-// ─── Campaign row ────────────────────────────────────────────────────────────
+// ─── Project row ─────────────────────────────────────────────────────────────
 // A ruled row (DESIGN_SYSTEM.md §6: lists as ruled rows, not cards).
 
-interface CampaignRowProps {
-  campaign: Campaign
+interface ProjectRowProps {
+  project: ProjectSummary
   selected: boolean
   onSelect: () => void
 }
 
-export function CampaignRow({ campaign, selected, onSelect }: CampaignRowProps) {
+export function ProjectRow({ project, selected, onSelect }: ProjectRowProps) {
   return (
     <button
       type="button"
@@ -24,11 +24,11 @@ export function CampaignRow({ campaign, selected, onSelect }: CampaignRowProps) 
     >
       <span className="flex-1 min-w-0">
         <span className={['block text-ui-base text-fg truncate', selected ? 'font-semibold' : ''].join(' ')}>
-          {campaign.name}
+          {project.name}
         </span>
         <span className="block text-ui-xs text-fg-muted truncate">
-          {campaign._count?.briefs ?? 0} brief{(campaign._count?.briefs ?? 0) === 1 ? '' : 's'}
-          {campaign.brandKit ? ` · ${campaign.brandKit.name}` : ''}
+          {project.postCount} post{project.postCount === 1 ? '' : 's'}
+          {project.defaultBrandKit ? ` · ${project.defaultBrandKit.name}` : ''}
         </span>
       </span>
       {selected && <Check size={15} strokeWidth={1.4} className="text-accent flex-shrink-0" />}

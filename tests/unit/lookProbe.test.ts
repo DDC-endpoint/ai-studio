@@ -26,7 +26,7 @@ vi.mock('@/lib/prisma', () => ({
   prisma: new Proxy({}, { get: () => new Proxy({}, { get: () => h.prismaWrite }) }),
 }))
 vi.mock('@/lib/testHooks', () => ({ MOCK_AI: true }))
-vi.mock('@/lib/brandkit/resolve', () => ({ resolveBrandKit: h.resolveKit }))
+vi.mock('@/lib/projects/context', () => ({ newPostContext: h.resolveKit }))
 vi.mock('@/lib/agent/background', () => ({ generateBackgroundForBrief: h.generate }))
 vi.mock('@/lib/storage/minio', () => ({ BUCKET_IMAGES: 'images', deleteObject: h.deleteObject }))
 vi.mock('@/lib/api/handler', async () => {
@@ -59,8 +59,8 @@ describe('POST /api/admin/look-probe', () => {
     h.deleteObject.mockReset().mockResolvedValue(undefined)
     h.prismaWrite.mockReset()
     h.claudeAuth.mockReset()
-    h.resolveKit.mockReset().mockResolvedValue({ id: 'kit-1' })
-    h.generate.mockImplementation(async (_b, _k, _h, _c, _a, _plan, onPrompt) => {
+    h.resolveKit.mockReset().mockResolvedValue({ kit: { id: 'kit-1' } })
+    h.generate.mockImplementation(async (_b, _c, _h, _a, _plan, onPrompt) => {
       onPrompt?.('the image prompt')
       return { url: IMG_URL, check: { ok: true } }
     })
@@ -113,14 +113,14 @@ describe('POST /api/admin/look-probe', () => {
   it('031 FR-48: a super admin plans an explicit contract version (spotlight v2), and the default is `current`', async () => {
     const res = await call({ key: 'spotlight', size: 'SQUARE', version: 2 })
     expect(res.status).toBe(200)
-    expect(h.generate.mock.calls[0][5]).toMatchObject({ kind: 'hero', requestedArchetype: 'spotlight', contractVersion: 2 })
-    expect(h.generate.mock.calls[0][5].sizeContract.regions[0].rect).toEqual({ x: 0, y: 0, w: 100, h: 20 })
+    expect(h.generate.mock.calls[0][4]).toMatchObject({ kind: 'hero', requestedArchetype: 'spotlight', contractVersion: 2 })
+    expect(h.generate.mock.calls[0][4].sizeContract.regions[0].rect).toEqual({ x: 0, y: 0, w: 100, h: 20 })
     h.generate.mockClear()
     await call({ key: 'spotlight', size: 'SQUARE' })
-    expect(h.generate.mock.calls[0][5]).toMatchObject({ contractVersion: 2 })
+    expect(h.generate.mock.calls[0][4]).toMatchObject({ contractVersion: 2 })
     h.generate.mockClear()
     await call({ key: 'spotlight', size: 'SQUARE', version: 1 })
-    expect(h.generate.mock.calls[0][5]).toMatchObject({ contractVersion: 1 })
+    expect(h.generate.mock.calls[0][4]).toMatchObject({ contractVersion: 1 })
   })
 
   it('031 FR-48: refuses a version over the latest, a non-integer, zero and a non-super-admin', async () => {
@@ -146,7 +146,7 @@ describe('POST /api/admin/look-probe', () => {
     expect(body.image).toBe(`data:image/png;base64,${Buffer.from('png-bytes').toString('base64')}`)
     expect(h.prismaWrite).not.toHaveBeenCalled()
     // One hero plan at the asked size, the mock sentinel in the topic, the probe's own callback.
-    const [brief, , , , actor, plan] = h.generate.mock.calls[0]
+    const [brief, , , actor, plan] = h.generate.mock.calls[0]
     expect(brief.topic).toContain('Product screen probe')
     expect(brief.topic).toContain('__MOCK_BG__')
     expect(actor).toEqual({ userId: 'u1', teamId: 'team-A' })

@@ -10,7 +10,7 @@ import { activeStyles } from '@/lib/postStyles'
 export const AGENT_MANIFEST = {
   name: 'bistec-studio',
   description: 'On-brand social media post generation for Instagram and LinkedIn.',
-  version: '2.0.0',
+  version: '2.1.0',
   capabilities: [
     {
       name: 'generate_post',
@@ -24,7 +24,7 @@ export const AGENT_MANIFEST = {
             type: 'string',
             enum: activeStyles().map((s) => s.key),
             description:
-              'The kind of post (default: general, or the campaign default). An unknown value is an error.',
+              'The kind of post (default: general, or the project default). An unknown value is an error.',
           },
           goal: {
             type: 'string',
@@ -46,7 +46,11 @@ export const AGENT_MANIFEST = {
             description: 'TEMPLATE fills a brand template; GENERATE creates a new design',
           },
           description: { type: 'string', description: 'Additional context for the post' },
-          campaignId: { type: 'string', description: 'Campaign ID for brand kit resolution' },
+          projectId: {
+            type: 'string',
+            description:
+              'Project id (optional): its briefing, documents, default kit and default post style apply',
+          },
         },
       },
       output: {

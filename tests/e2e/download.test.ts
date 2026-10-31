@@ -132,10 +132,9 @@ test.describe('§AI Download', () => {
       name: 'DL Template',
       htmlTemplate: '<html><body style="width:1080px;height:1080px;background:#0284c7">{{topic}}</body></html>',
     })).json()
-    const camp = await (await api.post('/api/campaigns', { name: `DL Camp ${Date.now()}`, brandKitId: kit.id })).json()
     const brief = await (await api.post('/api/briefs', {
       topic, goal: 'g', tone: 'professional', channels: ['INSTAGRAM'],
-      designMode: 'TEMPLATE', copyProviderKey: 'cli', campaignId: camp.id,
+      designMode: 'TEMPLATE', copyProviderKey: 'cli', brandKitId: kit.id,
     })).json()
     const res = await api.post('/api/generate/assemble-a', { briefId: brief.id, templateId: template.id })
     expect(res.status()).toBe(202)

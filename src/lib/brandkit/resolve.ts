@@ -4,7 +4,7 @@ import { buildLogoList, type LogoEntry } from '@/lib/brandkit/logos'
 
 type KitWithPrompts = BrandKit & { prompts: BrandKitPrompt[]; artifacts?: BrandKitArtifact[] }
 
-export type BrandKitSource = 'explicit' | 'campaign' | 'project' | 'system'
+export type BrandKitSource = 'explicit' | 'project' | 'team'
 
 export interface ResolvedBrandKit {
   id: string
@@ -50,25 +50,24 @@ const PROMPT_INCLUDE = {
   artifacts: { where: { type: 'LOGO' as const }, orderBy: { createdAt: 'asc' as const } },
 } as const
 
-// Resolves brand kit precedence:
-//   explicit brief kit → campaign brand kit → project default → team default
+// Resolves brand kit precedence (038 D5):
+//   explicit brief kit → the project's default kit → team default
 // `brandKitId` is the brief's own selection (Brief.brandKitId) and wins when set
-// and the kit still exists; otherwise we fall back through the campaign chain.
+// and the kit still exists; a deleted, missing or foreign kit at a tier is skipped.
 //
-// `teamId` is REQUIRED (team-tenancy fix, final review C1) and scopes every
-// tier — including the last-resort "team default" tier, which used to run
-// with no teamId filter at all (`findFirst({ isDefault: true, isDeleted: false })`).
-// That meant any team whose brief had no explicit kit and whose campaign chain
-// yielded nothing would silently fall through to whichever OTHER team's default
-// kit `findFirst` happened to return first — a cross-tenant brand-kit leak by
-// default, not by guessing an id. The explicit/campaign/project tiers are also
-// teamId-scoped as defense-in-depth even though their ids are already supposed
-// to belong to the caller's team (callers validate that at the route/brief
-// level) — this function itself must never trust an id alone.
+// `teamId` is REQUIRED and scopes every tier, including the last-resort team
+// default: an unscoped `findFirst({ isDefault: true })` once leaked another
+// team's default kit (final review C1). Every id is checked against the team
+// here too, because this function must never trust an id alone.
+//
+// The project row itself may be soft-deleted: a recorded project still supplies
+// its default kit, so a regenerate after a delete resolves the same kit.
+//
+// Only src/lib/projects/context.ts and the admin look probe import this
+// (tests/unit/kitResolverBoundary.test.ts).
 export async function resolveBrandKit(
   teamId: string,
-  campaignId?: string | null,
-  brandKitId?: string | null
+  { brandKitId, projectId }: { brandKitId?: string | null; projectId?: string | null } = {},
 ): Promise<ResolvedBrandKit | null> {
   if (brandKitId) {
     const explicit = await prisma.brandKit.findFirst({
@@ -76,30 +75,17 @@ export async function resolveBrandKit(
       include: PROMPT_INCLUDE,
     })
     if (explicit) return normalise(explicit, 'explicit')
-    // fall through if the selected kit was deleted / not found / foreign-team
   }
 
-  if (campaignId) {
-    const campaign = await prisma.campaign.findFirst({
-      where: { id: campaignId, teamId, isDeleted: false },
-      include: {
-        brandKit: { include: PROMPT_INCLUDE },
-        projects: {
-          take: 1,
-          include: {
-            project: { include: { defaultBrandKit: { include: PROMPT_INCLUDE } } },
-          },
-        },
-      },
+  if (projectId) {
+    const project = await prisma.project.findFirst({
+      where: { id: projectId, teamId },
+      include: { defaultBrandKit: { include: PROMPT_INCLUDE } },
     })
-
-    // Skip soft-deleted brand kits at each tier.
-    if (campaign?.brandKit && !campaign.brandKit.isDeleted) {
-      return normalise(campaign.brandKit, 'campaign')
+    const projectKit = project?.defaultBrandKit
+    if (projectKit && !projectKit.isDeleted && projectKit.teamId === teamId) {
+      return normalise(projectKit, 'project')
     }
-
-    const projectKit = campaign?.projects[0]?.project?.defaultBrandKit
-    if (projectKit && !projectKit.isDeleted) return normalise(projectKit, 'project')
   }
 
   const teamKit = await prisma.brandKit.findFirst({
@@ -107,5 +93,5 @@ export async function resolveBrandKit(
     include: PROMPT_INCLUDE,
   })
 
-  return teamKit ? normalise(teamKit, 'system') : null
+  return teamKit ? normalise(teamKit, 'team') : null
 }

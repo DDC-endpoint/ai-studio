@@ -27,8 +27,6 @@ const EDITOR_PASSWORD = 'BistecStudio2026!'
 async function createExportedDraft(api: ApiClient) {
   const kitRes = await api.post('/api/admin/brandkits', { name: 'AGUI Test Kit', colors: ['#0284c7'] })
   const kit = await kitRes.json()
-  const campRes = await api.post('/api/campaigns', { name: 'AGUI Campaign', brandKitId: kit.id })
-  const camp = await campRes.json()
   const briefRes = await api.post('/api/briefs', {
     topic: 'AGUI Refinement Test',
     goal: 'Test AGUI',
@@ -36,7 +34,7 @@ async function createExportedDraft(api: ApiClient) {
     channels: ['INSTAGRAM'],
     designMode: 'GENERATE',
     copyProviderKey: 'cli',
-    campaignId: camp.id,
+    brandKitId: kit.id,
   })
   const brief = await briefRes.json()
   // Generation is async: assemble returns 202 { draftId }; poll until EXPORTED.
@@ -204,7 +202,7 @@ test.describe('AGUI design refinement', () => {
     }
   })
 
-  // TC-AGUI-06b — the same holds for a draft with no campaign: 403 not-author.
+  // TC-AGUI-06b — the same holds for a draft with no project: 403 not-author.
   test('an in-team editor cannot refine an uncategorized draft owned by the admin (403)', async ({ request }) => {
     if (!process.env.MOCK_AI || !process.env.MOCK_PUPPETEER) { test.skip(); return }
     const kitRes = await api.post('/api/admin/brandkits', { name: 'AGUI Private Kit', colors: ['#0284c7'] })
@@ -216,7 +214,7 @@ test.describe('AGUI design refinement', () => {
       channels: ['INSTAGRAM'],
       designMode: 'GENERATE',
       copyProviderKey: 'cli',
-      brandKitId: kit.id, // no campaignId — private, uncategorized
+      brandKitId: kit.id, // no projectId — uncategorized
     })
     const brief = await briefRes.json()
     const assembleRes = await api.post('/api/generate/assemble-b', { briefId: brief.id })
@@ -352,7 +350,7 @@ async function rejectedCount(draftId: string): Promise<number> {
 
 let fidelityKitId: string | null = null
 
-// An EXPORTED private draft (no campaign — keeps the campaign list small),
+// An EXPORTED private draft (no project),
 // optionally moved onto a specific before-document through inline-edit.
 async function fidelityDraft(api: ApiClient, tag: string, beforeHtml?: string): Promise<Arranged> {
   if (!fidelityKitId) {

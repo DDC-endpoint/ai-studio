@@ -3,8 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { withTeamAuth } from '@/lib/api/handler'
 import { canView, canEditPost, NOT_AUTHOR } from '@/lib/authz/visibility'
 import { copyProviderIsClaude, resolveCopyProvider } from '@/providers/registry'
-import { resolveBrandKit } from '@/lib/brandkit/resolve'
-import { getActiveCampaignBriefing } from '@/lib/campaign/briefing'
+import { postContext, type PostContext } from '@/lib/projects/context'
 import { briefPostStyleStamp, buildBriefInput } from '@/lib/agent/briefInput'
 import { writeCaptions } from '@/lib/captions/generate'
 import { parseRegenerateBody } from '@/lib/captions/requests'
@@ -65,8 +64,7 @@ export const POST = withTeamAuth<{ id: string }>(async (req, { params }, user) =
   // Everything fallible that needs no claim runs first, so its failure (422)
   // leaves nothing claimed.
   let provider: Awaited<ReturnType<typeof resolveCopyProvider>>
-  let kit: Awaited<ReturnType<typeof resolveBrandKit>>
-  let campaignBriefing: Awaited<ReturnType<typeof getActiveCampaignBriefing>>
+  let ctx: PostContext
   let model: ResolvedModel
   try {
     // Load the rows BEFORE the claim marks them PENDING: the loader fills any
@@ -98,9 +96,9 @@ export const POST = withTeamAuth<{ id: string }>(async (req, { params }, user) =
     model = resolved.resolved
 
     provider = await resolveCopyProvider(draft.brief.teamId, draft.brief.copyProviderKey ?? undefined)
-    // Brand voice follows the same kit precedence as design generation.
-    kit = await resolveBrandKit(draft.teamId, draft.brief.campaignId ?? undefined, draft.brief.brandKitId ?? undefined)
-    campaignBriefing = await getActiveCampaignBriefing(draft.brief.campaignId)
+    // 038 D3: the kit and the briefing the post was made with (its recorded stamp),
+    // not the brief's current project.
+    ctx = await postContext(draft)
   } catch (err) {
     return copyError(err)
   }
@@ -133,7 +131,7 @@ export const POST = withTeamAuth<{ id: string }>(async (req, { params }, user) =
       async () => {
         // 027: the brief's post style rules, if it has one (a stored key that does
         // not resolve throws here and settles the rows as failed).
-        const briefInput = buildBriefInput(draft.brief, kit, campaignBriefing)
+        const briefInput = buildBriefInput(draft.brief, ctx)
         const { fields, stamp } = await writeCaptions(provider, briefInput, targets, model)
         // The copy ran under the style's current version; the settle writes it to
         // Draft.postStyle (claim-guarded) and recomputes the facts check. Only when

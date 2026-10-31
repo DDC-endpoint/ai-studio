@@ -78,7 +78,7 @@ test.describe('Template viewer (040)', () => {
 
   async function toDesignStep(page: Page) {
     await page.goto('/brief')
-    await expect(page.getByRole('heading', { name: 'Select a campaign' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Select a project' })).toBeVisible()
     await page.getByRole('button', { name: /continue/i }).click()
     await expect(page.getByRole('heading', { name: 'Size & Design' })).toBeVisible()
     const kitSelect = page.getByRole('combobox', { name: 'Brand kit' })

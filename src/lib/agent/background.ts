@@ -44,6 +44,7 @@ import {
 import { imageGeometryPin, type HeroCheckResult, type HeroPlan } from '@/lib/designData'
 import { runHeroCheck } from '@/lib/renderer/heroCheck'
 import type { ResolvedBrandKit } from '@/lib/brandkit/resolve'
+import type { PostContext } from '@/lib/projects/context'
 import { resolveImageProviderWithSource, type ResolvedImageProvider } from '@/providers/registry'
 import { isAuthRejection, markUserOpenAiKeyInvalid } from '@/lib/agent/openAiKey'
 import type { ImageSource } from '@/lib/drafts/imageSourceNotice'
@@ -357,14 +358,16 @@ async function resolveProvider(opts: {
  */
 export async function generateBackgroundForBrief(
   brief: Brief,
-  kit: ResolvedBrandKit,
+  // 038 D6: the post's project context carries the kit and the project briefing.
+  ctx: PostContext,
   // The on-image headline (012 FR-09) — never a caption.
   headline: string,
-  campaignBriefing: string | null | undefined,
   actor: GenerationActor,
   hero?: HeroPlan,
   onPrompt?: (prompt: string) => void,
 ): Promise<BackgroundOutcome> {
+  const kit = ctx.kit
+  if (!kit) throw new Error('The background step needs a brand kit')
   return runBackgroundStep(
     () =>
       buildBackgroundDecisionPrompt({
@@ -374,7 +377,7 @@ export async function generateBackgroundForBrief(
         goal: brief.goal,
         tone: brief.tone,
         headline,
-        campaignBriefing,
+        projectBriefing: ctx.briefing?.content ?? null,
         imageRules: imageRulesFor(brief),
         ...(hero ? { hero: { label: hero.label, contract: hero.contract, size: hero.sizeContract } } : {}),
       }),

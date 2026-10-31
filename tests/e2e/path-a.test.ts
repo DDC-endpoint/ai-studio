@@ -42,9 +42,6 @@ test.describe('Path A — template-fill generation', () => {
     })
     const template = await templateRes.json()
 
-    const campRes = await api.post('/api/campaigns', { name: 'Path A Campaign', brandKitId: kit.id })
-    const camp = await campRes.json()
-
     const briefRes = await api.post('/api/briefs', {
       topic: 'Tech Summit 2026',
       goal: 'Drive registrations',
@@ -52,7 +49,7 @@ test.describe('Path A — template-fill generation', () => {
       channels: ['INSTAGRAM'],
       designMode: 'TEMPLATE',
       copyProviderKey: 'cli',
-      campaignId: camp.id,
+      brandKitId: kit.id,
     })
     expect(briefRes.status()).toBe(201)
     const brief = await briefRes.json()
@@ -81,10 +78,9 @@ test.describe('Path A — template-fill generation', () => {
   test('assemble-a with a bad templateId returns 404', async () => {
     if (!process.env.MOCK_AI || !process.env.MOCK_PUPPETEER) { test.skip(); return }
     const kit = await (await api.post('/api/admin/brandkits', { name: 'A2 Kit', colors: ['#0284c7'] })).json()
-    const camp = await (await api.post('/api/campaigns', { name: 'A2 Campaign', brandKitId: kit.id })).json()
     const brief = await (await api.post('/api/briefs', {
       topic: 'A2', goal: 'g', tone: 'professional', channels: ['INSTAGRAM'],
-      designMode: 'TEMPLATE', copyProviderKey: 'cli', campaignId: camp.id,
+      designMode: 'TEMPLATE', copyProviderKey: 'cli', brandKitId: kit.id,
     })).json()
 
     const res = await api.post('/api/generate/assemble-a', {
@@ -110,13 +106,13 @@ test.describe('Path A — template-fill generation', () => {
     expect(noChannels.status()).toBeGreaterThanOrEqual(400)
     expect(noChannels.status()).toBeLessThan(500)
 
-    // Bad campaign FK.
-    const badCampaign = await api.post('/api/briefs', {
+    // Bad project FK (404 PROJECT_NOT_FOUND).
+    const badProject = await api.post('/api/briefs', {
       topic: 'x', goal: 'g', tone: 'professional', channels: ['INSTAGRAM'],
-      designMode: 'GENERATE', copyProviderKey: 'cli', campaignId: 'camp_missing',
+      designMode: 'GENERATE', copyProviderKey: 'cli', projectId: 'proj_missing',
     })
-    expect(badCampaign.status()).toBeGreaterThanOrEqual(400)
-    expect(badCampaign.status()).toBeLessThan(500)
+    expect(badProject.status()).toBeGreaterThanOrEqual(400)
+    expect(badProject.status()).toBeLessThan(500)
   })
 
   // TC-GEN-04 — Validation is parallelized & still correct: multiple bad FKs at once → 4xx. Guards M12.
@@ -128,7 +124,7 @@ test.describe('Path A — template-fill generation', () => {
       channels: ['INSTAGRAM'],
       designMode: 'TEMPLATE',
       copyProviderKey: 'no_such_provider',
-      campaignId: 'camp_missing',
+      projectId: 'proj_missing',
       templateId: 'tmpl_missing',
     })
     expect(res.status()).toBeGreaterThanOrEqual(400)
@@ -153,10 +149,9 @@ test.describe('Path A — template-fill generation', () => {
       htmlTemplate: `<html><body style="width:1080px;height:1080px;background:#0284c7"><img src="data:image/png;base64,${huge}"/>{{topic}}</body></html>`,
     })).json()
 
-    const camp = await (await api.post('/api/campaigns', { name: 'Oversized Campaign', brandKitId: kit.id })).json()
     const brief = await (await api.post('/api/briefs', {
       topic: 'Oversized', goal: 'g', tone: 'professional', channels: ['INSTAGRAM'],
-      designMode: 'TEMPLATE', copyProviderKey: 'cli', campaignId: camp.id,
+      designMode: 'TEMPLATE', copyProviderKey: 'cli', brandKitId: kit.id,
     })).json()
 
     const res = await api.post('/api/generate/assemble-a', { briefId: brief.id, templateId: template.id })
@@ -180,10 +175,9 @@ test.describe('Path A — template-fill generation', () => {
     })).json()
     expect(template.aspectRatio).toBe('PORTRAIT')
 
-    const camp = await (await api.post('/api/campaigns', { name: 'Portrait Campaign', brandKitId: kit.id })).json()
     const brief = await (await api.post('/api/briefs', {
       topic: 'Portrait Launch', goal: 'g', tone: 'professional', channels: ['INSTAGRAM'],
-      aspectRatio: 'PORTRAIT', designMode: 'TEMPLATE', copyProviderKey: 'cli', campaignId: camp.id,
+      aspectRatio: 'PORTRAIT', designMode: 'TEMPLATE', copyProviderKey: 'cli', brandKitId: kit.id,
     })).json()
 
     const res = await api.post('/api/generate/assemble-a', { briefId: brief.id, templateId: template.id })
@@ -203,11 +197,10 @@ test.describe('Path A — template-fill generation', () => {
       name: 'Square Template',
       htmlTemplate: '<html><body style="width:1080px;height:1080px;background:#0284c7">{{topic}}</body></html>',
     })).json()
-    const camp = await (await api.post('/api/campaigns', { name: 'Mismatch Campaign', brandKitId: kit.id })).json()
     // … against a PORTRAIT brief.
     const brief = await (await api.post('/api/briefs', {
       topic: 'Mismatch', goal: 'g', tone: 'professional', channels: ['INSTAGRAM'],
-      aspectRatio: 'PORTRAIT', designMode: 'TEMPLATE', copyProviderKey: 'cli', campaignId: camp.id,
+      aspectRatio: 'PORTRAIT', designMode: 'TEMPLATE', copyProviderKey: 'cli', brandKitId: kit.id,
     })).json()
 
     const res = await api.post('/api/generate/assemble-a', { briefId: brief.id, templateId: template.id })

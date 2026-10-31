@@ -1,5 +1,5 @@
 import type { Brief, BrandKitTemplate } from '@prisma/client'
-import type { ResolvedBrandKit } from '@/lib/brandkit/resolve'
+import type { PostContext } from '@/lib/projects/context'
 import type { DesignAgentResult, GenerationActor } from '@/lib/agent/types'
 import { runDesignAgent } from '@/lib/agent/designAgent'
 import { runDesignAgentCli } from '@/lib/agent/designAgentCli'
@@ -54,15 +54,15 @@ export function assertTemplateMatchesBrief(brief: Brief, template: BrandKitTempl
 // scheduled-generation runner, mirroring runPathBDesign's shape.
 export async function runPathADesign(
   brief: Brief,
-  kit: ResolvedBrandKit | null,
+  ctx: PostContext,
   template: BrandKitTemplate,
   headline: string,
-  campaignBriefing: string | null | undefined,
   actor: GenerationActor,
   // 008 FR-07: the DESIGN_TEMPLATE model, resolved by the caller.
   model: ResolvedModel,
 ): Promise<DesignAgentResult> {
   assertTemplateMatchesBrief(brief, template)
+  const kit = ctx.kit
 
   // Output canvas for this brief (1080×1080 square or 1080×1350 portrait).
   const { width, height } = dimensionsFor(brief.aspectRatio)
@@ -82,7 +82,7 @@ export async function runPathADesign(
     height,
     hasInlineAssets,
     additionalImageUrl: brief.additionalImageUrl,
-    campaignBriefing,
+    projectBriefing: ctx.briefing?.content ?? null,
   })
   const userMessage = buildPathAUserMessage({
     slimTemplate,
@@ -126,5 +126,6 @@ export async function runPathADesign(
         actor,
         headline,
         postProcess,
+        context: ctx,
       })
 }

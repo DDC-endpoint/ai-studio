@@ -4,7 +4,8 @@ import type { DraftAction, DraftStatus } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { withTeamAuth, parseBody } from '@/lib/api/handler'
 import { canView, canEditPost, NOT_AUTHOR } from '@/lib/authz/visibility'
-import { resolveBrandKit } from '@/lib/brandkit/resolve'
+import { postContext } from '@/lib/projects/context'
+import { parseGenerationInputs } from '@/lib/projects/inputs'
 import { BUCKET_DOCS, deleteObject, resolveExportUrl } from '@/lib/storage/minio'
 import { parseCompositeSource } from '@/lib/brief/compositeSource'
 import { planDraftRecovery, STUCK_ACTION_REASON, STUCK_REASON } from '@/lib/drafts/recovery'
@@ -154,8 +155,10 @@ async function loadDraft(id: string) {
   const imageSource = parseImageSource(draft.imageSource)
 
   // Independent reads, run together (018 FR-04: this GET is the 4 s poll).
-  const [kit, notApplied, captionProviderIsClaude] = await Promise.all([
-    resolveBrandKit(draft.teamId, undefined, draft.brief.brandKitId ?? undefined),
+  const [ctx, notApplied, captionProviderIsClaude] = await Promise.all([
+    // 038 FR-12: the kit name and the project come from the recorded stamp (a
+    // draft made before 038 has none: its brief's own kit, then the team default).
+    postContext(draft),
     // FR-14/AC-18: a twice-failed refine is a distinct outcome, not the
     // existing error channel — re-derived from the retained rejected row on
     // every poll (Ruling E), never trusted off the stored FK alone.
@@ -168,6 +171,7 @@ async function loadDraft(id: string) {
   ])
 
   const composition = draftCompositionStamp(draft)
+  const stamp = parseGenerationInputs(draft.generationInputs)
 
   return {
     ownerId: draft.brief.userId,
@@ -214,7 +218,16 @@ async function loadDraft(id: string) {
     createdAt: draft.createdAt,
     revisionCount: draft._count.revisions,
     currentRevisionNumber: draft.currentRevisionNumber,
-    brandKitName: kit?.name ?? null,
+    brandKitName: ctx.kit?.name ?? null,
+    // 038 FR-12: what the post was generated with, from the stamp (null = made before 038).
+    inputs: stamp
+      ? {
+          project: ctx.project,
+          briefingVersion: stamp.briefingVersion,
+          kitName: ctx.kit?.name ?? null,
+          kitSource: stamp.kitSource,
+        }
+      : null,
     brief: {
       id: draft.brief.id,
       topic: draft.brief.topic,

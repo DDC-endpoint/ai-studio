@@ -55,9 +55,6 @@ test.describe('Path B — freeform design generation', () => {
     })
     const kit = await kitRes.json()
 
-    const campRes = await api.post('/api/campaigns', { name: 'Path B Campaign', brandKitId: kit.id })
-    const camp = await campRes.json()
-
     const briefRes = await api.post('/api/briefs', {
       topic: 'AI Product Launch',
       description: 'Announcing our new AI assistant',
@@ -66,7 +63,7 @@ test.describe('Path B — freeform design generation', () => {
       channels: ['LINKEDIN'],
       designMode: 'GENERATE',
       copyProviderKey: 'cli',
-      campaignId: camp.id,
+      brandKitId: kit.id,
     })
     expect(briefRes.status()).toBe(201)
     const brief = await briefRes.json()
@@ -88,11 +85,10 @@ test.describe('Path B — freeform design generation', () => {
     const kit = await (await api.post('/api/admin/brandkits', {
       name: 'Path B Portrait Kit', colors: ['#7dd3fc', '#020617'],
     })).json()
-    const camp = await (await api.post('/api/campaigns', { name: 'Path B Portrait Campaign', brandKitId: kit.id })).json()
     const brief = await (await api.post('/api/briefs', {
       topic: 'Portrait Freeform', goal: 'Generate buzz', tone: 'bold',
       channels: ['LINKEDIN'], aspectRatio: 'PORTRAIT', designMode: 'GENERATE',
-      copyProviderKey: 'cli', campaignId: camp.id,
+      copyProviderKey: 'cli', brandKitId: kit.id,
     })).json()
 
     const res = await api.post('/api/generate/assemble-b', { briefId: brief.id })
@@ -141,7 +137,7 @@ test.describe('Path B — freeform design generation', () => {
       return
     }
 
-    // A standalone brief (no campaign) resolves to the system default kit — the
+    // A standalone brief (no project) resolves to the system default kit — the
     // seeded "Bistec" kit. To exercise the NO_BRAND_KIT branch we must remove the
     // system default. With DB access we temporarily unset every default, assert
     // the 422, then restore. Without DB access we fall back to the lenient check

@@ -39,15 +39,14 @@ const captionOf = (draft: Record<string, unknown>, channel: Caption['channel']) 
   return c!
 }
 
-// One kit + campaign per worker, shared by every generation in this suite.
-let campaignId: string | null = null
-async function suiteCampaign(api: ApiClient): Promise<string> {
-  if (campaignId) return campaignId
+// One kit per worker, shared by every generation in this suite.
+let suiteKitId: string | null = null
+async function suiteKit(api: ApiClient): Promise<string> {
+  if (suiteKitId) return suiteKitId
   const stamp = Date.now()
   const kit = await (await api.post('/api/admin/brandkits', { name: `Captions Kit ${stamp}`, colors: ['#0b6e4f'] })).json()
-  const camp = await (await api.post('/api/campaigns', { name: `Captions Camp ${stamp}`, brandKitId: kit.id })).json()
-  campaignId = camp.id as string
-  return campaignId
+  suiteKitId = kit.id as string
+  return suiteKitId
 }
 
 // A Path B generation, polled until it leaves IN_PROGRESS.
@@ -60,7 +59,7 @@ async function generate(api: ApiClient, topic: string): Promise<Record<string, u
       channels: ['INSTAGRAM'],
       designMode: 'GENERATE',
       copyProviderKey: 'cli',
-      campaignId: await suiteCampaign(api),
+      brandKitId: await suiteKit(api),
     })
   ).json()
   const res = await api.post('/api/generate/assemble-b', { briefId: brief.id })
@@ -158,7 +157,7 @@ test.describe('§W — per-channel captions', () => {
 
   // TC-CAP-07 — AC-18 (FR-15): WhatsApp is in no channel input (API half).
   test('briefs reject a WhatsApp channel with 400', async () => {
-    const camp = await suiteCampaign(api)
+    const kitId = await suiteKit(api)
     const brief = await api.post('/api/briefs', {
       topic: `Cap WA brief ${Date.now()}`,
       goal: 'g',
@@ -166,7 +165,7 @@ test.describe('§W — per-channel captions', () => {
       channels: ['WHATSAPP'],
       designMode: 'GENERATE',
       copyProviderKey: 'cli',
-      campaignId: camp,
+      brandKitId: kitId,
     })
     expect(brief.status()).toBe(400)
   })

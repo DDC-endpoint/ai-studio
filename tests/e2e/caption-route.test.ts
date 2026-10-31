@@ -141,7 +141,7 @@ async function pageLoginToTeam(page: Page, teamId: string) {
 // A Path B walk to the Review step on `kitId`.
 async function walkToReview(page: Page, kitId: string, topic: string) {
   await page.goto('/brief')
-  await expect(page.getByRole('heading', { name: 'Select a campaign' })).toBeVisible({ timeout: 20_000 })
+  await expect(page.getByRole('heading', { name: 'Select a project' })).toBeVisible({ timeout: 20_000 })
   const cont = page.getByRole('button', { name: /continue/i })
   await cont.click()
   await expect(page.getByRole('heading', { name: 'Size & Design' })).toBeVisible()

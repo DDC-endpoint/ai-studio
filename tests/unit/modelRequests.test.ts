@@ -114,7 +114,6 @@ vi.mock('@/lib/brandkit/resolve', () => ({
     artifacts: [],
   }),
 }))
-vi.mock('@/lib/campaign/briefing', () => ({ getActiveCampaignBriefing: async () => null }))
 // The real copyProviderIsClaude (spec open question 1) on the faked COPY row;
 // only the provider instance and the key lookup are faked.
 vi.mock('@/providers/registry', async (importOriginal) => ({
@@ -300,7 +299,7 @@ const ROUTES: Route[] = [
     defaultKey: 'SONNET',
     status: 202,
     call: (model) => send(regenerateDesign as Handler, model === undefined ? {} : { model }),
-    seen: () => pickOf(h.pathB.mock.calls[0]?.[5]),
+    seen: () => pickOf(h.pathB.mock.calls[0]?.[4]),
     touched: () => h.claimDraft.mock.calls.length > 0,
   },
   {
@@ -521,7 +520,7 @@ describe('AC-25: every FR-17 route body accepts `model`', () => {
   it('an explicit pick wins over the regenerate stamp (FR-09: the stamp is tier 2)', async () => {
     h.draftFindUnique.mockImplementation(async () => draft({ designModel: 'claude-opus-5-5' }))
     await send(regenerateDesign as Handler, { model: 'HAIKU' })
-    expect(pickOf(h.pathB.mock.calls[0][5])).toEqual({ key: 'HAIKU', source: 'request' })
+    expect(pickOf(h.pathB.mock.calls[0][4])).toEqual({ key: 'HAIKU', source: 'request' })
   })
 })
 

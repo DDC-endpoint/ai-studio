@@ -7,11 +7,9 @@ import { createMessage, textOf } from '@/lib/models/anthropicCall'
 import { modelCallFor, recordModelCall } from '@/lib/models/modelCalls'
 import type { DecideErrorCode, ResolvedModel } from '@/lib/models/resolve'
 import type { ModelKey } from '@/lib/models/catalogue'
-import { getActiveCampaignBriefing } from '@/lib/campaign/briefing'
-import { prisma } from '@/lib/prisma'
+import { resolveInputsFor } from '@/lib/projects/context'
 import { projectDocsContext, projectDocImageUrls } from '@/lib/projects/documents'
 import { runVisionModel } from '@/lib/agent/vision'
-import { resolveBrandKit } from '@/lib/brandkit/resolve'
 import { fenceUntrusted, UNTRUSTED_CONTENT_GUARD } from '@/lib/agent/untrusted'
 import { MOCK_AI, buildMockBriefingReply, buildMockBriefingEnhance } from '@/lib/testHooks'
 
@@ -112,36 +110,20 @@ export async function runBriefingModel(
 }
 
 // Shared project context (brand voice + source documents + current briefing)
-// for the assistant prompts. The kit is the explicit pick (`brandKitId`), then the
-// project's default, then the team default. `teamId` is required (team-tenancy
-// fix, final review C1) — resolveBrandKit needs it to scope every tier, and the
-// project is read only inside the team. `campaignId` is the wizard's interim path
-// until 038 T3 moves it to projects: kit and briefing only, no documents.
+// for the assistant prompts, from the same context module generation uses
+// (038 D6, resolveInputsFor). The kit is the explicit pick (`brandKitId`), then
+// the project's default, then the team default. `teamId` is required, and the
+// project is read only inside the team: a foreign or deleted id reads as no project.
 interface AssistantContextInput {
   projectId?: string
-  campaignId?: string
   brandKitId?: string
 }
 
 async function buildProjectContext(teamId: string, input: AssistantContextInput): Promise<string> {
-  const { projectId, campaignId, brandKitId } = input
-  const project = projectId
-    ? await prisma.project.findFirst({
-        where: { id: projectId, teamId, isDeleted: false },
-        select: { defaultBrandKitId: true },
-      })
-    : null
-  const [kit, docs, activeBriefing] = await Promise.all([
-    resolveBrandKit(teamId, campaignId, brandKitId ?? project?.defaultBrandKitId),
-    projectId ? projectDocsContext(projectId) : Promise.resolve({ text: '', truncated: false }),
-    projectId
-      ? prisma.projectBriefing
-          .findFirst({ where: { projectId, isActive: true }, select: { content: true } })
-          .then((b) => b?.content ?? null)
-      : campaignId
-        ? getActiveCampaignBriefing(campaignId)
-        : Promise.resolve(null),
-  ])
+  const ctx = await resolveInputsFor({ teamId, projectId: input.projectId, brandKitId: input.brandKitId })
+  const kit = ctx.kit
+  const activeBriefing = ctx.briefing?.content ?? null
+  const docs = ctx.project ? await projectDocsContext(ctx.project.id) : { text: '', truncated: false }
 
   const sections: string[] = []
   if (kit?.voicePrompt) {
@@ -207,7 +189,7 @@ export async function runBriefingChat(
   ])
   const system = [
     'You are a marketing strategist helping an admin of bistec-studio plan a project.',
-    'The briefing is free-text context injected into every AI post generation under this project, on top of the brand voice: it should cover the campaign\'s goal, audience, key messages, offers/CTAs, tone adjustments, and any do/don\'t rules.',
+    'The briefing is free-text context injected into every AI post generation under this project, on top of the brand voice: it should cover the project\'s goal, audience, key messages, offers/CTAs, tone adjustments, and any do/don\'t rules.',
     'Interview the admin: ask focused questions about gaps, propose concrete wording, and refine based on their answers. Ground everything in the source documents when they are provided.',
     'When proposing or refining the BRIEFING, include your current best complete briefing draft inside a fenced code block that starts with ```briefing and ends with ``` — the app extracts that block so the admin can apply it to the editor. Keep the draft plain text (no markdown headers inside the block), roughly 100-300 words.',
     imageUrls.length > 0
@@ -279,7 +261,6 @@ export interface EnhancePostBriefInput {
   goal?: string
   tone?: string
   projectId?: string
-  campaignId?: string
   brandKitId?: string
 }
 

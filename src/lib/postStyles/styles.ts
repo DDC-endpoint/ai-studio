@@ -5,16 +5,16 @@
 // THE KEY RULE (permanent):
 //  - a key is never reused for a different meaning and never renamed;
 //  - a retired style (`status: 'retired'`) stays resolvable and is hidden from
-//    pickers, so stored briefs, campaigns and stamps keep working;
+//    pickers, so stored briefs, projects and stamps keep working;
 //  - a future team-owned style gets its own id column and never a bare string
-//    in Brief.postStyle, Campaign.defaultPostStyle.
+//    in Brief.postStyle, Project.defaultPostStyle.
 //
 // THE VERSION RULE: a released version is never edited. A change adds
 // versions[n+1] and moves `current`; the committed hash table in
 // tests/unit/postStylesDataset.test.ts fails on an in-place edit.
 //
 // "Stated in the brief" in a rule means the value appears in the topic, the
-// description, the campaign briefing or the brand voice text.
+// description, the project briefing or the brand voice text.
 import { getArchetype, type ArchetypeMap } from '@/lib/designData'
 import type { PostStyle, PostStyleKey } from './types'
 

@@ -10,6 +10,7 @@ import { env } from "@/lib/env"
 import { nearestAspectRatio } from "@/lib/aspectRatio"
 import type { AspectRatio } from "@prisma/client"
 import type { ResolvedModel } from "@/lib/models/resolve"
+import type { PostContext } from "@/lib/projects/context"
 import { createMessage, textOf as replyText } from "@/lib/models/anthropicCall"
 import { modelCallFor, recordModelCall } from "@/lib/models/modelCalls"
 import { pipelineMode } from "./config"
@@ -59,10 +60,8 @@ const TOOL_DEFINITIONS: Tool[] = [
       "for the current brief. Call this first to load brand guidelines before generating the design.",
     input_schema: {
       type: "object",
-      properties: {
-        briefId: { type: "string", description: "ID of the brief" },
-      },
-      required: ["briefId"],
+      properties: {},
+      required: [],
     },
   },
 ]
@@ -76,7 +75,8 @@ async function executeTool(
   actor?: GenerationActor,
   aspectRatio?: AspectRatio,
   composites: CompositeRender | null = null,
-  headline = ""
+  headline = "",
+  context: PostContext | null = null
 ): Promise<unknown> {
   switch (name) {
     case "generateImage":
@@ -90,7 +90,7 @@ async function executeTool(
         headline
       )
     case "getBrandKitContext":
-      return toolGetBrandKitContext((input.briefId as string | undefined) ?? briefId)
+      return toolGetBrandKitContext(context)
     default:
       throw new Error(`Unknown tool: ${name}`)
   }
@@ -117,6 +117,7 @@ export async function runDesignAgent(options: RunDesignAgentOptions): Promise<De
     postProcess,
     composites = null,
     headline,
+    context = null,
   } = options
   // The whole tool-use loop's budget — maxToolCalls alone doesn't bound slow
   // image generations + renders. Every turn's request is also bounded by it
@@ -255,7 +256,8 @@ export async function runDesignAgent(options: RunDesignAgentOptions): Promise<De
           actor,
           nearestAspectRatio(width, height),
           composites,
-          headline
+          headline,
+          context
         )
 
         if (block.name === "renderHtml") {
@@ -355,6 +357,7 @@ export async function runDesignAgentRefine(
     height = 1080,
     actor,
     refine,
+    context = null,
   } = options
   const deadlineMs = model.timeoutMs
 
@@ -421,7 +424,7 @@ export async function runDesignAgentRefine(
         continue
       }
       try {
-        const result = await executeTool(block.name, block.input as ToolInput, briefId, actor, nearestAspectRatio(width, height))
+        const result = await executeTool(block.name, block.input as ToolInput, briefId, actor, nearestAspectRatio(width, height), null, "", context)
         toolResults.push({ type: "tool_result", tool_use_id: block.id, content: JSON.stringify(result) })
       } catch (err) {
         toolResults.push({

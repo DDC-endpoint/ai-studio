@@ -24,14 +24,14 @@ interface ContentStepProps {
   goal: string
   tone: string
   setTone: (v: string) => void
-  // 027 FR-07: true while the tone is the style's (or the campaign's), not the user's.
+  // 027 FR-07: true while the tone is the style's (or the project's), not the user's.
   toneFromStyle?: boolean
   // Context for the AI enhance call — matches generation-time grounding.
-  campaignId: string
+  projectId: string
   brandKitId: string
 }
 
-export function ContentStep({ topic, setTopic, prompt, setPrompt, goal, tone, setTone, toneFromStyle, campaignId, brandKitId }: ContentStepProps) {
+export function ContentStep({ topic, setTopic, prompt, setPrompt, goal, tone, setTone, toneFromStyle, projectId, brandKitId }: ContentStepProps) {
   const [enhancing, setEnhancing] = useState(false)
   // The Topic and Brief labels name their fields (014 FR-12 rows 4, 5).
   const topicId = React.useId()
@@ -50,7 +50,7 @@ export function ContentStep({ topic, setTopic, prompt, setPrompt, goal, tone, se
           content: prompt,
           goal,
           tone,
-          campaignId: campaignId || undefined,
+          projectId: projectId || undefined,
           brandKitId: brandKitId || undefined,
         }),
       })
@@ -147,8 +147,8 @@ export function ContentStep({ topic, setTopic, prompt, setPrompt, goal, tone, se
           </div>
           <div className="mt-2 mb-6 text-ui-xs text-fg-muted">
             {enhancing
-              ? 'Rewriting with the brand voice and campaign documents — this can take up to a minute.'
-              : 'Rewrites the brief with AI, grounded in the brand voice and campaign briefing. Works from just the topic too.'}
+              ? 'Rewriting with the brand voice and project documents — this can take up to a minute.'
+              : 'Rewrites the brief with AI, grounded in the brand voice and project briefing. Works from just the topic too.'}
           </div>
         </>
       )}

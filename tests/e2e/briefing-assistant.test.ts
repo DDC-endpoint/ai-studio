@@ -23,15 +23,11 @@ const txt = (name: string, body: string) => ({
 
 test.describe('Briefing assistant', () => {
   let projectId: string
-  // POST /api/briefs/enhance still reads a campaign until 038 T3 moves it to projects.
-  let campaignId: string
 
   test.beforeAll(async ({ request }) => {
     const admin = await loginAs(request, ADMIN_EMAIL, PASSWORD)
     const project = await (await admin.post('/api/projects', { name: `Briefing Assistant E2E ${Date.now()}` })).json()
     projectId = project.id
-    const camp = await (await admin.post('/api/campaigns', { name: 'Briefing Assistant E2E' })).json()
-    campaignId = camp.id
     await admin.dispose()
   })
 
@@ -143,7 +139,7 @@ test.describe('Briefing assistant', () => {
       content: 'my rough post brief',
       goal: 'awareness',
       tone: 'professional',
-      campaignId,
+      projectId,
     })
     expect(withText.status()).toBe(200)
     expect((await withText.json()).draft).toBe('Enhanced: my rough post brief')
@@ -155,10 +151,10 @@ test.describe('Briefing assistant', () => {
       'Enhanced: Mock briefing drafted from project context.',
     )
 
-    // Nothing to work with → 400; unknown campaign → 404.
+    // Nothing to work with → 400; unknown project → 404.
     expect((await editor.post(base, { topic: '', content: '  ' })).status()).toBe(400)
     expect(
-      (await editor.post(base, { topic: 'x', content: 'y', campaignId: 'nonexistent' })).status(),
+      (await editor.post(base, { topic: 'x', content: 'y', projectId: 'nonexistent' })).status(),
     ).toBe(404)
 
     await editor.dispose()

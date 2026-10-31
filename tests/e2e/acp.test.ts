@@ -9,7 +9,8 @@ import { loginAs } from '../helpers/api'
 //   BISTEC_ADMIN_API_KEYS comma-separated env allow-lists, removed in
 //   Task 18). Missing/invalid/revoked → 401 (fails closed).
 //   GET  /api/acp/manifest → 200 AGENT_MANIFEST (capability generate_post; publish_post was removed by 037)
-//   POST /api/acp/run {capability, input} → {output} | 400 (bad input) | 422 (failure)
+//   POST /api/acp/run {capability, input} → {output} | 400 (bad input; CAMPAIGN_RETIRED for a campaignId) |
+//   404 PROJECT_NOT_FOUND (a projectId outside the key's team) | 422 (failure)
 //   /api/acp is exempt from the session middleware — the key check governs.
 //
 // Authenticated cases mint their own real key via POST /api/team/api-keys
@@ -67,7 +68,7 @@ test.describe('ACP surface', () => {
       const names = (manifest.capabilities ?? []).map((c: { name: string }) => c.name)
       expect(names).toContain('generate_post')
       expect(names).not.toContain('publish_post')
-      expect(manifest.version).toBe('2.0.0')
+      expect(manifest.version).toBe('2.1.0')
     })
 
     // TC-ACP-03 — run input validation → 400. Guards M6.
@@ -93,6 +94,34 @@ test.describe('ACP surface', () => {
         data: { input: {} },
       })
       expect(noCap.status()).toBe(400)
+    })
+
+    // TC-ACP-03b — 038 D13: the retired campaign field is refused by name, and a
+    // projectId outside the key's team is the same 404 as an unknown one. Neither
+    // creates a brief.
+    test('generate_post refuses campaignId (400 CAMPAIGN_RETIRED) and an unknown projectId (404 PROJECT_NOT_FOUND)', async ({ request }) => {
+      const base = { topic: `ACP retired ${Date.now()}`, channels: ['INSTAGRAM'], designMode: 'GENERATE' }
+      const call = (input: Record<string, unknown>) =>
+        request.post('/api/acp/run', {
+          headers: { 'x-bistec-api-key': plaintextKey },
+          data: { capability: 'generate_post', input: { ...base, ...input } },
+        })
+
+      for (const retired of [{ campaignId: 'c1' }, { campaignId: '' }, { campaign: 'c1' }]) {
+        const res = await call(retired)
+        expect(res.status()).toBe(400)
+        const body = await res.json()
+        expect(body.code).toBe('CAMPAIGN_RETIRED')
+        expect(body.error).toBe('campaignId is retired; use projectId')
+      }
+
+      const missing = await call({ projectId: 'proj_does_not_exist' })
+      expect(missing.status()).toBe(404)
+      const body = await missing.json()
+      expect(body.code).toBe('PROJECT_NOT_FOUND')
+      expect(body.error).toBe('Project not found')
+
+      expect((await call({ projectId: 5 })).status()).toBe(400)
     })
 
     // TC-ACP-04/05 — generate_post creates a draft under the system user (no FK

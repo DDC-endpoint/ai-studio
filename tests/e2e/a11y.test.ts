@@ -90,7 +90,7 @@ async function expectLabelled(
 // Walk /brief to step 2 (Size & Design), picking the first kit if none is set.
 async function briefStepTwo(page: Page) {
   await page.goto('/brief')
-  await expect(page.getByRole('heading', { name: 'Select a campaign' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Select a project' })).toBeVisible()
   await page.getByRole('button', { name: /continue/i }).click()
   await expect(page.getByRole('heading', { name: 'Size & Design' })).toBeVisible()
   const kit = page.getByRole('combobox', { name: 'Brand kit' })
@@ -927,7 +927,7 @@ test.describe('ARIA states (T17)', () => {
     const put = await api.put('/api/brief-drafts', {
       payload: {
         step: 2,
-        campaignId: '',
+        projectId: '',
         aspectRatio: 'SQUARE',
         brandKitId: '',
         designMode: 'GENERATE',
@@ -1021,7 +1021,7 @@ test.describe('axe scan (T18)', () => {
   test('AC-19: /brief steps 1, 2 and 3', async ({ page }) => {
     await pageLogin(page)
     await page.goto('/brief')
-    await expect(page.getByRole('heading', { name: 'Select a campaign' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Select a project' })).toBeVisible()
     await expectNoAxeViolations(page, '/brief step 1', { settle: true })
 
     await briefStepTwo(page)

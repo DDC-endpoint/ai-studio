@@ -40,6 +40,6 @@ describe('generation is untouched by 007', () => {
     )
   })
   it('PROMPT_VERSION moved only by 027 (the derived post-styles suffix) and 031 (the base bump)', () => {
-    expect(PROMPT_VERSION).toBe(`2026-10-29.1+ps${POST_STYLES_REVISION}`)
+    expect(PROMPT_VERSION).toBe(`2026-11-01.1+ps${POST_STYLES_REVISION}`)
   })
 })

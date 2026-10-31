@@ -241,7 +241,7 @@ export async function runBrandKitChat(
   ].join('\n')
 
   // With images → vision call + palette sampling; documents only → the same
-  // mode-agnostic text call the campaign briefing assistant uses.
+  // mode-agnostic text call the project briefing assistant uses.
   const [reply, sampled] = await Promise.all([
     urls.length > 0
       ? runVisionModel({ system, userMessage, imageUrls: urls, label: 'brandkit', teamId, model })

@@ -46,7 +46,7 @@ export interface PostStyle {
   versions: Readonly<Record<number, StyleVersion>>
 }
 
-// The wizard's rule for reading a campaign's free-text default tone: the first
+// The wizard's rule for reading a project's free-text default tone: the first
 // tone whose value is a substring of the lowercased text. Null on empty text or
 // no match. (Moved from the wizard unchanged in behaviour, 027 FR-04.)
 export function matchToneOption(text: string | null | undefined): ToneKey | null {

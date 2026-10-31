@@ -75,7 +75,7 @@ async function sweep(api: ApiClient): Promise<number> {
   return (await res.json()).deleted
 }
 
-async function createBrief(api: ApiClient, topic: string, campaignId?: string) {
+async function createBrief(api: ApiClient, topic: string, projectId?: string) {
   const res = await api.post('/api/briefs', {
     topic,
     goal: DESC_MARKER,
@@ -84,7 +84,7 @@ async function createBrief(api: ApiClient, topic: string, campaignId?: string) {
     channels: ['INSTAGRAM'],
     designMode: 'GENERATE',
     copyProviderKey: 'cli',
-    ...(campaignId ? { campaignId } : {}),
+    ...(projectId ? { projectId } : {}),
   })
   expect(res.status()).toBe(201)
   return res.json()
@@ -646,7 +646,7 @@ test.describe('§AD — product observability', () => {
 
   async function walkWizardTo(page: Page, last: number) {
     const cont = page.getByRole('button', { name: /continue/i })
-    await expect(page.getByRole('heading', { name: 'Select a campaign' })).toBeVisible({ timeout: 20_000 })
+    await expect(page.getByRole('heading', { name: 'Select a project' })).toBeVisible({ timeout: 20_000 })
     if (last >= 1) {
       await cont.click()
       await expect(page.getByRole('heading', { name: 'Size & Design' })).toBeVisible()
@@ -711,7 +711,7 @@ test.describe('§AD — product observability', () => {
   test('TC-OBS-24: resuming a brief draft reports no steps up to where it stopped, then the next forward step with its draft id; Generate then writes brief.submitted resumed', async ({ page }) => {
     if (!MOCKED()) { test.skip(); return }
     const put = await admin.put('/api/brief-drafts', {
-      payload: { step: 3, campaignId: '', aspectRatio: 'SQUARE', brandKitId: '', designMode: 'GENERATE', templateId: '', referenceTemplateId: '', topic: WIZ_TOPIC, prompt: WIZ_PROMPT, goal: 'awareness', tone: 'professional', images: [] },
+      payload: { step: 3, projectId: '', aspectRatio: 'SQUARE', brandKitId: '', designMode: 'GENERATE', templateId: '', referenceTemplateId: '', topic: WIZ_TOPIC, prompt: WIZ_PROMPT, goal: 'awareness', tone: 'professional', images: [] },
     })
     expect(put.status()).toBe(200)
     const draftId = (await put.json()).id as string
@@ -739,7 +739,7 @@ test.describe('§AD — product observability', () => {
   test('TC-OBS-25: discarding a brief draft writes brief.abandoned discarded with its last step; a foreign id and the Generate-success delete write nothing', async ({ request }) => {
     if (!MOCKED()) { test.skip(); return }
     const draft = (step: number) => ({
-      payload: { step, campaignId: '', aspectRatio: 'SQUARE', brandKitId: '', designMode: 'GENERATE', templateId: '', referenceTemplateId: '', topic: WIZ_TOPIC, prompt: WIZ_PROMPT, goal: 'awareness', tone: 'professional', images: [] },
+      payload: { step, projectId: '', aspectRatio: 'SQUARE', brandKitId: '', designMode: 'GENERATE', templateId: '', referenceTemplateId: '', topic: WIZ_TOPIC, prompt: WIZ_PROMPT, goal: 'awareness', tone: 'professional', images: [] },
     })
     const id = (await (await admin.put('/api/brief-drafts', draft(3))).json()).id as string
     const keep = (await (await admin.put('/api/brief-drafts', draft(2))).json()).id as string
@@ -764,7 +764,7 @@ test.describe('§AD — product observability', () => {
   test('TC-OBS-26: a brief draft idle for 8 days is swept by the dashboard read and writes brief.abandoned expired', async ({ page }) => {
     if (!MOCKED() || !dbAvailable) { test.skip(); return }
     const put = await admin.put('/api/brief-drafts', {
-      payload: { step: 2, campaignId: '', aspectRatio: 'SQUARE', brandKitId: '', designMode: 'GENERATE', templateId: '', referenceTemplateId: '', topic: WIZ_TOPIC, prompt: WIZ_PROMPT, goal: 'awareness', tone: 'professional', images: [] },
+      payload: { step: 2, projectId: '', aspectRatio: 'SQUARE', brandKitId: '', designMode: 'GENERATE', templateId: '', referenceTemplateId: '', topic: WIZ_TOPIC, prompt: WIZ_PROMPT, goal: 'awareness', tone: 'professional', images: [] },
     })
     const id = (await put.json()).id as string
     await prisma!.briefDraft.update({ where: { id }, data: { updatedAt: new Date(Date.now() - 8 * 86_400_000) } })
@@ -802,7 +802,7 @@ test.describe('§AD — product observability', () => {
     const other = await freshEditor(request)
     try {
       const theirs = (await (await other.api.put('/api/brief-drafts', {
-        payload: { step: 1, campaignId: '', aspectRatio: 'SQUARE', brandKitId: '', designMode: 'GENERATE', templateId: '', referenceTemplateId: '', topic: 'theirs', prompt: 'their private prompt text', goal: 'awareness', tone: 'professional', images: [] },
+        payload: { step: 1, projectId: '', aspectRatio: 'SQUARE', brandKitId: '', designMode: 'GENERATE', templateId: '', referenceTemplateId: '', topic: 'theirs', prompt: 'their private prompt text', goal: 'awareness', tone: 'professional', images: [] },
       })).json()).id as string
       expect((await admin.post('/api/events', { name: 'wizard.step', payload: { step: 1, briefDraftId: theirs } })).status()).toBe(404)
       expect((await other.api.post('/api/events', { name: 'wizard.step', payload: { step: 1, briefDraftId: theirs } })).status()).toBe(204)

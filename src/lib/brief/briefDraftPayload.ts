@@ -21,7 +21,7 @@ export const MAX_BRIEF_DRAFT_PAYLOAD_BYTES = 64 * 1024
 
 export const briefDraftPayloadSchema = z.object({
   step: z.number().int().min(0).max(4),
-  campaignId: z.string(),
+  projectId: z.string().default(''),
   aspectRatio: z.enum(['SQUARE', 'PORTRAIT', 'STORY']),
   brandKitId: z.string(),
   designMode: z.enum(['TEMPLATE', 'GENERATE']),

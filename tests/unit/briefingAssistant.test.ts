@@ -43,7 +43,6 @@ vi.mock('@anthropic-ai/sdk', () => ({
 }))
 vi.mock('@/providers/registry', () => ({ resolveAnthropicApiKey: async () => 'sk-ant-FAKE' }))
 vi.mock('@/lib/brandkit/resolve', () => ({ resolveBrandKit: async () => null }))
-vi.mock('@/lib/campaign/briefing', () => ({ getActiveCampaignBriefing: async () => null }))
 vi.mock('@/lib/projects/documents', () => ({
   projectDocsContext: async () => ({ text: '', truncated: false }),
   projectDocImageUrls: async () => h.docImageUrls,

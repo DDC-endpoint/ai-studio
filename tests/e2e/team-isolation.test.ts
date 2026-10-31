@@ -358,11 +358,59 @@ test.describe('Cross-tenant isolation (D7)', () => {
     }
   })
 
+  // ── A project id from another team (038 D12, AC-05) ─────────────────────────
+  test('a Bistec project id is a 404 PROJECT_NOT_FOUND from the brief route, the post-brief enhance and ACP generate_post', async ({ request }) => {
+    const body = {
+      topic: `Isolation project probe ${Date.now()}`,
+      goal: 'g',
+      tone: 'professional',
+      channels: ['INSTAGRAM'],
+      designMode: 'GENERATE',
+      copyProviderKey: 'cli',
+      projectId: bistecProjectId,
+    }
+    const brief = await clientxAdmin.post('/api/briefs', body)
+    expect(brief.status()).toBe(404)
+    expect((await brief.json()).code).toBe('PROJECT_NOT_FOUND')
+
+    const enhance = await clientxAdmin.post('/api/briefs/enhance', {
+      topic: 'probe',
+      content: 'a rough brief',
+      projectId: bistecProjectId,
+    })
+    expect(enhance.status()).toBe(404)
+    expect((await enhance.json()).code).toBe('PROJECT_NOT_FOUND')
+
+    const created = await (
+      await clientxAdmin.post('/api/team/api-keys', { label: `isolation-project ${Date.now()}` })
+    ).json()
+    try {
+      const acp = await request.post('/api/acp/run', {
+        headers: { 'x-bistec-api-key': created.plaintext as string },
+        data: {
+          capability: 'generate_post',
+          input: { topic: body.topic, channels: ['INSTAGRAM'], designMode: 'GENERATE', projectId: bistecProjectId },
+        },
+      })
+      expect(acp.status()).toBe(404)
+      expect((await acp.json()).code).toBe('PROJECT_NOT_FOUND')
+    } finally {
+      await clientxAdmin.del(`/api/team/api-keys/${created.id}`)
+    }
+
+    // The same answer as an id that does not exist, so the route is no existence oracle (NFR-07).
+    const unknown = await clientxAdmin.post('/api/briefs', { ...body, projectId: 'proj_does_not_exist' })
+    expect(unknown.status()).toBe(404)
+    expect(await unknown.json()).toEqual(await (await clientxAdmin.post('/api/briefs', body)).json())
+    // The project is unchanged.
+    expect((await bistecAdmin.get(`/api/projects/${bistecProjectId}`)).status()).toBe(200)
+  })
+
   // ── Brief-draft autosaves stay owner-only, no admin override (unchanged) ───
   test('Bistec team admin GET of the editor\'s brief-draft id is 404 (no admin override)', async () => {
     const payload = {
       step: 1,
-      campaignId: '',
+      projectId: '',
       aspectRatio: 'SQUARE',
       brandKitId: '',
       designMode: 'GENERATE',

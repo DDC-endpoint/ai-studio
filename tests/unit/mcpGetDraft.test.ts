@@ -76,7 +76,6 @@ vi.mock('@/providers/registry', () => ({
   resolveCopyProvider: async () => ({ generateCaptions: h.generateCaptions }),
 }))
 vi.mock('@/lib/brandkit/resolve', () => ({ resolveBrandKit: async () => null }))
-vi.mock('@/lib/campaign/briefing', () => ({ getActiveCampaignBriefing: async () => null }))
 
 const { getDraft, generatePost } = await import('@/mcp/tools/generate')
 const { AGENT_MANIFEST } = await import('@/acp/agent')
@@ -298,8 +297,8 @@ describe('generatePost — post styles', () => {
     expect((await generatePost(noStyleArgs)).factsCheck).toBeNull()
   })
 
-  it('the manifest is version 2.0.0 (037) and drops goal and tone from required', () => {
-    expect(AGENT_MANIFEST.version).toBe('2.0.0')
+  it('the manifest is version 2.1.0 (037, 038) and drops goal and tone from required', () => {
+    expect(AGENT_MANIFEST.version).toBe('2.1.0')
     const cap = AGENT_MANIFEST.capabilities.find((c) => c.name === 'generate_post')!
     const input = cap.input as unknown as { required: string[]; properties: Record<string, { enum?: string[] }> }
     expect(input.required).toEqual(['topic', 'channels', 'designMode'])

@@ -14,15 +14,13 @@ import { MODEL_NOT_ALLOWED } from '@/lib/models/requests'
 import type { ModelKey } from '@/lib/models/catalogue'
 import type { AspectRatio } from '@prisma/client'
 import type {
-  Campaign,
-  ProjectRef,
+  ProjectSummary,
   TemplateSummary,
   BrandKitSummary,
   ProviderInfo,
-  ResolvedBrandKitResponse,
 } from '@/lib/api-types'
 import {
-  campaignStyleKey,
+  projectStyleKey,
   knownStyleKey,
   resolveWizardStyle,
   resumeWizardStyle,
@@ -33,7 +31,7 @@ import {
 import { getArchetype } from '@/lib/designData'
 import { parseCompositeSource, type CompositeSource } from '@/lib/brief/compositeSource'
 import { DEFAULT_CHANNELS } from './constants'
-import type { DesignMode, ResolvedKit, UploadedImage } from './types'
+import type { DesignMode, UploadedImage } from './types'
 import {
   briefDraftPayloadSchema,
   isTrivialBriefDraft,
@@ -47,11 +45,6 @@ import type { SaveBriefDraftResponse } from '@/lib/api-types'
 // create-brief → generate → open-draft submit. The page composes the step
 // components around this.
 
-export interface ProjectCampaignGroup {
-  project: ProjectRef
-  campaigns: Campaign[]
-}
-
 export interface UseBriefWizardResult {
   // Step navigation
   step: number
@@ -63,14 +56,12 @@ export interface UseBriefWizardResult {
   error: string | null
   handleGenerate: () => Promise<void>
 
-  // Step 0 — Campaign
-  campaignId: string
-  selectCampaign: (id: string) => void
-  clearCampaign: () => void
-  kitLoading: boolean
-  resolvedKit: ResolvedKit | null
-  projectsWithCampaigns: ProjectCampaignGroup[]
-  standaloneCampaigns: Campaign[]
+  // Step 0 — Project
+  projectId: string
+  selectProject: (id: string) => void
+  clearProject: () => void
+  /** The team's live projects (their defaults pre-fill the kit and the post style). */
+  projects: ProjectSummary[]
 
   // Step 1 — Size & Design
   aspectRatio: AspectRatio
@@ -112,7 +103,7 @@ export interface UseBriefWizardResult {
   setPrompt: React.Dispatch<React.SetStateAction<string>>
   /** The goal the post style stands for (read-only: sent to the enhance call, never chosen). */
   goal: string
-  /** The tone shown: the user's pick, else the style's (or the campaign's). */
+  /** The tone shown: the user's pick, else the style's (or the project's). */
   tone: string
   /** The user's own pick: marks the tone touched. */
   setTone: (value: string) => void
@@ -128,7 +119,7 @@ export interface UseBriefWizardResult {
   toggleIntent: (id: string) => void
 
   // Step 4 — Review
-  selectedCampaign: Campaign | null
+  selectedProject: ProjectSummary | null
   selectedTemplate: TemplateSummary | null
   selectedRefTemplate: TemplateSummary | null
   selectedBrandKit: BrandKitSummary | null
@@ -157,14 +148,14 @@ export function useBriefWizard(): UseBriefWizardResult {
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // Step 0 — Campaign
-  const [campaignId, setCampaignId] = useState('')
+  // Step 0 — Project
+  const [projectId, setProjectId] = useState('')
 
-  // The campaigns list is read here (not further down) because the style
-  // resolution and the autosave both need the selected campaign's defaults.
-  const { data: campaigns = [] } = useQuery({
-    queryKey: ['campaigns'],
-    queryFn: () => apiFetch<Campaign[]>('/api/campaigns'),
+  // The projects list is read here (not further down) because the style
+  // resolution and the autosave both need the selected project's defaults.
+  const { data: projects = [], isSuccess: projectsLoaded } = useQuery({
+    queryKey: ['projects'],
+    queryFn: () => apiFetch<ProjectSummary[]>('/api/projects'),
   })
 
   // Step 1 — Size & Design
@@ -294,10 +285,10 @@ export function useBriefWizard(): UseBriefWizardResult {
   const [uploading, setUploading] = useState(false)
 
   // 027 FR-07: what the tone and the image style actually are right now.
-  const selectedCampaign = campaigns.find(c => c.id === campaignId) ?? null
+  const selectedProject = projects.find(p => p.id === projectId) ?? null
   const styleInput = {
     postStyle,
-    campaign: selectedCampaign,
+    project: selectedProject,
     designMode,
     aspectRatio,
     tone: toneValue,
@@ -366,7 +357,7 @@ export function useBriefWizard(): UseBriefWizardResult {
   useEffect(() => {
     latestPayloadRef.current = {
       step,
-      campaignId,
+      projectId,
       aspectRatio,
       brandKitId,
       designMode,
@@ -392,7 +383,7 @@ export function useBriefWizard(): UseBriefWizardResult {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     step,
-    campaignId,
+    projectId,
     aspectRatio,
     brandKitId,
     designMode,
@@ -412,7 +403,7 @@ export function useBriefWizard(): UseBriefWizardResult {
   // Resume: /brief?resume=<id> rehydrates the saved row and continues saving
   // into it. Read from window.location (mount-only) rather than
   // useSearchParams — no Suspense boundary needed. A missing/foreign/expired
-  // id just opens a fresh wizard; dangling template/kit/campaign ids are
+  // id just opens a fresh wizard; dangling template/kit/project ids are
   // cleared by the existing consistency effect once data loads (FR-6/AC-8).
   useEffect(() => {
     const resumeId = new URLSearchParams(window.location.search).get('resume')
@@ -441,7 +432,7 @@ export function useBriefWizard(): UseBriefWizardResult {
         // A resume restores a position; only moving past it is a step reached.
         maxStepReportedRef.current = p.step
         setStep(p.step)
-        setCampaignId(p.campaignId)
+        setProjectId(p.projectId)
         setAspectRatioState(p.aspectRatio)
         setBrandKitId(p.brandKitId)
         setDesignModeState(p.designMode)
@@ -471,7 +462,7 @@ export function useBriefWizard(): UseBriefWizardResult {
         // would give (so an untouched field keeps following the style).
         const restored = resumeWizardStyle(
           { postStyle: p.postStyle, tone: p.tone, imageStyle: storedImageStyle },
-          { campaign: null, designMode: p.designMode, aspectRatio: p.aspectRatio },
+          { project: null, designMode: p.designMode, aspectRatio: p.aspectRatio },
         )
         setPostStyleState(restored.postStyle)
         setToneValue(p.tone)
@@ -502,10 +493,6 @@ export function useBriefWizard(): UseBriefWizardResult {
   const { data: templates = [] } = useQuery({
     queryKey: ['templates'],
     queryFn: () => apiFetch<TemplateSummary[]>('/api/templates'),
-  })
-  const { data: projects = [] } = useQuery({
-    queryKey: ['projects'],
-    queryFn: () => apiFetch<ProjectRef[]>('/api/projects'),
   })
   const { data: brandKits = [] } = useQuery({
     queryKey: ['brandkits'],
@@ -556,38 +543,23 @@ export function useBriefWizard(): UseBriefWizardResult {
     setReferenceTemplateId(prev => (prev && !matches(prev) ? '' : prev))
   }, [brandKitId, aspectRatio, templates])
 
-  // ── Brand kit resolution on campaign change ────────────────────────────
-  const { data: resolvedKitResponse, isFetching: kitLoading } = useQuery({
-    queryKey: ['campaigns', campaignId, 'brandkit'],
-    queryFn: () => apiFetch<ResolvedBrandKitResponse>(`/api/campaigns/${campaignId}/brandkit`),
-    enabled: !!campaignId,
-  })
-  const resolvedKit: ResolvedKit | null =
-    campaignId && resolvedKitResponse?.kit
-      ? { ...resolvedKitResponse.kit, source: resolvedKitResponse.source ?? 'system' }
-      : null
-
-  // Default the brief's brand kit from the campaign/project assignment only.
-  // A bare system-default (or no kit) leaves the selection empty so the user
-  // explicitly chooses one on the next step.
+  // A resumed or stale project id (deleted since) is dropped once the list loads.
   useEffect(() => {
-    const kit = resolvedKitResponse?.kit
-    const source = resolvedKitResponse?.source
-    if (campaignId && kit && (source === 'campaign' || source === 'project')) {
-      setBrandKitId(kit.id)
-    }
-     
-  }, [resolvedKitResponse, campaignId])
+    if (projectsLoaded && projectId && !projects.some(p => p.id === projectId)) setProjectId('')
+  }, [projectsLoaded, projects, projectId])
 
-  function selectCampaign(id: string) {
-    setCampaignId(id)
-    // 027 FR-07: the style comes from the campaign's default (General when it
-    // has none); the tone follows through the resolver while untouched.
-    setPostStyleState(campaignStyleKey(campaigns.find(x => x.id === id)))
+  // Choosing a project pre-fills the brand kit with its default and the post style
+  // with its default (General when it has none). The tone follows through the
+  // resolver while untouched. The user can still change both on the next step.
+  function selectProject(id: string) {
+    setProjectId(id)
+    const project = projects.find(p => p.id === id)
+    setPostStyleState(projectStyleKey(project))
+    if (project?.defaultBrandKit) setBrandKitId(project.defaultBrandKit.id)
   }
 
-  function clearCampaign() {
-    setCampaignId('')
+  function clearProject() {
+    setProjectId('')
   }
 
   // ── Image upload ───────────────────────────────────────────────────────
@@ -643,7 +615,7 @@ export function useBriefWizard(): UseBriefWizardResult {
 
   // ── Per-step validation ────────────────────────────────────────────────
   function stepValid(s: number): boolean {
-    if (s === 0) return true // campaign is optional (Uncategorized is valid)
+    if (s === 0) return true // a project is optional (No project is valid)
     if (s === 1)
       return brandKitId !== '' && (designMode === 'GENERATE' || templateId !== '')
     if (s === 2) return topic.trim().length > 0 && prompt.trim().length > 10
@@ -677,7 +649,7 @@ export function useBriefWizard(): UseBriefWizardResult {
         channels: DEFAULT_CHANNELS,
         aspectRatio,
         designMode,
-        campaignId: campaignId || undefined,
+        projectId: projectId || undefined,
         brandKitId: brandKitId || undefined,
         // Omitted (not '') when no provider is registered, so the route takes its
         // CLI default instead of existence-checking an empty key.
@@ -753,16 +725,6 @@ export function useBriefWizard(): UseBriefWizardResult {
     }
   }
 
-  // ── Derived: campaign grouping ─────────────────────────────────────────
-  const projectsWithCampaigns = projects
-    .map(p => ({
-      project: p,
-      campaigns: campaigns.filter(c => c.projects.some(pc => pc.project.id === p.id)),
-    }))
-    .filter(g => g.campaigns.length > 0)
-
-  const standaloneCampaigns = campaigns.filter(c => c.projects.length === 0)
-
   const selectedTemplate = templates.find(t => t.id === templateId) ?? null
   const selectedRefTemplate = templates.find(t => t.id === referenceTemplateId) ?? null
   const selectedBrandKit = brandKits.find(k => k.id === brandKitId) ?? null
@@ -774,13 +736,10 @@ export function useBriefWizard(): UseBriefWizardResult {
     submitting,
     error,
     handleGenerate,
-    campaignId,
-    selectCampaign,
-    clearCampaign,
-    kitLoading,
-    resolvedKit,
-    projectsWithCampaigns,
-    standaloneCampaigns,
+    projectId,
+    selectProject,
+    clearProject,
+    projects,
     aspectRatio,
     setAspectRatio,
     postStyle: styleView.postStyle,
@@ -818,7 +777,7 @@ export function useBriefWizard(): UseBriefWizardResult {
     onFilesPicked,
     removeImage,
     toggleIntent,
-    selectedCampaign,
+    selectedProject,
     selectedTemplate,
     selectedRefTemplate,
     selectedBrandKit,

@@ -1,6 +1,7 @@
 import { prisma } from '@/lib/prisma'
 import type { Brief } from '@prisma/client'
 import type { ResolvedBrandKit } from '@/lib/brandkit/resolve'
+import type { PostContext } from '@/lib/projects/context'
 import type { DesignAgentResult, GenerationActor } from '@/lib/agent/types'
 import { runDesignAgent } from '@/lib/agent/designAgent'
 import { runDesignAgentCli } from '@/lib/agent/designAgentCli'
@@ -90,9 +91,8 @@ async function observeKeptLayout(
 // never drift.
 export async function runPathBDesign(
   brief: Brief,
-  kit: ResolvedBrandKit,
+  ctx: PostContext,
   headline: string,
-  campaignBriefing: string | null | undefined,
   actor: GenerationActor,
   // 008 FR-07: the DESIGN_FREEFORM model, resolved by the caller (the
   // generation at its start; regenerate-design before its claim).
@@ -102,6 +102,8 @@ export async function runPathBDesign(
   // design-agent call, so each stays within its own budget segment (budget.ts).
   opts?: { onBeforeDesign?: () => Promise<void> },
 ): Promise<PathBDesignResult> {
+  const kit = ctx.kit
+  if (!kit) throw new Error('Path B needs a brand kit')
   // Feed-to-AI artifact URLs (brand reference imagery).
   const artifacts = await prisma.brandKitArtifact.findMany({
     where: { brandKitId: kit.id, feedToAI: true },
@@ -157,7 +159,7 @@ export async function runPathBDesign(
     hasCompositeSource: source !== null,
   })
   const heroPlan = plan.kind === 'hero' ? plan : undefined
-  const background = await generateBackgroundForBrief(brief, kit, headline, campaignBriefing, actor, heroPlan)
+  const background = await generateBackgroundForBrief(brief, ctx, headline, actor, heroPlan)
   const needsComposite = !!heroPlan && !!getArchetype(heroPlan.requestedArchetype)?.requires
   // PROVISIONAL, never stored: it only decides whether the look was kept at the
   // pixel check. The stored stamp is settled below, after the render that
@@ -217,7 +219,7 @@ export async function runPathBDesign(
         : {}),
     })
     const userMessage = buildPathBUserMessage({
-      campaignBriefing,
+      projectBriefing: ctx.briefing?.content ?? null,
       topic: brief.topic,
       description: brief.description,
       goal: brief.goal,
@@ -255,6 +257,7 @@ export async function runPathBDesign(
           height,
           actor,
           headline,
+          context: ctx,
           ...insert,
         })
   }

@@ -16,7 +16,7 @@ const kit: ResolvedBrandKit = {
   logoUrl: 'https://cdn.example.com/logo.svg',
   logos: [{ label: 'Primary logo', url: 'https://cdn.example.com/logo.svg', primary: true }],
   voicePrompt: 'Warm, confident, human.',
-  source: 'system',
+  source: 'team',
 }
 
 describe('buildPathBSystemPrompt', () => {
@@ -254,7 +254,8 @@ describe('SCRIPT_SUPPORT_NOTE — no-emoji guidance', () => {
     // 2026-10-25.1: post styles (027): the value derives from the post-style dataset.
     // 2026-10-29.1: post fonts (031): the recomputed font request, the script font line and the
     // note's sentence about the brand's Sinhala font.
-    expect(PROMPT_VERSION).toBe(`2026-10-29.1+ps${POST_STYLES_REVISION}`)
+    // 2026-11-01.1: project briefing (038).
+    expect(PROMPT_VERSION).toBe(`2026-11-01.1+ps${POST_STYLES_REVISION}`)
   })
 })
 
@@ -317,26 +318,26 @@ describe('buildCaptionPrompt (012 FR-07)', () => {
     expect(user).not.toContain('"whatsapp"')
   })
 
-  it('keeps the brand, voice and campaign briefing in the system prompt', () => {
+  it('keeps the brand, voice and project briefing in the system prompt', () => {
     const { system } = buildCaptionPrompt(
-      { ...brief, brandName: 'Bistec', brandVoice: 'Bold voice.', campaignBriefing: 'IRP context.' },
+      { ...brief, brandName: 'Bistec', brandVoice: 'Bold voice.', projectBriefing: 'IRP context.' },
       ALL
     )
     expect(system).toContain('copywriter for Bistec')
     expect(system).toContain('Bold voice.')
-    expect(system).toContain('Campaign briefing (applies to every post in this campaign):\nIRP context.')
+    expect(system).toContain('Project briefing (applies to every post in this project):\nIRP context.')
     expect(system.indexOf('Bold voice.')).toBeLessThan(system.indexOf('IRP context.'))
 
     const generic = buildCaptionPrompt(brief, ALL).system
     expect(generic).toContain('copywriter for the brand')
     expect(generic).not.toContain('Brand voice guidelines')
-    expect(generic).not.toContain('Campaign briefing')
+    expect(generic).not.toContain('Project briefing')
   })
 
   it('exports the caption prompt version and the token budget', () => {
     expect(CAPTION_PROMPT_VERSION).toMatch(/^\d{4}-\d{2}-\d{2}\.\d+\+ps\d+$/)
     // 2026-10-25.1: post styles (027): derived from the post-style dataset.
-    expect(CAPTION_PROMPT_VERSION).toBe(`2026-10-25.1+ps${POST_STYLES_REVISION}`)
+    expect(CAPTION_PROMPT_VERSION).toBe(`2026-11-01.1+ps${POST_STYLES_REVISION}`)
     expect(CAPTION_MAX_TOKENS).toBe(8192)
   })
 

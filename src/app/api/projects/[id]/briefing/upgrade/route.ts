@@ -5,7 +5,7 @@ import { PROJECT_NOT_FOUND } from '@/lib/projects/errors'
 import { parseBody, withTeamAdmin } from '@/lib/api/handler'
 import { withClaudeAuth } from '@/lib/agent/userToken'
 import { AssistantModelError } from '@/lib/projects/briefingAssistant'
-import { resolveBrandKit } from '@/lib/brandkit/resolve'
+import { resolveInputsFor } from '@/lib/projects/context'
 import { runRuleUpgrade } from '@/lib/kitUpgrade/upgrade'
 
 type Params = { id: string }
@@ -23,7 +23,7 @@ const bodySchema = z
 export const POST = withTeamAdmin<Params>(async (req, { params }, user) => {
   const project = await prisma.project.findFirst({
     where: { id: params.id, isDeleted: false, teamId: user.teamId },
-    select: { id: true, defaultBrandKitId: true },
+    select: { id: true },
   })
   if (!project) {
     return NextResponse.json(PROJECT_NOT_FOUND, { status: 404 })
@@ -41,7 +41,7 @@ export const POST = withTeamAdmin<Params>(async (req, { params }, user) => {
     return NextResponse.json({ code: 'STALE_BASE', activeVersion }, { status: 409 })
   }
 
-  const kit = await resolveBrandKit(user.teamId, undefined, project.defaultBrandKitId)
+  const { kit } = await resolveInputsFor({ teamId: user.teamId, projectId: project.id })
   const roleKit = { colors: kit?.colors ?? [], fonts: kit?.fonts ?? [] }
 
   try {

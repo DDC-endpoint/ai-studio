@@ -7,7 +7,7 @@ import { PageHead } from '@/components/ui/PageHead'
 import { ICON } from '@/components/ui/atoms'
 import { STEPS } from '@/components/brief/constants'
 import { Stepper } from '@/components/brief/Stepper'
-import { CampaignStep } from '@/components/brief/CampaignStep'
+import { ProjectStep } from '@/components/brief/ProjectStep'
 import { SizeDesignStep } from '@/components/brief/SizeDesignStep'
 import { ContentStep } from '@/components/brief/ContentStep'
 import { ImagesStep } from '@/components/brief/ImagesStep'
@@ -37,14 +37,11 @@ export default function NewBriefPage() {
       {/* The current step: no card, the steps sit on the page (Folio) */}
       <div>
         {step === 0 && (
-          <CampaignStep
-            campaignId={wizard.campaignId}
-            kitLoading={wizard.kitLoading}
-            resolvedKit={wizard.resolvedKit}
-            projectsWithCampaigns={wizard.projectsWithCampaigns}
-            standaloneCampaigns={wizard.standaloneCampaigns}
-            onSelectCampaign={wizard.selectCampaign}
-            onClearCampaign={wizard.clearCampaign}
+          <ProjectStep
+            projectId={wizard.projectId}
+            projects={wizard.projects}
+            onSelectProject={wizard.selectProject}
+            onClearProject={wizard.clearProject}
           />
         )}
 
@@ -52,9 +49,7 @@ export default function NewBriefPage() {
           <SizeDesignStep
             aspectRatio={wizard.aspectRatio}
             setAspectRatio={wizard.setAspectRatio}
-            campaignId={wizard.campaignId}
-            resolvedKit={wizard.resolvedKit}
-            selectedCampaign={wizard.selectedCampaign}
+            selectedProject={wizard.selectedProject}
             brandKitId={wizard.brandKitId}
             setBrandKitId={wizard.setBrandKitId}
             brandKitOptions={wizard.brandKitOptions}
@@ -89,7 +84,7 @@ export default function NewBriefPage() {
             tone={wizard.tone}
             setTone={wizard.setTone}
             toneFromStyle={wizard.toneFromStyle}
-            campaignId={wizard.campaignId}
+            projectId={wizard.projectId}
             brandKitId={wizard.brandKitId}
           />
         )}
@@ -107,7 +102,7 @@ export default function NewBriefPage() {
 
         {step === 4 && (
           <ReviewStep
-            selectedCampaign={wizard.selectedCampaign}
+            selectedProject={wizard.selectedProject}
             selectedBrandKit={wizard.selectedBrandKit}
             aspectRatio={wizard.aspectRatio}
             postStyle={wizard.postStyle}

@@ -36,7 +36,6 @@ vi.mock('@/lib/api/handler', () => {
 vi.mock('@/lib/authz/visibility', () => ({ canView: () => true, canEditPost: () => true, NOT_AUTHOR: { code: 'not-author' } }))
 vi.mock('@/providers/registry', () => ({ resolveCopyProvider: h.resolveCopyProvider }))
 vi.mock('@/lib/brandkit/resolve', () => ({ resolveBrandKit: async () => null }))
-vi.mock('@/lib/campaign/briefing', () => ({ getActiveCampaignBriefing: async () => null }))
 vi.mock('@/lib/storage/minio', () => ({ resolveExportUrl: async () => null }))
 vi.mock('@/lib/drafts/revisions', () => ({ COMMITTED_REVISION: {}, resolveNotAppliedOutcome: async () => null }))
 vi.mock('@/lib/renderedText/track', () => ({ trackHeadlineEdited: h.trackHeadlineEdited }))

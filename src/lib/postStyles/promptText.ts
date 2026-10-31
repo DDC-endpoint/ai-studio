@@ -6,7 +6,7 @@ import type { PostStyle, RuleScope } from './types'
 
 // The single preamble. `{label}` is the style's label.
 export const CHECKLIST_PREAMBLE =
-  'Content rules for this post (post style: {label}). They outrank the brand voice and the campaign briefing where they conflict. "Stated in the brief" means the value appears in the topic, the description, the campaign briefing or the brand voice text. If a value is not stated, do not write it.'
+  'Content rules for this post (post style: {label}). They outrank the brand voice and the project briefing where they conflict. "Stated in the brief" means the value appears in the topic, the description, the project briefing or the brand voice text. If a value is not stated, do not write it.'
 
 // '' when the style or version does not resolve, or the scope has no rules.
 export function checklistPromptText(

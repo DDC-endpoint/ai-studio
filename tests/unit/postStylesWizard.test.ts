@@ -2,7 +2,7 @@
 // what is sent, and how a resumed payload is read back.
 import { describe, it, expect } from 'vitest'
 import {
-  campaignStyleKey,
+  projectStyleKey,
   knownStyleKey,
   resolveWizardStyle,
   resumeWizardStyle,
@@ -16,7 +16,7 @@ import { archetypes } from '@/lib/designData'
 
 const base: WizardStyleInput = {
   postStyle: 'general',
-  campaign: null,
+  project: null,
   designMode: 'GENERATE',
   aspectRatio: 'SQUARE',
   tone: 'professional',
@@ -59,8 +59,8 @@ describe('resolveWizardStyle', () => {
     expect(resolveWizardStyle({ ...base, postStyle: 'launch', aspectRatio: 'STORY' }).imageStyle).toBe('product-showcase')
   })
 
-  it('the campaign tone beats the style tone while untouched', () => {
-    const v = resolveWizardStyle({ ...base, postStyle: 'launch', campaign: { defaultTone: 'Casual and warm' } })
+  it('the project tone beats the style tone while untouched', () => {
+    const v = resolveWizardStyle({ ...base, postStyle: 'launch', project: { defaultTone: 'Casual and warm' } })
     expect(v.tone).toBe('casual')
   })
 
@@ -81,10 +81,10 @@ describe('keys', () => {
     expect(knownStyleKey(undefined)).toBe('general')
     expect(knownStyleKey('constructor')).toBe('general')
   })
-  it('campaignStyleKey reads the default, else general', () => {
-    expect(campaignStyleKey({ defaultPostStyle: 'event' })).toBe('event')
-    expect(campaignStyleKey({ defaultPostStyle: null })).toBe('general')
-    expect(campaignStyleKey(null)).toBe('general')
+  it('projectStyleKey reads the default, else general', () => {
+    expect(projectStyleKey({ defaultPostStyle: 'event' })).toBe('event')
+    expect(projectStyleKey({ defaultPostStyle: null })).toBe('general')
+    expect(projectStyleKey(null)).toBe('general')
   })
 })
 
@@ -120,7 +120,7 @@ describe('styleRequestFields', () => {
 })
 
 describe('resumeWizardStyle', () => {
-  const ctx = { campaign: null, designMode: 'GENERATE' as const, aspectRatio: 'SQUARE' as const }
+  const ctx = { project: null, designMode: 'GENERATE' as const, aspectRatio: 'SQUARE' as const }
   it('a stored tone equal to the style default stays untouched', () => {
     const r = resumeWizardStyle({ postStyle: 'launch', tone: 'bold', imageStyle: 'product-showcase' }, ctx)
     expect(r).toMatchObject({ postStyle: 'launch', toneTouched: false, imageStyleTouched: false })

@@ -15,12 +15,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
   brandKitFindFirst: vi.fn(),
-  campaignFindFirst: vi.fn(),
+  projectFindFirst: vi.fn(),
 }))
 vi.mock('@/lib/prisma', () => ({
   prisma: {
     brandKit: { findFirst: mocks.brandKitFindFirst },
-    campaign: { findFirst: mocks.campaignFindFirst },
+    project: { findFirst: mocks.projectFindFirst },
   },
 }))
 
@@ -35,7 +35,7 @@ const kitB = { id: 'kit-b', name: 'Team B Kit', colors: [], fonts: [], logoUrl: 
 describe('resolveBrandKit — team scoping (final review C1)', () => {
   beforeEach(() => vi.clearAllMocks())
 
-  describe('team-default (system) tier', () => {
+  describe('team-default tier', () => {
     it('only resolves the CALLING team\'s default kit, never another team\'s', async () => {
       mocks.brandKitFindFirst.mockImplementation(async ({ where }: { where: { teamId: string; isDefault: boolean } }) => {
         if (where.isDefault && where.teamId === TEAM_A) return kitA
@@ -45,7 +45,7 @@ describe('resolveBrandKit — team scoping (final review C1)', () => {
 
       const resolvedA = await resolveBrandKit(TEAM_A)
       expect(resolvedA?.id).toBe('kit-a')
-      expect(resolvedA?.source).toBe('system')
+      expect(resolvedA?.source).toBe('team')
 
       const resolvedB = await resolveBrandKit(TEAM_B)
       expect(resolvedB?.id).toBe('kit-b')
@@ -76,7 +76,7 @@ describe('resolveBrandKit — team scoping (final review C1)', () => {
       })
 
       // Team B asking for team A's kit id must NOT resolve it.
-      const resolved = await resolveBrandKit(TEAM_B, undefined, 'kit-a')
+      const resolved = await resolveBrandKit(TEAM_B, { brandKitId: 'kit-a' })
       expect(resolved).toBeNull()
       expect(mocks.brandKitFindFirst).toHaveBeenCalledWith(
         expect.objectContaining({ where: expect.objectContaining({ id: 'kit-a', teamId: TEAM_B }) }),
@@ -84,18 +84,66 @@ describe('resolveBrandKit — team scoping (final review C1)', () => {
     })
   })
 
-  describe('campaign tier', () => {
-    it('scopes the campaign lookup by teamId so a foreign campaignId resolves nothing', async () => {
-      mocks.campaignFindFirst.mockImplementation(async ({ where }: { where: { id: string; teamId: string } }) => {
-        return where.id === 'camp-a' && where.teamId === TEAM_A ? { brandKit: kitA, projects: [] } : null
+  describe('project tier (038 D5)', () => {
+    const kitP = { ...kitA, id: 'kit-p', name: 'Project kit', teamId: TEAM_A, isDeleted: false }
+    const projects = { 'proj-a': { teamId: TEAM_A, defaultBrandKit: kitP } } as Record<
+      string,
+      { teamId: string; defaultBrandKit: typeof kitP }
+    >
+    beforeEach(() => {
+      mocks.projectFindFirst.mockImplementation(async ({ where }: { where: { id: string; teamId: string } }) => {
+        const p = projects[where.id]
+        return p && p.teamId === where.teamId ? p : null
       })
-      mocks.brandKitFindFirst.mockResolvedValue(null) // no default tier to fall through to
+    })
 
-      const resolved = await resolveBrandKit(TEAM_B, 'camp-a')
-      expect(resolved).toBeNull()
-      expect(mocks.campaignFindFirst).toHaveBeenCalledWith(
-        expect.objectContaining({ where: expect.objectContaining({ id: 'camp-a', teamId: TEAM_B }) }),
+    it('an explicit kit wins over the project default', async () => {
+      mocks.brandKitFindFirst.mockImplementation(async ({ where }: { where: { id?: string; teamId: string } }) =>
+        where.id === 'kit-a' && where.teamId === TEAM_A ? kitA : null,
       )
+      const resolved = await resolveBrandKit(TEAM_A, { brandKitId: 'kit-a', projectId: 'proj-a' })
+      expect(resolved?.id).toBe('kit-a')
+      expect(resolved?.source).toBe('explicit')
+      expect(mocks.projectFindFirst).not.toHaveBeenCalled()
+    })
+
+    it('with no explicit kit, the project default is used', async () => {
+      mocks.brandKitFindFirst.mockResolvedValue(null)
+      const resolved = await resolveBrandKit(TEAM_A, { projectId: 'proj-a' })
+      expect(resolved?.id).toBe('kit-p')
+      expect(resolved?.source).toBe('project')
+    })
+
+    it('with neither, the team default is used', async () => {
+      mocks.brandKitFindFirst.mockImplementation(async ({ where }: { where: { isDefault?: boolean; teamId: string } }) =>
+        where.isDefault && where.teamId === TEAM_A ? kitA : null,
+      )
+      const resolved = await resolveBrandKit(TEAM_A, { projectId: 'proj-none' })
+      expect(resolved?.id).toBe('kit-a')
+      expect(resolved?.source).toBe('team')
+    })
+
+    it('a deleted project kit is skipped and falls to the team default', async () => {
+      projects['proj-d'] = { teamId: TEAM_A, defaultBrandKit: { ...kitP, isDeleted: true } }
+      mocks.brandKitFindFirst.mockImplementation(async ({ where }: { where: { isDefault?: boolean; teamId: string } }) =>
+        where.isDefault && where.teamId === TEAM_A ? kitA : null,
+      )
+      expect((await resolveBrandKit(TEAM_A, { projectId: 'proj-d' }))?.source).toBe('team')
+    })
+
+    it('scopes the project lookup by teamId, so a foreign projectId resolves nothing', async () => {
+      mocks.brandKitFindFirst.mockResolvedValue(null) // no default tier to fall through to
+      const resolved = await resolveBrandKit(TEAM_B, { projectId: 'proj-a' })
+      expect(resolved).toBeNull()
+      expect(mocks.projectFindFirst).toHaveBeenCalledWith(
+        expect.objectContaining({ where: expect.objectContaining({ id: 'proj-a', teamId: TEAM_B }) }),
+      )
+    })
+
+    it('a project kit that belongs to another team is never returned', async () => {
+      projects['proj-x'] = { teamId: TEAM_A, defaultBrandKit: { ...kitP, teamId: TEAM_B } }
+      mocks.brandKitFindFirst.mockResolvedValue(null)
+      expect(await resolveBrandKit(TEAM_A, { projectId: 'proj-x' })).toBeNull()
     })
   })
 })

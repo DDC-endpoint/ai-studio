@@ -40,10 +40,9 @@ const urlPath = (u: unknown) => String(u ?? '').split('?')[0]
 
 async function createExportedDraft(api: ApiClient, topic: string) {
   const kit = await (await api.post('/api/admin/brandkits', { name: `Async Actions Kit ${topic}`, colors: ['#0284c7'] })).json()
-  const camp = await (await api.post('/api/campaigns', { name: `Async Actions Camp ${topic}`, brandKitId: kit.id })).json()
   const brief = await (await api.post('/api/briefs', {
     topic, goal: 'g', tone: 'professional', channels: ['INSTAGRAM'],
-    designMode: 'GENERATE', copyProviderKey: 'cli', campaignId: camp.id,
+    designMode: 'GENERATE', copyProviderKey: 'cli', brandKitId: kit.id,
   })).json()
   const assembleRes = await api.post('/api/generate/assemble-b', { briefId: brief.id })
   expect(assembleRes.status()).toBe(202)
@@ -331,10 +330,9 @@ test.describe('§Q — async draft actions', () => {
       name: 'Async Val Template',
       htmlTemplate: '<html><body style="width:1080px;height:1080px;background:#0284c7">{{topic}}</body></html>',
     })).json()
-    const camp = await (await api.post('/api/campaigns', { name: `Async Val A Camp ${Date.now()}`, brandKitId: kit.id })).json()
     const briefA = await (await api.post('/api/briefs', {
       topic: `Async Val A ${Date.now()}`, goal: 'g', tone: 'professional', channels: ['INSTAGRAM'],
-      designMode: 'TEMPLATE', copyProviderKey: 'cli', campaignId: camp.id,
+      designMode: 'TEMPLATE', copyProviderKey: 'cli', brandKitId: kit.id,
     })).json()
     const assembleA = await api.post('/api/generate/assemble-a', { briefId: briefA.id, templateId: template.id })
     expect(assembleA.status()).toBe(202)
@@ -347,7 +345,7 @@ test.describe('§Q — async draft actions', () => {
     // 409 'not ready' — regenerate-copy on a FAILED draft (no content to replace).
     const failedBrief = await (await api.post('/api/briefs', {
       topic: `__FAIL_GEN_ALWAYS__ Async Val ${Date.now()}`, goal: 'g', tone: 'professional',
-      channels: ['INSTAGRAM'], designMode: 'GENERATE', copyProviderKey: 'cli', campaignId: camp.id,
+      channels: ['INSTAGRAM'], designMode: 'GENERATE', copyProviderKey: 'cli', brandKitId: kit.id,
     })).json()
     const { draftId: failedDraftId } = await (await api.post('/api/generate/assemble-b', { briefId: failedBrief.id })).json()
     const failedDraft = await waitForDraft(api, failedDraftId)

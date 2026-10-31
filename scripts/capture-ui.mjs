@@ -16,7 +16,7 @@
 //   CAPTURE_TEAM      team to make active when a chooser appears (default Bistec)
 //
 // If the account can see no draft, one is generated through the mock seams
-// (brand kit → campaign → brief → assemble-b), so run it against a MOCK_AI +
+// (brand kit → brief → assemble-b), so run it against a MOCK_AI +
 // MOCK_PUPPETEER server. Without the mocks the draft screen is skipped.
 //
 // After the screens, a `states` pass (change 033 T2) shoots the wizard steps, a
@@ -118,10 +118,6 @@ async function findOrCreateDraft(page) {
       name: `Capture kit ${stamp}`,
       colors: ['#211c18', '#f6f3ed'],
     })
-    const campaign = await postJson(page, '/api/campaigns', {
-      name: `Capture campaign ${stamp}`,
-      brandKitId: kit.id,
-    })
     const brief = await postJson(page, '/api/briefs', {
       topic: SAMPLE_TOPIC,
       goal: 'Show the draft review screen',
@@ -130,7 +126,7 @@ async function findOrCreateDraft(page) {
       designMode: 'GENERATE',
       // The seeded keyless COPY row (scripts/seed-cli-provider.mjs).
       copyProviderKey: 'cli',
-      campaignId: campaign.id,
+      brandKitId: kit.id,
     })
     const { draftId } = await postJson(page, '/api/generate/assemble-b', { briefId: brief.id })
     const deadline = Date.now() + 60_000
@@ -328,7 +324,7 @@ async function openStatesKit(page) {
 // post-styles.test.ts openStepOne: step 0 -> Size & Design with the kit chosen.
 async function openWizardStepOne(page, data) {
   await page.goto('/brief')
-  await page.getByRole('heading', { name: 'Select a campaign' }).waitFor({ timeout: 20_000 })
+  await page.getByRole('heading', { name: 'Select a project' }).waitFor({ timeout: 20_000 })
   await page.getByRole('button', { name: /continue/i }).click()
   await page.getByRole('heading', { name: 'Size & Design' }).waitFor()
   const kit = page.getByRole('combobox', { name: 'Brand kit' })

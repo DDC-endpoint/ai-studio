@@ -10,7 +10,7 @@ export interface FactsCheckNoticeProps {
   check: FactsCheck | null | undefined
 }
 
-// 027 FR-13: values the post states that its brief and campaign do not. Amber
+// 027 FR-13: values the post states that its brief and project do not. Amber
 // and `role="status"`, like CompositionNotice: a heads-up about a working
 // post, never a blocker (Publish stays enabled). Renders nothing for a clear
 // check or one that was never run.

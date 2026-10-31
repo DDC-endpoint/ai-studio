@@ -444,7 +444,7 @@ test.describe('§AA — the wizard picker', () => {
   }) => {
     await pageLogin(page)
     await page.goto('/brief')
-    await expect(page.getByRole('heading', { name: 'Select a campaign' })).toBeVisible({ timeout: 20_000 })
+    await expect(page.getByRole('heading', { name: 'Select a project' })).toBeVisible({ timeout: 20_000 })
     const cont = page.getByRole('button', { name: /continue/i })
     await cont.click()
     await expect(page.getByRole('heading', { name: 'Size & Design' })).toBeVisible()

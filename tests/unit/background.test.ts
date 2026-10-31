@@ -16,6 +16,7 @@ import {
   refineSkipFields,
   SKIP_DETAIL_MAX,
 } from '@/lib/drafts/backgroundNotice'
+import { ctxFor } from '../helpers/postContext'
 
 // For generation, resolveImageProvider is resolved FIRST inside the background
 // step, before any model call — a null resolution (no personal/team key
@@ -103,7 +104,7 @@ const kit: ResolvedBrandKit = {
   logoUrl: 'https://cdn.example.com/logo.svg',
   logos: [{ label: 'Primary logo', url: 'https://cdn.example.com/logo.svg', primary: true }],
   voicePrompt: 'Warm, confident, human.',
-  source: 'system',
+  source: 'team',
 }
 
 function decisionReply(text: string) {
@@ -221,7 +222,7 @@ describe('generateBackgroundForBrief — skip reasons (FR-06)', () => {
   })
 
   it('no provider configured (personal+team both absent) ⇒ NO_PROVIDER, decision model never called', async () => {
-    await expect(generateBackgroundForBrief(brief, kit, 'Big news!', null, actor)).resolves.toEqual({
+    await expect(generateBackgroundForBrief(brief, ctxFor(kit), 'Big news!', actor)).resolves.toEqual({
       url: null,
       skip: 'NO_PROVIDER',
     })
@@ -237,7 +238,7 @@ describe('generateBackgroundForBrief — skip reasons (FR-06)', () => {
 
   it('a rejected provider resolution ⇒ PROVIDER_ERROR with the error as detail (never fails the pipeline)', async () => {
     h.resolveImageProvider.mockReset().mockRejectedValue(new Error('db unreachable'))
-    await expect(generateBackgroundForBrief(brief, kit, 'Big news!', null, actor)).resolves.toEqual({
+    await expect(generateBackgroundForBrief(brief, ctxFor(kit), 'Big news!', actor)).resolves.toEqual({
       url: null,
       skip: 'PROVIDER_ERROR',
       detail: 'db unreachable',
@@ -248,7 +249,7 @@ describe('generateBackgroundForBrief — skip reasons (FR-06)', () => {
   it('the decision call receives the headline it was given (fenced), never a caption', async () => {
     h.resolveImageProvider.mockResolvedValue(providerReturning('https://cdn.example.com/x.png'))
     h.anthropicCreate.mockResolvedValueOnce(decisionReply('{"needed": false, "prompt": ""}'))
-    await generateBackgroundForBrief(brief, kit, 'Applications are open', null, actor)
+    await generateBackgroundForBrief(brief, ctxFor(kit), 'Applications are open', actor)
     const { messages } = h.anthropicCreate.mock.calls.at(-1)![0] as { messages: Array<{ content: string }> }
     expect(messages[0].content).toContain('<<<UNTRUSTED-DATA>>>\nApplications are open\n<<<END-UNTRUSTED-DATA>>>')
   })
@@ -256,14 +257,14 @@ describe('generateBackgroundForBrief — skip reasons (FR-06)', () => {
   it('a decision reply that is not valid JSON ⇒ DECISION_ERROR', async () => {
     h.resolveImageProvider.mockResolvedValue(providerReturning('https://cdn.example.com/x.png'))
     h.anthropicCreate.mockResolvedValueOnce(decisionReply('I think a background would be nice.'))
-    const result = await generateBackgroundForBrief(brief, kit, 'Big news!', null, actor)
+    const result = await generateBackgroundForBrief(brief, ctxFor(kit), 'Big news!', actor)
     expect(result).toMatchObject({ url: null, skip: 'DECISION_ERROR' })
   })
 
   it('the decision call itself throwing ⇒ DECISION_ERROR (stage before the parse), even when the message says "provider"', async () => {
     h.resolveImageProvider.mockResolvedValue(providerReturning('https://cdn.example.com/x.png'))
     h.anthropicCreate.mockRejectedValueOnce(new Error('image provider exploded'))
-    await expect(generateBackgroundForBrief(brief, kit, 'Big news!', null, actor)).resolves.toEqual({
+    await expect(generateBackgroundForBrief(brief, ctxFor(kit), 'Big news!', actor)).resolves.toEqual({
       url: null,
       skip: 'DECISION_ERROR',
       detail: 'image provider exploded',
@@ -274,7 +275,7 @@ describe('generateBackgroundForBrief — skip reasons (FR-06)', () => {
     const provider = providerReturning('https://cdn.example.com/x.png')
     h.resolveImageProvider.mockResolvedValue(provider)
     h.anthropicCreate.mockResolvedValueOnce(decisionReply('{"needed": false, "prompt": ""}'))
-    await expect(generateBackgroundForBrief(brief, kit, 'Big news!', null, actor)).resolves.toEqual({
+    await expect(generateBackgroundForBrief(brief, ctxFor(kit), 'Big news!', actor)).resolves.toEqual({
       url: null,
       skip: 'NOT_NEEDED',
     })
@@ -284,7 +285,7 @@ describe('generateBackgroundForBrief — skip reasons (FR-06)', () => {
   it('needed:true with an empty prompt ⇒ NOT_NEEDED', async () => {
     h.resolveImageProvider.mockResolvedValue(providerReturning('https://cdn.example.com/x.png'))
     h.anthropicCreate.mockResolvedValueOnce(decisionReply('{"needed": true, "prompt": "   "}'))
-    await expect(generateBackgroundForBrief(brief, kit, 'Big news!', null, actor)).resolves.toMatchObject({
+    await expect(generateBackgroundForBrief(brief, ctxFor(kit), 'Big news!', actor)).resolves.toMatchObject({
       skip: 'NOT_NEEDED',
     })
   })
@@ -296,7 +297,7 @@ describe('generateBackgroundForBrief — skip reasons (FR-06)', () => {
       },
     })
     h.anthropicCreate.mockResolvedValueOnce(decisionReply('{"needed": true, "prompt": "waves"}'))
-    await expect(generateBackgroundForBrief(brief, kit, 'Big news!', null, actor)).resolves.toEqual({
+    await expect(generateBackgroundForBrief(brief, ctxFor(kit), 'Big news!', actor)).resolves.toEqual({
       url: null,
       skip: 'PROVIDER_ERROR',
       detail: 'decision was fine but the image request was rejected',
@@ -307,7 +308,7 @@ describe('generateBackgroundForBrief — skip reasons (FR-06)', () => {
     h.resolveImageProvider.mockResolvedValue(providerReturning('data:image/png;base64,AAAA'))
     h.persistDataUrlImage.mockRejectedValueOnce(new Error('Unsupported image content-type from provider: image/svg+xml'))
     h.anthropicCreate.mockResolvedValueOnce(decisionReply('{"needed": true, "prompt": "waves"}'))
-    await expect(generateBackgroundForBrief(brief, kit, 'Big news!', null, actor)).resolves.toMatchObject({
+    await expect(generateBackgroundForBrief(brief, ctxFor(kit), 'Big news!', actor)).resolves.toMatchObject({
       url: null,
       skip: 'PROVIDER_ERROR',
     })
@@ -320,7 +321,7 @@ describe('generateBackgroundForBrief — skip reasons (FR-06)', () => {
       },
     })
     h.anthropicCreate.mockResolvedValueOnce(decisionReply('{"needed": true, "prompt": "waves"}'))
-    const result = await generateBackgroundForBrief(brief, kit, 'Big news!', null, actor)
+    const result = await generateBackgroundForBrief(brief, ctxFor(kit), 'Big news!', actor)
     expect(result.url).toBeNull()
     if (result.url !== null) throw new Error('unreachable')
     expect(result.detail!.length).toBeLessThanOrEqual(SKIP_DETAIL_MAX)
@@ -330,7 +331,7 @@ describe('generateBackgroundForBrief — skip reasons (FR-06)', () => {
     h.resolveImageProvider.mockResolvedValue(providerReturning('data:image/png;base64,AAAA'))
     h.persistDataUrlImage.mockResolvedValueOnce('http://minio.example.com/generated-images/background-1.png')
     h.anthropicCreate.mockResolvedValueOnce(decisionReply('{"needed": true, "prompt": "waves"}'))
-    await expect(generateBackgroundForBrief(brief, kit, 'Big news!', null, actor)).resolves.toMatchObject({
+    await expect(generateBackgroundForBrief(brief, ctxFor(kit), 'Big news!', actor)).resolves.toMatchObject({
       url: 'http://minio.example.com/generated-images/background-1.png',
     })
     expect(h.persistDataUrlImage).toHaveBeenCalledWith('data:image/png;base64,AAAA', 'background')
@@ -358,7 +359,7 @@ describe('the background decision model (008 FR-15, A14)', () => {
 
   it('API mode: through createMessage, on the internal Haiku entry, recorded', async () => {
     h.anthropicCreate.mockResolvedValueOnce(decisionReply('{"needed": false, "prompt": ""}'))
-    await generateBackgroundForBrief(brief, kit, 'Big news!', null, actor)
+    await generateBackgroundForBrief(brief, ctxFor(kit), 'Big news!', actor)
     const [params, options] = h.anthropicCreate.mock.calls[0] as [Record<string, unknown>, { signal?: AbortSignal }]
     expect(params).toMatchObject({ model: 'claude-haiku-4-5', max_tokens: 1024 })
     // The wall-clock bound rides the request (createMessage's AbortSignal).
@@ -375,7 +376,7 @@ describe('the background decision model (008 FR-15, A14)', () => {
         { type: 'text', text: '{"needed": false, "prompt": ""}' },
       ],
     })
-    await expect(generateBackgroundForBrief(brief, kit, 'Big news!', null, actor)).resolves.toEqual({
+    await expect(generateBackgroundForBrief(brief, ctxFor(kit), 'Big news!', actor)).resolves.toEqual({
       url: null,
       skip: 'NOT_NEEDED',
     })
@@ -384,7 +385,7 @@ describe('the background decision model (008 FR-15, A14)', () => {
   it("CLI mode: the CLI gets the ResolvedModel, and its timeout is the entry's (no literal)", async () => {
     h.cli = true
     h.runClaudeCli.mockResolvedValueOnce('{"needed": false, "prompt": ""}')
-    await generateBackgroundForBrief(brief, kit, 'Big news!', null, actor)
+    await generateBackgroundForBrief(brief, ctxFor(kit), 'Big news!', actor)
     const opts = h.runClaudeCli.mock.calls[0][1] as Record<string, unknown>
     expect(opts).toEqual({
       label: 'background',
@@ -397,8 +398,8 @@ describe('the background decision model (008 FR-15, A14)', () => {
     // generateBackgroundForBrief takes no policy and resolves no user surface;
     // the model is the same for every team and actor.
     h.anthropicCreate.mockResolvedValue(decisionReply('{"needed": false, "prompt": ""}'))
-    await generateBackgroundForBrief(brief, kit, 'Big news!', null, actor)
-    await generateBackgroundForBrief(brief, kit, 'Big news!', null, { userId: null, teamId: 'other-team' })
+    await generateBackgroundForBrief(brief, ctxFor(kit), 'Big news!', actor)
+    await generateBackgroundForBrief(brief, ctxFor(kit), 'Big news!', { userId: null, teamId: 'other-team' })
     expect(records.map((r) => r.arg)).toEqual(['claude-haiku-4-5', 'claude-haiku-4-5'])
   })
 })
@@ -485,7 +486,7 @@ describe('generateBackgroundForRefine — refine semantics (FR-07)', () => {
       const provider = { providerName, generateImage: vi.fn(async () => ({ url: 'https://cdn.example.com/x.png' })) }
       h.resolveImageProvider.mockResolvedValue(provider)
       h.anthropicCreate.mockResolvedValueOnce(decisionReply('{"needed": true, "prompt": "a beach"}'))
-      await generateBackgroundForBrief({ ...brief, aspectRatio } as typeof brief, kit, 'Big news!', null, actor)
+      await generateBackgroundForBrief({ ...brief, aspectRatio } as typeof brief, ctxFor(kit), 'Big news!', actor)
       expect(provider.generateImage).toHaveBeenCalledWith('a beach', expect.anything(), size)
     }
   })
@@ -532,7 +533,7 @@ describe('generateBackgroundForBrief / generateBackgroundForRefine — actor vs.
       }
     )
 
-    const result = await generateBackgroundForBrief(sharedBrief, kit, 'Big news!', null, {
+    const result = await generateBackgroundForBrief(sharedBrief, ctxFor(kit), 'Big news!', {
       userId: ACTOR_ID,
       teamId: TEAM_ID,
     })
@@ -609,7 +610,7 @@ describe('background mock seam (MOCK_AI + __MOCK_BG__ sentinels)', () => {
   })
 
   it('no sentinel ⇒ today\'s early return: NOT_NEEDED, nothing resolved, no model call', async () => {
-    await expect(seam.generateBackgroundForBrief(seamBrief('Plain'), kit, 'c', null, actor)).resolves.toEqual({
+    await expect(seam.generateBackgroundForBrief(seamBrief('Plain'), ctxFor(kit), 'c', actor)).resolves.toEqual({
       url: null,
       skip: 'NOT_NEEDED',
     })
@@ -624,7 +625,7 @@ describe('background mock seam (MOCK_AI + __MOCK_BG__ sentinels)', () => {
   it('__MOCK_BG__: resolution runs for real, the decision model is skipped, the fixture replaces generateImage', async () => {
     const real = providerReturning('https://real-provider.example.com/should-not-be-used.png')
     h.resolveImageProvider.mockResolvedValue(real)
-    const result = await seam.generateBackgroundForBrief(seamBrief('Launch __MOCK_BG__'), kit, 'c', null, actor)
+    const result = await seam.generateBackgroundForBrief(seamBrief('Launch __MOCK_BG__'), ctxFor(kit), 'c', actor)
     expect(result).toMatchObject({ url: 'http://minio.example.com/generated-images/background-mock.png' })
     expect(h.resolveImageProvider).toHaveBeenCalledWith({ teamId: 'team-actor', userId: 'user-actor' }, undefined)
     expect(real.generateImage).not.toHaveBeenCalled()
@@ -635,7 +636,7 @@ describe('background mock seam (MOCK_AI + __MOCK_BG__ sentinels)', () => {
 
   it('__MOCK_BG__ with nothing resolvable ⇒ NO_PROVIDER', async () => {
     h.resolveImageProvider.mockResolvedValue(null)
-    await expect(seam.generateBackgroundForBrief(seamBrief('Launch __MOCK_BG__'), kit, 'c', null, actor)).resolves.toEqual({
+    await expect(seam.generateBackgroundForBrief(seamBrief('Launch __MOCK_BG__'), ctxFor(kit), 'c', actor)).resolves.toEqual({
       url: null,
       skip: 'NO_PROVIDER',
     })
@@ -643,7 +644,7 @@ describe('background mock seam (MOCK_AI + __MOCK_BG__ sentinels)', () => {
 
   it('__MOCK_BG_FAIL__ ⇒ the fixture throws ⇒ PROVIDER_ERROR', async () => {
     h.resolveImageProvider.mockResolvedValue(providerReturning('https://x.example.com/x.png'))
-    await expect(seam.generateBackgroundForBrief(seamBrief('Launch __MOCK_BG_FAIL__'), kit, 'c', null, actor)).resolves.toMatchObject({
+    await expect(seam.generateBackgroundForBrief(seamBrief('Launch __MOCK_BG_FAIL__'), ctxFor(kit), 'c', actor)).resolves.toMatchObject({
       url: null,
       skip: 'PROVIDER_ERROR',
     })
@@ -652,7 +653,7 @@ describe('background mock seam (MOCK_AI + __MOCK_BG__ sentinels)', () => {
   it('__MOCK_BG_NOT_NEEDED__ ⇒ NOT_NEEDED with a provider present', async () => {
     const real = providerReturning('https://x.example.com/x.png')
     h.resolveImageProvider.mockResolvedValue(real)
-    await expect(seam.generateBackgroundForBrief(seamBrief('Launch __MOCK_BG_NOT_NEEDED__'), kit, 'c', null, actor)).resolves.toEqual({
+    await expect(seam.generateBackgroundForBrief(seamBrief('Launch __MOCK_BG_NOT_NEEDED__'), ctxFor(kit), 'c', actor)).resolves.toEqual({
       url: null,
       skip: 'NOT_NEEDED',
     })
@@ -696,11 +697,11 @@ describe('background mock seam (MOCK_AI + __MOCK_BG__ sentinels)', () => {
   it('008 FR-16: __MOCK_BG__ records the internal model; the no-sentinel early return records nothing', async () => {
     const calls = await import('@/lib/models/modelCalls')
     calls.clearModelCalls()
-    await seam.generateBackgroundForBrief(seamBrief('Plain'), kit, 'c', null, actor)
+    await seam.generateBackgroundForBrief(seamBrief('Plain'), ctxFor(kit), 'c', actor)
     expect(calls.readModelCalls()).toEqual([])
 
     h.resolveImageProvider.mockResolvedValue(providerReturning('https://x.example.com/x.png'))
-    await seam.generateBackgroundForBrief(seamBrief('Launch __MOCK_BG_NOT_NEEDED__'), kit, 'c', null, actor)
+    await seam.generateBackgroundForBrief(seamBrief('Launch __MOCK_BG_NOT_NEEDED__'), ctxFor(kit), 'c', actor)
     expect(calls.readModelCalls()).toEqual([
       expect.objectContaining({ surface: 'INTERNAL_BACKGROUND', key: 'HAIKU', arg: 'claude-haiku-4-5', label: 'background' }),
     ])
@@ -896,7 +897,7 @@ describe('redactSkipDetail — no credential or internal endpoint reaches a draf
       },
     })
     h.anthropicCreate.mockReset().mockResolvedValueOnce(decisionReply('{"needed": true, "prompt": "waves"}'))
-    await expect(generateBackgroundForBrief(brief, kit, 'Big news!', null, actor)).resolves.toEqual({
+    await expect(generateBackgroundForBrief(brief, ctxFor(kit), 'Big news!', actor)).resolves.toEqual({
       url: null,
       skip: 'PROVIDER_ERROR',
       detail: '401 Incorrect API key provided: <redacted> (<url>)',

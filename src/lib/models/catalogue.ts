@@ -214,8 +214,8 @@ export const SURFACE_LABELS: Readonly<Record<UserSurface, { name: string; phrase
   DESIGN_FREEFORM: { name: 'Freeform design', phrase: 'freeform design' },
   REFINE: { name: 'Refine', phrase: 'refine' },
   ASSISTANT_BRIEFING: {
-    name: 'Campaign briefing assistant',
-    phrase: 'the campaign briefing assistant',
+    name: 'Project briefing assistant',
+    phrase: 'the project briefing assistant',
   },
   ASSISTANT_BRANDKIT: { name: 'Brand kit assistant', phrase: 'the brand kit assistant' },
 }

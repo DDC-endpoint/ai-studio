@@ -80,7 +80,6 @@ const db = h.db
 vi.mock('@/lib/prisma', () => ({ prisma: h.client }))
 vi.mock('@/lib/renderer/fontSet', () => ({ getFontSetId: () => 'fonts-test' }))
 vi.mock('@/lib/brandkit/resolve', () => ({ resolveBrandKit: async () => ({ id: 'kit', name: 'Kit' }) }))
-vi.mock('@/lib/campaign/briefing', () => ({ getActiveCampaignBriefing: async () => null }))
 vi.mock('@/providers/registry', () => ({
   resolveCopyProvider: async () => ({
     generateCaptions: async (_b: unknown, _t: unknown, model: { arg: string }) => {
@@ -381,7 +380,7 @@ describe('generateDraftForBrief (sync: scheduler, MCP, ACP)', () => {
 // ── 008: the generation's models and stamps (FR-08, FR-10, FR-11, AC-07) ──────
 
 describe('generation on the resolver (008)', () => {
-  const pathBModel = () => h.pathB.mock.calls[0][5] as { key: string; arg: string; source: string; substitutedFrom: string | null }
+  const pathBModel = () => h.pathB.mock.calls[0][4] as { key: string; arg: string; source: string; substitutedFrom: string | null }
 
   beforeEach(() => {
     db.draft = { id: 'd1', templateId: null, brief }

@@ -27,6 +27,7 @@ import { copyProviderIsClaude } from '@/providers/registry'
 import { loadCaptionRoute } from '@/providers/captionRoute'
 import type { ModelKey, UserSurface } from '@/lib/models/catalogue'
 import { isStyleKey, resolvePostStyle } from '@/lib/postStyles'
+import { PROJECT_NOT_FOUND } from '@/lib/projects/errors'
 import { track } from '@/lib/analytics/track'
 import type { EventPayloadInput } from '@/lib/analytics/catalogue'
 
@@ -37,6 +38,13 @@ const createSchema = z.object({}).passthrough()
 export const POST = withTeamAuth(async (req: NextRequest, _ctx, user) => {
   const parsed = await parseBody(req, createSchema)
   if (parsed.response) return parsed.response
+  // 038 D13: the retired field is refused by name, before any lookup, never ignored.
+  if ('campaignId' in parsed.data || 'campaign' in parsed.data) {
+    return NextResponse.json(
+      { error: 'campaignId is retired; use projectId', code: 'CAMPAIGN_RETIRED' },
+      { status: 400 },
+    )
+  }
   // Untrusted request body — every field is validated at runtime below; the cast
   // just describes the shape those checks assume (no `any`).
   const body = parsed.data as {
@@ -47,7 +55,7 @@ export const POST = withTeamAuth(async (req: NextRequest, _ctx, user) => {
     channels?: unknown
     aspectRatio?: AspectRatio
     designMode?: string
-    campaignId?: string
+    projectId?: unknown
     brandKitId?: string
     copyProviderKey?: string
     imageProviderKey?: string
@@ -70,7 +78,6 @@ export const POST = withTeamAuth(async (req: NextRequest, _ctx, user) => {
     channels,
     aspectRatio,
     designMode,
-    campaignId,
     brandKitId,
     copyProviderKey,
     imageProviderKey,
@@ -109,6 +116,11 @@ export const POST = withTeamAuth(async (req: NextRequest, _ctx, user) => {
     }
     normalizedChannels.push(upper)
   }
+  if (body.projectId != null && typeof body.projectId !== 'string') {
+    return NextResponse.json({ error: 'projectId must be a string' }, { status: 400 })
+  }
+  // A blank id is "no project" (a cleared wizard picker).
+  const projectId = typeof body.projectId === 'string' && body.projectId.trim() ? body.projectId.trim() : null
   if (!designMode || !['TEMPLATE', 'GENERATE'].includes(designMode)) {
     return NextResponse.json({ error: 'designMode must be TEMPLATE or GENERATE' }, { status: 400 })
   }
@@ -177,7 +189,7 @@ export const POST = withTeamAuth(async (req: NextRequest, _ctx, user) => {
   // against ANY team's provider row, which would let a brief reference, and
   // then at generation time resolve to, a different team's registered
   // provider/API key; see the matching fix in resolveCopyProvider).
-  const [copyProvider, imageProvider, campaign, template, brandKit] = await Promise.all([
+  const [copyProvider, imageProvider, project, template, brandKit] = await Promise.all([
     mustValidateCopyKey
       ? prisma.availableProvider.findFirst({
           where: { providerKey: resolvedCopyKey, slot: 'COPY', teamId: user.teamId, isEnabled: true },
@@ -195,8 +207,12 @@ export const POST = withTeamAuth(async (req: NextRequest, _ctx, user) => {
           },
         })
       : Promise.resolve(null),
-    campaignId
-      ? prisma.campaign.findFirst({ where: { id: campaignId, isDeleted: false } })
+    // 038 D12: a project id is checked against the caller's team, not deleted.
+    projectId
+      ? prisma.project.findFirst({
+          where: { id: projectId, teamId: user.teamId, isDeleted: false },
+          select: { id: true, defaultPostStyle: true, defaultTone: true },
+        })
       : Promise.resolve(null),
     // I2 (final review): include the template's brand kit so its team can be
     // checked below — an unscoped findUnique let a foreign team's template
@@ -223,8 +239,8 @@ export const POST = withTeamAuth(async (req: NextRequest, _ctx, user) => {
   // referenced record. The old 400-vs-404 split let a caller distinguish "bad
   // id" from "id exists in some other tenant" — a cross-tenant existence
   // oracle — by watching the status code alone.
-  if (campaignId && (!campaign || campaign.teamId !== user.teamId)) {
-    return NextResponse.json({ error: 'Campaign not found' }, { status: 404 })
+  if (projectId && !project) {
+    return NextResponse.json(PROJECT_NOT_FOUND, { status: 404 })
   }
   if (referenceTemplateId && (!template || template.brandKit.teamId !== user.teamId)) {
     return NextResponse.json({ error: 'Reference template not found' }, { status: 404 })
@@ -249,12 +265,12 @@ export const POST = withTeamAuth(async (req: NextRequest, _ctx, user) => {
   }
 
   // 027 FR-06: the one resolution of the post style (explicit key, else the
-  // legacy goal, else the campaign default, else General). An unknown key is a
+  // legacy goal, else the project default, else General). An unknown key is a
   // 400 and never degrades to "no style".
   const resolved = resolvePostStyle({
     style: body.postStyle as string | null | undefined,
     legacyGoal: goal,
-    campaign: campaign ? { defaultPostStyle: campaign.defaultPostStyle, defaultTone: campaign.defaultTone } : null,
+    project: project ? { defaultPostStyle: project.defaultPostStyle, defaultTone: project.defaultTone } : null,
     explicit: { tone, imageStyle: body.imageStyle == null ? null : style.value },
     path: designMode === 'TEMPLATE' ? 'A' : 'B',
     aspectRatio: aspectRatio ?? 'SQUARE',
@@ -322,7 +338,7 @@ export const POST = withTeamAuth(async (req: NextRequest, _ctx, user) => {
       aspectRatio: aspectRatio ?? 'SQUARE',
       designMode: designMode as DesignMode,
       imageStyle,
-      campaignId: campaignId ?? null,
+      projectId: project?.id ?? null,
       brandKitId: brandKitId ?? null,
       copyProviderKey: resolvedCopyKey,
       imageProviderKey: imageProviderKey?.trim() ?? null,

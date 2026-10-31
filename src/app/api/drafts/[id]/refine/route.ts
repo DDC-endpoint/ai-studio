@@ -4,7 +4,7 @@ import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import { withTeamAuth, parseBody } from '@/lib/api/handler'
 import { canView, canEditPost, NOT_AUTHOR } from '@/lib/authz/visibility'
-import { resolveBrandKit } from '@/lib/brandkit/resolve'
+import { postContext } from '@/lib/projects/context'
 import { resolveExportUrl } from '@/lib/storage/minio'
 import { runDesignAgentRefine } from '@/lib/agent/designAgent'
 import { runDesignAgentCliRefine } from '@/lib/agent/designAgentCli'
@@ -141,8 +141,10 @@ export const POST = withTeamAuth<{ id: string }>(async (req, { params }, user) =
     )
   }
 
-  // Explicit brief kit → campaign → project → system default.
-  const kit = await resolveBrandKit(draft.teamId, draft.brief.campaignId ?? undefined, draft.brief.brandKitId ?? undefined)
+  // 038 D3: the kit the post was made with (its recorded stamp), not the brief's
+  // current project.
+  const ctx = await postContext(draft)
+  const kit = ctx.kit
   if (!kit) {
     return NextResponse.json(
       { code: 'NO_BRAND_KIT', message: 'No brand kit found for this draft.' },
@@ -304,6 +306,7 @@ export const POST = withTeamAuth<{ id: string }>(async (req, { params }, user) =
                 width,
                 height,
                 actor,
+                context: ctx,
                 refine: { attempt, instruction, slimHtml },
               })
         },

@@ -10,9 +10,9 @@ import { ASPECT_LABELS } from '@/lib/aspectRatio'
 import { imageStyleOptions, getArchetype } from '@/lib/designData'
 import type { CompositeSource } from '@/lib/brief/compositeSource'
 import { screenshotWillLetterbox } from '@/lib/brief/wizardStyleState'
-import type { Campaign, TemplateSummary } from '@/lib/api-types'
-import { ASPECT_OPTIONS, SOURCE_LABEL } from './constants'
-import type { DesignMode, ResolvedKit } from './types'
+import type { ProjectSummary, TemplateSummary } from '@/lib/api-types'
+import { ASPECT_OPTIONS } from './constants'
+import type { DesignMode } from './types'
 import { cardCls } from './cardCls'
 import { CARD_TITLE } from './classes'
 import { FieldLabel } from '@/components/ui/FieldLabel'
@@ -27,9 +27,8 @@ import { SelectedTemplatePreview } from './SelectedTemplatePreview'
 interface SizeDesignStepProps {
   aspectRatio: AspectRatio
   setAspectRatio: (v: AspectRatio) => void
-  campaignId: string
-  resolvedKit: ResolvedKit | null
-  selectedCampaign: Campaign | null
+  /** 038: the project picked on step 1; its default kit pre-fills the brand kit. */
+  selectedProject: ProjectSummary | null
   brandKitId: string
   setBrandKitId: (id: string) => void
   brandKitOptions: { value: string; label: string }[]
@@ -62,9 +61,7 @@ const EMPTY = 'surface px-4 py-3 text-ui-sm text-fg-muted'
 export function SizeDesignStep({
   aspectRatio,
   setAspectRatio,
-  campaignId,
-  resolvedKit,
-  selectedCampaign,
+  selectedProject,
   brandKitId,
   setBrandKitId,
   brandKitOptions,
@@ -140,8 +137,8 @@ export function SizeDesignStep({
           onChange={e => setBrandKitId(e.target.value)}
         />
         <p className="mt-2 text-ui-xs text-fg-muted">
-          {campaignId && resolvedKit && brandKitId === resolvedKit.id
-            ? `Defaulted from “${selectedCampaign?.name ?? 'campaign'}” (${SOURCE_LABEL[resolvedKit.source] ?? resolvedKit.source}). Override here if needed.`
+          {selectedProject?.defaultBrandKit && brandKitId === selectedProject.defaultBrandKit.id
+            ? `Defaulted from “${selectedProject.name}” (Project default). Override here if needed.`
             : 'Templates below are filtered to the selected brand kit.'}
         </p>
         {brandKitId === '' && (

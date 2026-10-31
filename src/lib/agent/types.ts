@@ -1,6 +1,7 @@
 import type { AnalyticsSource } from '@prisma/client'
 import type { HeadlineCheck } from "@/lib/renderedText/vocab"
 import type { CompositeRender } from '@/lib/composite/render'
+import type { PostContext } from '@/lib/projects/context'
 
 // The identity ON WHOSE BEHALF a generation/refine call runs — NOT necessarily
 // the brief's owner. Teammate B refining/regenerating teammate A's shared
@@ -60,6 +61,9 @@ export interface DesignAgentOptions {
   // element. Absent: today's behaviour, byte for byte.
   postProcess?: (html: string) => string
   composites?: CompositeRender | null
+  // 038 FR-20: the run's project context. The getBrandKitContext tool returns its
+  // kit; without one it returns the empty context.
+  context?: PostContext | null
   // 030 FR-05: the on-image headline the real render is checked against. Required,
   // so a design writer must choose what it checks.
   headline: string

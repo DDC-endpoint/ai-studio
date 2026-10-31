@@ -129,8 +129,8 @@ const revisionModel = async (draftId: string, revisionNumber: number) =>
     select: { model: true, modelSubstitutedFrom: true },
   })
 
-// One kit (with a square template) + campaign per worker, shared by the suite.
-let fixture: { kitId: string; kitName: string; templateId: string; templateName: string; campaignId: string; projectId: string } | null = null
+// One kit (with a square template) + project per worker, shared by the suite.
+let fixture: { kitId: string; kitName: string; templateId: string; templateName: string; projectId: string } | null = null
 async function suiteFixture(api: ApiClient) {
   if (fixture) return fixture
   const stamp = Date.now()
@@ -141,15 +141,13 @@ async function suiteFixture(api: ApiClient) {
       htmlTemplate: '<html><body style="width:1080px;height:1080px;background:#0b6e4f;color:#fff">{{topic}}</body></html>',
     })
   ).json()
-  const camp = await (await api.post('/api/campaigns', { name: `Models Camp ${stamp}`, brandKitId: kit.id })).json()
-  // The briefing assistant lives on projects since 038 T2; the brief route still takes a campaign until T3.
+  // The project's default kit serves its posts and the briefing assistant (038).
   const project = await (await api.post('/api/projects', { name: `Models Project ${stamp}`, defaultBrandKitId: kit.id })).json()
   fixture = {
     kitId: kit.id,
     kitName: kit.name,
     templateId: template.id,
     templateName: template.name,
-    campaignId: camp.id,
     projectId: project.id,
   }
   return fixture
@@ -164,7 +162,7 @@ async function generate(api: ApiClient, path: 'A' | 'B', topic: string): Promise
     channels: ['INSTAGRAM'],
     designMode: path === 'A' ? 'TEMPLATE' : 'GENERATE',
     copyProviderKey: 'cli',
-    campaignId: f.campaignId,
+    projectId: f.projectId,
   })
   expect(brief.status()).toBe(201)
   const briefId = (await brief.json()).id
@@ -545,7 +543,7 @@ test.describe('§Y — model selection: stamps, policy and the recorder', () => 
         surface: 'ASSISTANT_BRIEFING',
         label: 'briefing',
         run: async () =>
-          (await api.post('/api/briefs/enhance', { topic: 'Models', content: 'rough post brief', campaignId: f.campaignId })).status(),
+          (await api.post('/api/briefs/enhance', { topic: 'Models', content: 'rough post brief', projectId: f.projectId })).status(),
       },
       {
         what: 'brand-kit assistant chat',
@@ -640,7 +638,7 @@ test.describe('§Y — /team → Models', () => {
       ['Freeform design', 'Sonnet 5.5'],
       // 018 FR-02: refine's system default follows the draft's path.
       ['Refine', 'Sonnet 5.5; Haiku 4.5 on template drafts'],
-      ['Campaign briefing assistant', 'Sonnet 5.5'],
+      ['Project briefing assistant', 'Sonnet 5.5'],
       ['Brand kit assistant', 'Sonnet 5.5'],
     ]
     for (const [name, model] of systemDefaults) {
@@ -786,7 +784,7 @@ async function continueToReview(page: Page) {
 // A Path B walk on `kitId` to the Review step, touching no picker.
 async function walkToReview(page: Page, kitId: string, topic: string) {
   await page.goto('/brief')
-  await expect(page.getByRole('heading', { name: 'Select a campaign' })).toBeVisible({ timeout: 20_000 })
+  await expect(page.getByRole('heading', { name: 'Select a project' })).toBeVisible({ timeout: 20_000 })
   const cont = page.getByRole('button', { name: /continue/i })
   await cont.click()
   await expect(page.getByRole('heading', { name: 'Size & Design' })).toBeVisible()
@@ -862,7 +860,7 @@ test.describe('§Y — the pickers (wave 2)', () => {
       channels: ['INSTAGRAM'],
       designMode,
       copyProviderKey: 'cli',
-      campaignId: f.campaignId,
+      projectId: f.projectId,
     })
     const expectRefused = async (what: string, res: APIResponse, error = NOT_ALLOWED) => {
       expect(res.status(), what).toBe(400)

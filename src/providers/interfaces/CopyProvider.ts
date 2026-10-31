@@ -15,9 +15,9 @@ export interface BriefInput {
   // lets copy match the selected kit's voice instead of a hardcoded brand.
   brandName?: string
   brandVoice?: string
-  // Active campaign briefing (campaign-level context shared by every post in
-  // the campaign), when the brief belongs to a campaign that has one.
-  campaignBriefing?: string
+  // Active project briefing (project-level context shared by every post in
+  // the project), when the brief belongs to a project that has one.
+  projectBriefing?: string
   // 027 FR-09: the caption-scope rules of the brief's post style, already
   // rendered by checklistPromptText. Absent for a brief with no style.
   captionRules?: string

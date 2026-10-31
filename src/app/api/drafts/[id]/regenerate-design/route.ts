@@ -3,8 +3,7 @@ import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { withTeamAuth } from '@/lib/api/handler'
 import { canView, canEditPost, NOT_AUTHOR } from '@/lib/authz/visibility'
-import { resolveBrandKit } from '@/lib/brandkit/resolve'
-import { getActiveCampaignBriefing } from '@/lib/campaign/briefing'
+import { postContext } from '@/lib/projects/context'
 import { runPathBDesign } from '@/lib/agent/pathB'
 import { stampFromCheck } from '@/lib/renderedText/stamp'
 import { renderNotesFrom } from '@/lib/fonts/renderNotes'
@@ -60,15 +59,14 @@ export const POST = withTeamAuth<{ id: string }>(async (req, { params }, user) =
     )
   }
 
-  const kit = await resolveBrandKit(draft.teamId, draft.brief.campaignId ?? undefined, draft.brief.brandKitId ?? undefined)
-  if (!kit) {
+  // 038 D3: the kit and the briefing the post was made with (its recorded stamp).
+  const ctx = await postContext(draft)
+  if (!ctx.kit) {
     return NextResponse.json(
       { code: 'NO_BRAND_KIT', message: 'No brand kit found for this draft.' },
       { status: 422 }
     )
   }
-
-  const campaignBriefing = await getActiveCampaignBriefing(draft.brief.campaignId)
 
   // The design reads the on-image headline, never a caption (012 FR-09). A
   // draft without one falls back to the brief Topic, logged.
@@ -110,9 +108,8 @@ export const POST = withTeamAuth<{ id: string }>(async (req, { params }, user) =
     // resolution must follow whoever clicked Regenerate.
     const result = await runPathBDesign(
       draft.brief,
-      kit,
+      ctx,
       headline.text,
-      campaignBriefing,
       { userId: user.userId, teamId: user.teamId },
       model,
       // 008 FR-12: the stale-sweep heartbeat between the background step and

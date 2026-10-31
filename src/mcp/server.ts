@@ -3,7 +3,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js'
 import { resolveApiKey } from './auth'
 import { createBrandKit, setBrandKitPrompt, uploadBrandTemplate, listBrandKits, getBrandKit } from './tools/brandkit'
-import { generatePost, getDraft } from './tools/generate'
+import { generatePost, getDraft, refusalText } from './tools/generate'
 import { env } from '@/lib/env'
 import { activeStyles } from '@/lib/postStyles'
 
@@ -13,7 +13,7 @@ import { activeStyles } from '@/lib/postStyles'
 const API_KEY = env.MCP_API_KEY ?? null
 
 const server = new Server(
-  { name: 'bistec-studio', version: '2.0.0' },
+  { name: 'bistec-studio', version: '2.1.0' },
   { capabilities: { tools: {} } }
 )
 
@@ -84,7 +84,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
             type: 'string',
             enum: activeStyles().map((s) => s.key),
             description:
-              'The kind of post (default: general, or the campaign default). An unknown value is an error.',
+              'The kind of post (default: general, or the project default). An unknown value is an error.',
           },
           goal: {
             type: 'string',
@@ -98,7 +98,11 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
             type: 'string',
             description: 'Ignored once the team has chosen a caption route.',
           },
-          campaignId: { type: 'string' },
+          projectId: {
+            type: 'string',
+            description:
+              'Project id (optional): its briefing, documents, default kit and default post style apply',
+          },
           description: { type: 'string' },
         },
         required: ['topic', 'channels', 'designMode'],
@@ -204,7 +208,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
-    return { content: [{ type: 'text', text: `Error: ${message}` }], isError: true }
+    return { content: [{ type: 'text', text: refusalText(err) ?? `Error: ${message}` }], isError: true }
   }
 })
 

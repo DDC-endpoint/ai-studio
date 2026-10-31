@@ -3,41 +3,28 @@
 // logs and stores an error when it can, never throws. No real database.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import type { PrismaClient } from '@prisma/client'
-import { loadFactsSources, type FactsBrief, type SourceLoaders } from '@/lib/factsCheck/sources'
+import { loadFactsSources, type FactsBrief } from '@/lib/factsCheck/sources'
 import { computeFactsCheck, refreshFactsCheck, type RefreshDeps } from '@/lib/factsCheck/refresh'
 import { parseFactsCheck } from '@/lib/factsCheck'
+import type { ResolvedBrandKit } from '@/lib/brandkit/resolve'
+import { ctxFor } from '../helpers/postContext'
 
 const BRIEF: FactsBrief = {
   teamId: 't1',
   topic: 'Launch of the academy',
   description: 'Doors open 18:00',
-  campaignId: 'c1',
   brandKitId: 'k1',
 }
 
-function loaders(over: Partial<SourceLoaders> = {}): SourceLoaders & { calls: string[] } {
-  const calls: string[] = []
-  return {
-    calls,
-    briefing: async (id) => {
-      calls.push(`briefing:${id}`)
-      return 'Briefing: offer 20%'
-    },
-    voicePrompt: async () => {
-      calls.push('voice')
-      return 'Voice: call 076-8030-944'
-    },
-    documents: async (b) => {
-      calls.push(`docs:${b.campaignId}`)
-      return ['Doc one', 'Doc two $50']
-    },
-    ...over,
-  }
-}
+// 038 D6: the sources come from the post's context (the briefing, the kit voice and
+// the recorded project's documents), not from loaders that read by id.
+const kitWith = (voicePrompt: string | null) => ({ id: 'k1', name: 'Kit', voicePrompt }) as unknown as ResolvedBrandKit
+const CTX = () =>
+  ctxFor(kitWith('Voice: call 076-8030-944'), 'Briefing: offer 20%', 't1', ['Doc one', 'Doc two $50'])
 
 describe('loadFactsSources', () => {
-  it('returns the topic, description, briefing, voice and campaign documents in order', async () => {
-    expect(await loadFactsSources(BRIEF, {}, loaders())).toEqual([
+  it('returns the topic, description, briefing, voice and project documents in order', async () => {
+    expect(await loadFactsSources(BRIEF, CTX())).toEqual([
       'Launch of the academy',
       'Doors open 18:00',
       'Briefing: offer 20%',
@@ -47,37 +34,28 @@ describe('loadFactsSources', () => {
     ])
   })
 
-  it('drops nulls and empties and reads no campaign data without a campaign', async () => {
-    const l = loaders({ voicePrompt: async () => null })
-    const out = await loadFactsSources({ ...BRIEF, campaignId: null, description: null }, {}, l)
+  it('drops nulls and empties: a post with no project and no kit voice has only its own words', async () => {
+    const out = await loadFactsSources({ ...BRIEF, description: null }, ctxFor(kitWith(null)))
     expect(out).toEqual(['Launch of the academy'])
-    expect(l.calls).toEqual([])
   })
 
-  it('does not read what the caller has already resolved', async () => {
-    const l = loaders()
-    const out = await loadFactsSources(BRIEF, { campaignBriefing: 'B', voicePrompt: 'V' }, l)
+  it('reads the documents through the context once, and takes the briefing and the voice as they are', async () => {
+    const docs = vi.fn(async () => ['Doc one'])
+    const ctx = { ...ctxFor(kitWith('V'), 'B'), documentTexts: docs } as never
+    const out = await loadFactsSources(BRIEF, ctx)
     expect(out.slice(2, 4)).toEqual(['B', 'V'])
-    expect(l.calls).toEqual(['docs:c1'])
-    // an explicit null means "resolved: none", not "read it"
-    const none = await loadFactsSources(
-      BRIEF,
-      { campaignBriefing: null, voicePrompt: null },
-      loaders(),
-    )
-    expect(none).toEqual(['Launch of the academy', 'Doors open 18:00', 'Doc one', 'Doc two $50'])
+    expect(docs).toHaveBeenCalledTimes(1)
   })
 
   it('cuts the total at 200 000 characters', async () => {
     const big = 'x'.repeat(150_000)
-    const l = loaders({ documents: async () => [big, big] })
-    const out = await loadFactsSources({ ...BRIEF, description: null }, { voicePrompt: null }, l)
+    const out = await loadFactsSources({ ...BRIEF, description: null }, ctxFor(kitWith(null), null, 't1', [big, big]))
     expect(out.join('').length).toBe(200_000)
   })
 })
 
 interface FakeState {
-  draft: null | { headline: string | null; brief: FactsBrief }
+  draft: null | { headline: string | null; generationInputs?: unknown; brief: FactsBrief }
   captions: Array<{ channel: string; text: string; status: string }>
   writes: Array<Record<string, unknown>>
   failWrites: number
@@ -99,7 +77,8 @@ function fake(state: FakeState): RefreshDeps {
   } as unknown as PrismaClient
   return {
     db,
-    loadSources: (b) => loadFactsSources(b, {}, loaders()),
+    loadContext: async () => CTX(),
+    loadSources: (b, ctx) => loadFactsSources(b, ctx),
     loadCaptions: async () =>
       ({
         captions: state.captions.map((c) => ({
@@ -232,27 +211,25 @@ describe('computeFactsCheck (the synchronous generation’s check)', () => {
     { where: 'INSTAGRAM' as const, text: 'Doors open at 18:00' },
   ]
 
-  it('checks the texts against the sources the loader returns, with the preloaded values passed through', async () => {
+  it('checks the texts against the sources the loader returns, with the generation’s context passed through', async () => {
     const seen: unknown[] = []
-    const check = await computeFactsCheck(
-      { brief: BRIEF, texts: TEXTS, preloaded: { campaignBriefing: null, voicePrompt: 'V' } },
-      async (b, p) => {
-        seen.push([b, p])
-        return ['Doors open 18:00']
-      },
-    )
-    expect(seen).toEqual([[BRIEF, { campaignBriefing: null, voicePrompt: 'V' }]])
+    const ctx = ctxFor(kitWith('V'))
+    const check = await computeFactsCheck({ brief: BRIEF, texts: TEXTS, ctx }, async (b, c) => {
+      seen.push([b, c])
+      return ['Doors open 18:00']
+    })
+    expect(seen).toEqual([[BRIEF, ctx]])
     expect(check.status).toBe('flagged')
     expect(check.flagged.map((f) => `${f.where}|${f.kind}|${f.value}`)).toEqual(['headline|cur|$99'])
   })
 
   it('a clear check is stored as clear with no flags', async () => {
-    const check = await computeFactsCheck({ brief: BRIEF, texts: TEXTS }, async () => ['Only $99', 'at 18:00'])
+    const check = await computeFactsCheck({ brief: BRIEF, texts: TEXTS, ctx: ctxFor(null) }, async () => ['Only $99', 'at 18:00'])
     expect(check).toMatchObject({ v: 1, status: 'clear', flagged: [] })
   })
 
   it('a loader that throws is status error, logged once, redacted, and never thrown', async () => {
-    const check = await computeFactsCheck({ brief: BRIEF, texts: TEXTS }, async () => {
+    const check = await computeFactsCheck({ brief: BRIEF, texts: TEXTS, ctx: ctxFor(null) }, async () => {
       throw new Error('db down https://db.internal:5432/x key=secret')
     })
     expect(check.status).toBe('error')
@@ -264,7 +241,7 @@ describe('computeFactsCheck (the synchronous generation’s check)', () => {
   })
 
   it('stores no caption or brief text, only what a flag needs', async () => {
-    const check = await computeFactsCheck({ brief: BRIEF, texts: TEXTS }, async () => ['x'])
+    const check = await computeFactsCheck({ brief: BRIEF, texts: TEXTS, ctx: ctxFor(null) }, async () => ['x'])
     const json = JSON.stringify(check)
     expect(json).not.toContain('Doors open')
     expect(json).not.toContain('Launch of the academy')
@@ -280,7 +257,12 @@ describe('refreshFactsCheck: a partial override (a store function given its own 
       failWrites: 0,
     }
     const deps = fake(s)
-    await refreshFactsCheck('d1', { db: deps.db, loadSources: deps.loadSources, loadCaptions: deps.loadCaptions })
+    await refreshFactsCheck('d1', {
+      db: deps.db,
+      loadContext: deps.loadContext,
+      loadSources: deps.loadSources,
+      loadCaptions: deps.loadCaptions,
+    })
     expect(s.writes).toHaveLength(1)
     // Only the db named: the default captions loader runs on it. A fake db with no
     // caption rows to read fails inside the wrapper and is stored as error, never thrown.
@@ -308,7 +290,7 @@ describe('the __MOCK_FACT_ERROR__ seam (MOCK_AI only)', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {})
     const mod = await load({ MOCK_AI: 'true', DESIGN_PROVIDER: 'claude-html' })
     const brief = { ...BRIEF, topic: 'launch __MOCK_FACT_ERROR__' }
-    const computed = await mod.computeFactsCheck({ brief, texts: [{ where: 'headline', text: 'fine' }] }, async () => ['x'])
+    const computed = await mod.computeFactsCheck({ brief, texts: [{ where: 'headline', text: 'fine' }], ctx: ctxFor(null) }, async () => ['x'])
     expect(computed.status).toBe('error')
 
     const s: FakeState = { draft: { headline: 'fine', brief }, captions: [], writes: [], failWrites: 0 }
@@ -320,7 +302,7 @@ describe('the __MOCK_FACT_ERROR__ seam (MOCK_AI only)', () => {
   it('with MOCK_AI off, the sentinel is plain text and the check runs', async () => {
     const mod = await load({})
     const brief = { ...BRIEF, topic: 'launch __MOCK_FACT_ERROR__' }
-    const computed = await mod.computeFactsCheck({ brief, texts: [{ where: 'headline', text: 'fine' }] }, async () => ['x'])
+    const computed = await mod.computeFactsCheck({ brief, texts: [{ where: 'headline', text: 'fine' }], ctx: ctxFor(null) }, async () => ['x'])
     expect(computed.status).toBe('clear')
   })
 })

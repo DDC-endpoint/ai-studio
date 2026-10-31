@@ -200,7 +200,7 @@ test.describe('§AG product screenshots: storage and the brief', () => {
       const { teamId } = await whoAmI(t.api)
       const draftPayload = (source: unknown) => ({
         step: 2,
-        campaignId: '',
+        projectId: '',
         aspectRatio: 'SQUARE',
         brandKitId: t.kitId,
         designMode: 'GENERATE',
@@ -550,7 +550,7 @@ test.describe('§AG product screenshots: the wizard', () => {
   async function toSizeStep(page: Page) {
     await pageLogin(page)
     await page.goto('/brief')
-    await expect(page.getByRole('heading', { name: 'Select a campaign' })).toBeVisible({ timeout: 20_000 })
+    await expect(page.getByRole('heading', { name: 'Select a project' })).toBeVisible({ timeout: 20_000 })
     await page.getByRole('button', { name: /continue/i }).click()
     await expect(page.getByRole('heading', { name: 'Size & Design' })).toBeVisible()
     const kit = page.getByRole('combobox', { name: 'Brand kit' })

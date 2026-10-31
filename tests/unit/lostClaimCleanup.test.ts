@@ -61,7 +61,6 @@ vi.mock('@/lib/storage/minio', async (importOriginal) => ({
 }))
 vi.mock('@/lib/renderer/fontSet', () => ({ getFontSetId: () => 'fonts-test' }))
 vi.mock('@/lib/brandkit/resolve', () => ({ resolveBrandKit: async () => ({ id: 'kit', name: 'Kit' }) }))
-vi.mock('@/lib/campaign/briefing', () => ({ getActiveCampaignBriefing: async () => null }))
 vi.mock('@/lib/agent/briefInput', () => ({
   buildBriefInput: () => ({}),
   briefPostStyleStamp: () => null,

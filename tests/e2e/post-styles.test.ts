@@ -6,7 +6,7 @@ import { briefDraftIds, expectNoHorizontalScroll, pageLogin } from '../helpers/u
 import { expectNoAxeViolations } from '../helpers/axe'
 
 // §AE — Post styles and the facts check (change 027). The SERVER cases are
-// TC-PS-01 to TC-PS-29; the UI cases (T6: the wizard, the campaign default, the
+// TC-PS-01 to TC-PS-29; the UI cases (T6: the wizard, the project default, the
 // draft notice) are TC-PS-30 onward, and the insights section (T7, TC-PS-40) is
 // last. 037 T2 removed the queue and scheduler cases (TC-PS-07 to TC-PS-09,
 // TC-PS-17 to TC-PS-24, TC-PS-38) with scheduled generation.
@@ -16,8 +16,8 @@ import { expectNoAxeViolations } from '../helpers/axe'
 // topic appends one invented value to the mock headline and captions, and
 // __MOCK_FACT_ERROR__ forces the check itself to fail. Because the mock caption
 // embeds the topic, a value written in the topic (or the description, the
-// campaign briefing, a campaign document) is a STATED value and is not flagged.
-// Serial. Two campaigns for the whole suite (A: no sources; B: a briefing and
+// project briefing, a project document) is a STATED value and is not flagged.
+// Serial. Two projects for the whole suite (A: no sources; B: a briefing and
 // a document that state values), never one per case.
 
 const MOCKED = () => !!(process.env.MOCK_AI && process.env.MOCK_PUPPETEER)
@@ -32,8 +32,8 @@ const tag = () => `${Date.now()}${Math.floor(Math.random() * 1000)}`
 
 let admin: ApiClient
 let editor: ApiClient
-let campA: string
-let campB: string
+let projA: string
+let projB: string
 let kitId: string
 
 interface FlagJson {
@@ -87,8 +87,8 @@ test.beforeAll(async ({ request }) => {
   editor = await loginAs(request, EDITOR_EMAIL, PASSWORD)
   const kit = await (await admin.post('/api/admin/brandkits', { name: `PS Kit ${tag()}`, colors: ['#0284c7'] })).json()
   kitId = kit.id
-  campA = (await (await admin.post('/api/campaigns', { name: `PS Camp A ${tag()}`, brandKitId: kitId })).json()).id
-  campB = (await (await admin.post('/api/campaigns', { name: `PS Camp B ${tag()}`, brandKitId: kitId })).json()).id
+  projA = (await (await admin.post('/api/projects', { name: `PS Proj A ${tag()}`, defaultBrandKitId: kitId })).json()).id
+  projB = (await (await admin.post('/api/projects', { name: `PS Proj B ${tag()}`, defaultBrandKitId: kitId })).json()).id
 })
 
 test.afterAll(async () => {
@@ -159,57 +159,57 @@ test.describe('Post style inputs: briefs', () => {
   })
 })
 
-// ── The campaign default style ──────────────────────────────────────────────
+// ── The project default style ──────────────────────────────────────────────
 
-test.describe('Post style inputs: the campaign default', () => {
-  // Campaign A is shared by later cases that expect no default (TC-PS-17 reads
+test.describe('Post style inputs: the project default', () => {
+  // Project A is shared by later cases that expect no default (TC-PS-17 reads
   // a General stamp), so every case here leaves it cleared, pass or fail.
   test.afterEach(async () => {
-    await admin.patch(`/api/campaigns/${campA}`, { defaultPostStyle: null })
+    await admin.patch(`/api/projects/${projA}`, { defaultPostStyle: null })
   })
 
-  test('TC-PS-05: an admin sets it, a brief on that campaign uses it, another campaign is unaffected, an editor gets 403', async () => {
-    const set = await admin.patch(`/api/campaigns/${campA}`, { defaultPostStyle: 'event' })
+  test('TC-PS-05: an admin sets it, a brief on that project uses it, another project is unaffected, an editor gets 403', async () => {
+    const set = await admin.patch(`/api/projects/${projA}`, { defaultPostStyle: 'event' })
     expect(set.status()).toBe(200)
     expect((await set.json()).defaultPostStyle).toBe('event')
 
-    const onA = await (await postBrief(admin, { campaignId: campA })).json()
+    const onA = await (await postBrief(admin, { projectId: projA })).json()
     expect(onA.postStyle).toBe('event')
-    const onB = await (await postBrief(admin, { campaignId: campB })).json()
+    const onB = await (await postBrief(admin, { projectId: projB })).json()
     expect(onB.postStyle).toBe('general')
     // An explicit style still wins over the default.
-    expect((await (await postBrief(admin, { campaignId: campA, postStyle: 'tip' })).json()).postStyle).toBe('tip')
+    expect((await (await postBrief(admin, { projectId: projA, postStyle: 'tip' })).json()).postStyle).toBe('tip')
 
-    const denied = await editor.patch(`/api/campaigns/${campA}`, { defaultPostStyle: 'launch' })
+    const denied = await editor.patch(`/api/projects/${projA}`, { defaultPostStyle: 'launch' })
     expect(denied.status()).toBe(403)
-    expect((await (await admin.get(`/api/campaigns/${campA}`)).json()).defaultPostStyle).toBe('event')
+    expect((await (await admin.get(`/api/projects/${projA}`)).json()).defaultPostStyle).toBe('event')
 
-    const unknown = await admin.patch(`/api/campaigns/${campA}`, { defaultPostStyle: 'nope' })
+    const unknown = await admin.patch(`/api/projects/${projA}`, { defaultPostStyle: 'nope' })
     expect(unknown.status()).toBe(400)
     expect((await unknown.json()).code).toBe('UNKNOWN_POST_STYLE')
-    expect((await (await admin.get(`/api/campaigns/${campA}`)).json()).defaultPostStyle).toBe('event')
+    expect((await (await admin.get(`/api/projects/${projA}`)).json()).defaultPostStyle).toBe('event')
   })
 
-  test('TC-PS-06: campaign create takes a default and refuses an unknown one; null clears it', async () => {
-    const bad = await admin.post('/api/campaigns', { name: `PS bad ${tag()}`, defaultPostStyle: 'nope' })
+  test('TC-PS-06: project create takes a default and refuses an unknown one; null clears it', async () => {
+    const bad = await admin.post('/api/projects', { name: `PS bad ${tag()}`, defaultPostStyle: 'nope' })
     expect(bad.status()).toBe(400)
     expect((await bad.json()).code).toBe('UNKNOWN_POST_STYLE')
 
-    // The one extra campaign this case needs; it is not reused.
-    const created = await admin.post('/api/campaigns', { name: `PS C ${tag()}`, brandKitId: kitId, defaultPostStyle: 'milestone' })
+    // The one extra project this case needs; it is not reused.
+    const created = await admin.post('/api/projects', { name: `PS C ${tag()}`, defaultBrandKitId: kitId, defaultPostStyle: 'milestone' })
     expect(created.status()).toBe(201)
     const camp = await created.json()
     expect(camp.defaultPostStyle).toBe('milestone')
-    expect((await (await postBrief(admin, { campaignId: camp.id })).json()).postStyle).toBe('milestone')
+    expect((await (await postBrief(admin, { projectId: camp.id })).json()).postStyle).toBe('milestone')
 
-    const cleared = await admin.patch(`/api/campaigns/${camp.id}`, { defaultPostStyle: null })
+    const cleared = await admin.patch(`/api/projects/${camp.id}`, { defaultPostStyle: null })
     expect(cleared.status()).toBe(200)
     expect((await cleared.json()).defaultPostStyle).toBeNull()
-    expect((await (await postBrief(admin, { campaignId: camp.id })).json()).postStyle).toBe('general')
-    await admin.del(`/api/campaigns/${camp.id}`)
+    expect((await (await postBrief(admin, { projectId: camp.id })).json()).postStyle).toBe('general')
+    await admin.del(`/api/projects/${camp.id}`)
 
-    // Restore campaign A for the cases below that read its default.
-    await admin.patch(`/api/campaigns/${campA}`, { defaultPostStyle: null })
+    // Restore project A for the cases below that read its default.
+    await admin.patch(`/api/projects/${projA}`, { defaultPostStyle: null })
   })
 })
 
@@ -236,41 +236,23 @@ test.describe('Generation and the facts check', () => {
       ['__MOCK_FACT_HEADLINE__', ['headline:$49']],
     ]
     for (const [sentinel, expected] of cases) {
-      const draft = await generate(admin, { topic: `${sentinel} PS facts ${tag()}`, campaignId: campA })
+      const draft = await generate(admin, { topic: `${sentinel} PS facts ${tag()}`, projectId: projA })
       expect(draft.status, sentinel).toBe('EXPORTED')
       expect(draft.factsCheck?.status, sentinel).toBe('flagged')
       expect(pairs(draft.factsCheck), sentinel).toEqual([...expected].sort())
     }
   })
 
-  test('TC-PS-12: a value stated in the topic, the description, the campaign briefing or a campaign document is not flagged; the same value elsewhere is', async () => {
-    // Campaign B states 35% and 1,250 in its briefing and 30 March 2027 in a document; it never states $49.
-    // The campaign briefing and document routes are gone (038 T2 moved them to projects), but
-    // generation still reads campaigns until T3 swaps this case to a project: seed the rows directly.
-    test.skip(!dbAvailable, 'needs the test database to seed a campaign briefing and document')
-    const campaign = await prisma!.campaign.findUniqueOrThrow({ where: { id: campB }, select: { teamId: true } })
-    await prisma!.campaignBriefing.create({
-      data: {
-        campaignId: campB,
-        content: 'We now serve 1,250 customers. Launch offer: 35% off for the first month.',
-        version: 1,
-        isActive: true,
-        createdBy: 'e2e',
-      },
+  test('TC-PS-12: a value stated in the topic, the description, the project briefing or a project document is not flagged; the same value elsewhere is', async () => {
+    // Project B states 35% and 1,250 in its briefing and 30 March 2027 in a document; it never states $49.
+    const briefing = await admin.post(`/api/projects/${projB}/briefing`, {
+      content: 'We now serve 1,250 customers. Launch offer: 35% off for the first month.',
     })
-    const docText = 'The webinar is on 30 March 2027 at the main hall.'
-    await prisma!.campaignDocument.create({
-      data: {
-        teamId: campaign.teamId,
-        campaignId: campB,
-        name: 'event.txt',
-        contentType: 'text/plain',
-        sizeBytes: docText.length,
-        objectKey: `e2e/${campB}/event.txt`,
-        parsedText: docText,
-        createdBy: 'e2e',
-      },
+    expect(briefing.status()).toBe(201)
+    const doc = await admin.multipart(`/api/projects/${projB}/documents`, {
+      file: { name: 'event.txt', mimeType: 'text/plain', buffer: Buffer.from('The webinar is on 30 March 2027 at the main hall.') },
     })
+    expect(doc.status()).toBe(201)
 
     const inTopic = await generate(admin, { topic: `__MOCK_FACT_PRICE__ Only $49 today ${tag()}` })
     expect(inTopic.factsCheck?.status).toBe('clear')
@@ -281,15 +263,19 @@ test.describe('Generation and the facts check', () => {
     })
     expect(inDescription.factsCheck?.status).toBe('clear')
 
-    const inBriefing = await generate(admin, { topic: `__MOCK_FACT_PCT__ __MOCK_FACT_NUM__ PS brf ${tag()}`, campaignId: campB })
+    const inBriefing = await generate(admin, { topic: `__MOCK_FACT_PCT__ __MOCK_FACT_NUM__ PS brf ${tag()}`, projectId: projB })
     expect(inBriefing.factsCheck).toMatchObject({ status: 'clear', flagged: [] })
 
-    const inDocument = await generate(admin, { topic: `__MOCK_FACT_DATE__ PS doc ${tag()}`, campaignId: campB })
+    const inDocument = await generate(admin, { topic: `__MOCK_FACT_DATE__ PS doc ${tag()}`, projectId: projB })
     expect(inDocument.factsCheck).toMatchObject({ status: 'clear', flagged: [] })
 
-    // Negative control on the same campaign: $49 is stated nowhere there.
-    const control = await generate(admin, { topic: `__MOCK_FACT_PRICE__ PS ctl ${tag()}`, campaignId: campB })
+    // Negative control on the same project: $49 is stated nowhere there.
+    const control = await generate(admin, { topic: `__MOCK_FACT_PRICE__ PS ctl ${tag()}`, projectId: projB })
     expect(values(control.factsCheck)).toEqual(['$49'])
+
+    // The same values on an unassigned post, which has no briefing and no documents, are flagged.
+    const bare = await generate(admin, { topic: `__MOCK_FACT_PCT__ __MOCK_FACT_DATE__ PS bare ${tag()}` })
+    expect(values(bare.factsCheck)).toEqual(['30 March 2027', '35%'])
   })
 
   test('TC-PS-13: an ordinary brief (24/7, a list marker, a step count) is clear', async () => {
@@ -305,7 +291,7 @@ test.describe('Generation and the facts check', () => {
   })
 
   test('TC-PS-15: a manual caption edit recomputes the check; so does a regenerate', async () => {
-    const draft = await generate(admin, { topic: `__MOCK_FACT_PRICE__ PS edit ${tag()}`, campaignId: campA })
+    const draft = await generate(admin, { topic: `__MOCK_FACT_PRICE__ PS edit ${tag()}`, projectId: projA })
     expect(values(draft.factsCheck)).toEqual(['$49'])
 
     // Replace the Instagram caption with one that states no number: its flag goes.
@@ -339,7 +325,7 @@ test.describe('Generation and the facts check', () => {
 
   test('TC-PS-16: a brief with no style (a pre-027 row) gets no checklist stamp but still gets a facts check', async () => {
     test.skip(!dbAvailable, 'needs the test database to age a brief')
-    const res = await postBrief(admin, { topic: `__MOCK_FACT_PRICE__ PS legacy ${tag()}`, campaignId: campA })
+    const res = await postBrief(admin, { topic: `__MOCK_FACT_PRICE__ PS legacy ${tag()}`, projectId: projA })
     const brief = await res.json()
     await prisma!.brief.update({ where: { id: brief.id }, data: { postStyle: null } })
     const assembled = await admin.post('/api/generate/assemble-b', { briefId: brief.id })
@@ -411,11 +397,11 @@ test.describe('ACP generate_post', () => {
     expect(noTopic.status()).toBe(400)
   })
 
-  test('TC-PS-29: the manifest is 2.0.0, lists postStyle, and no longer requires goal or tone', async ({ request }) => {
+  test('TC-PS-29: the manifest is 2.1.0, lists postStyle, and no longer requires goal or tone', async ({ request }) => {
     const res = await request.get('/api/acp/manifest', { headers: { 'x-bistec-api-key': key } })
     expect(res.status()).toBe(200)
     const manifest = await res.json()
-    expect(manifest.version).toBe('2.0.0')
+    expect(manifest.version).toBe('2.1.0')
     const cap = manifest.capabilities.find((c: { name: string }) => c.name === 'generate_post')
     expect(cap.input.required).toEqual(['topic', 'channels', 'designMode'])
     expect(cap.input.properties.postStyle.enum).toContain('general')
@@ -423,7 +409,7 @@ test.describe('ACP generate_post', () => {
   })
 })
 
-// ── The UI cases (027 T6): the wizard, the campaign default and the draft page ──
+// ── The UI cases (027 T6): the wizard, the project default and the draft page ──
 
 const WIZARD_PROMPT = 'Announce the new post styles with a short call to action for the team.'
 
@@ -433,12 +419,12 @@ const nextPost = (page: Page, suffix: string) =>
 const summary = (page: Page, label: string) =>
   page.getByRole('term').filter({ hasText: new RegExp(`^${label}$`) }).locator('xpath=following-sibling::dd[1]')
 
-// Step 0 -> step 1 (Size & Design), optionally under a campaign, with the suite's kit.
-async function openStepOne(page: Page, campaignName?: string) {
+// Step 0 -> step 1 (Size & Design), optionally under a project, with the suite's kit.
+async function openStepOne(page: Page, projectName?: string) {
   await pageLogin(page)
   await page.goto('/brief')
-  await expect(page.getByRole('heading', { name: 'Select a campaign' })).toBeVisible({ timeout: 20_000 })
-  if (campaignName) await page.getByRole('button', { name: new RegExp(campaignName) }).click()
+  await expect(page.getByRole('heading', { name: 'Select a project' })).toBeVisible({ timeout: 20_000 })
+  if (projectName) await page.getByRole('button', { name: new RegExp(projectName) }).click()
   await page.getByRole('button', { name: /continue/i }).click()
   await expect(page.getByRole('heading', { name: 'Size & Design' })).toBeVisible()
   const kit = page.getByRole('combobox', { name: 'Brand kit' })
@@ -656,20 +642,20 @@ test.describe('The wizard: the post style picker on step 1', () => {
   })
 })
 
-test.describe('The campaign default post style', () => {
+test.describe('The project default post style', () => {
   test.skip(!MOCKED(), NOT_MOCKED)
   let name = ''
   let nameB = ''
   test.beforeAll(async () => {
-    name = ((await (await admin.get(`/api/campaigns/${campA}`)).json()) as { name: string }).name
-    nameB = ((await (await admin.get(`/api/campaigns/${campB}`)).json()) as { name: string }).name
+    name = ((await (await admin.get(`/api/projects/${projA}`)).json()) as { name: string }).name
+    nameB = ((await (await admin.get(`/api/projects/${projB}`)).json()) as { name: string }).name
   })
   test.afterEach(async () => {
-    await admin.patch(`/api/campaigns/${campA}`, { defaultPostStyle: null })
+    await admin.patch(`/api/projects/${projA}`, { defaultPostStyle: null })
   })
 
-  test('TC-PS-35: the wizard opens with the campaign default selected; a campaign with none gives General', async ({ page }) => {
-    const set = await admin.patch(`/api/campaigns/${campA}`, { defaultPostStyle: 'hiring' })
+  test('TC-PS-35: the wizard opens with the project default selected; a project with none gives General', async ({ page }) => {
+    const set = await admin.patch(`/api/projects/${projA}`, { defaultPostStyle: 'hiring' })
     expect(set.status()).toBe(200)
     await openStepOne(page, name)
     await expect(styleCard(page, 'hiring')).toHaveAttribute('aria-checked', 'true')
@@ -680,19 +666,16 @@ test.describe('The campaign default post style', () => {
     await expect(styleCard(page, 'general')).toHaveAttribute('aria-checked', 'true')
   })
 
-  test('TC-PS-36: an admin sets and clears the default on the detail page; the list shows it; an editor sees text only', async ({ page, browser }) => {
+  test('TC-PS-36: an admin sets and clears the default on the project page; an editor sees text only', async ({ page, browser }) => {
     await pageLogin(page)
-    await page.goto(`/campaigns/${campA}`)
-    const select = page.getByTestId('campaign-default-post-style')
+    await page.goto(`/projects/${projA}`)
+    const select = page.getByTestId('project-default-post-style')
     await expect(select).toBeVisible()
     await expect(select).toHaveValue('')
-    const patched = page.waitForResponse((r) => r.request().method() === 'PATCH' && new URL(r.url()).pathname === `/api/campaigns/${campA}`)
+    const patched = page.waitForResponse((r) => r.request().method() === 'PATCH' && new URL(r.url()).pathname === `/api/projects/${projA}`)
     await select.selectOption('event')
     expect((await patched).status()).toBe(200)
-    expect(((await (await admin.get(`/api/campaigns/${campA}`)).json()) as { defaultPostStyle: string }).defaultPostStyle).toBe('event')
-
-    await page.goto('/campaigns')
-    await expect(page.getByTestId('campaign-post-style').first()).toContainText('Event')
+    expect(((await (await admin.get(`/api/projects/${projA}`)).json()) as { defaultPostStyle: string }).defaultPostStyle).toBe('event')
 
     // An editor: the value as text, no select.
     const ctx = await browser.newContext()
@@ -702,17 +685,17 @@ test.describe('The campaign default post style', () => {
     await editorPage.getByPlaceholder('Password').fill(PASSWORD)
     await editorPage.getByRole('button', { name: 'Sign in' }).click()
     await editorPage.waitForURL((url) => url.pathname === '/' || url.pathname === '/choose-team')
-    await editorPage.goto(`/campaigns/${campA}`)
-    await expect(editorPage.getByTestId('campaign-default-post-style-text')).toHaveText('Event')
-    await expect(editorPage.getByTestId('campaign-default-post-style')).toHaveCount(0)
+    await editorPage.goto(`/projects/${projA}`)
+    await expect(editorPage.getByTestId('project-default-post-style-text')).toHaveText('Event')
+    await expect(editorPage.getByTestId('project-default-post-style')).toHaveCount(0)
     await ctx.close()
 
     // Clearing it.
-    await page.goto(`/campaigns/${campA}`)
-    const cleared = page.waitForResponse((r) => r.request().method() === 'PATCH' && new URL(r.url()).pathname === `/api/campaigns/${campA}`)
-    await page.getByTestId('campaign-default-post-style').selectOption('')
+    await page.goto(`/projects/${projA}`)
+    const cleared = page.waitForResponse((r) => r.request().method() === 'PATCH' && new URL(r.url()).pathname === `/api/projects/${projA}`)
+    await page.getByTestId('project-default-post-style').selectOption('')
     expect((await cleared).status()).toBe(200)
-    expect(((await (await admin.get(`/api/campaigns/${campA}`)).json()) as { defaultPostStyle: string | null }).defaultPostStyle).toBeNull()
+    expect(((await (await admin.get(`/api/projects/${projA}`)).json()) as { defaultPostStyle: string | null }).defaultPostStyle).toBeNull()
   })
 
   test('TC-PS-37: the create form takes a default post style', async ({ page }) => {
@@ -747,7 +730,7 @@ test.describe('The draft page: the facts notice and the style line', () => {
     await expect(notice).toContainText('$49')
     await expect(notice).toContainText('30 March 2027')
     await expect(notice).toContainText('(Instagram caption)')
-    await expect(notice).toContainText('These are not in your brief, campaign or brand voice. Check them before you download it.')
+    await expect(notice).toContainText('These are not in your brief, project or brand voice. Check them before you download it.')
     await expect(page.getByRole('button', { name: 'Download', exact: true })).toBeEnabled()
     await expect(page.getByTestId('post-style-line')).toHaveText('Post style: Promotion / deal')
     await expectNoAxeViolations(page, '/drafts/[id] with the facts notice', { settle: true })

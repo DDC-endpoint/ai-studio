@@ -13,14 +13,7 @@ import { apiFetch } from '@/lib/apiFetch'
 import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
 import { ASIDE_BLOCK, CRUMB_CURRENT, CRUMB_LINK } from '@/components/projects/classes'
 import { postStyleLabel, postStyleOptions } from '@/components/projects/postStyleOptions'
-import type { Campaign, BrandKitSummary, ProjectSummary, ResolvedBrandKitResponse } from '@/lib/api-types'
-
-const SOURCE_LABEL: Record<string, string> = {
-  explicit: 'Selected for this post',
-  campaign: 'Campaign override',
-  project: 'Inherited from project',
-  system: 'System default',
-}
+import type { Campaign, BrandKitSummary, ProjectSummary } from '@/lib/api-types'
 
 export default function CampaignDetailPage() {
   const params = useParams<{ id: string }>()
@@ -40,11 +33,6 @@ export default function CampaignDetailPage() {
     queryFn: () => apiFetch<Campaign>(`/api/campaigns/${params.id}`),
   })
 
-  const resolvedQuery = useQuery({
-    queryKey: ['campaigns', params.id, 'brandkit'],
-    queryFn: () => apiFetch<ResolvedBrandKitResponse>(`/api/campaigns/${params.id}/brandkit`),
-  })
-
   const { data: brandKits = [] } = useQuery({
     queryKey: ['brandkits'],
     queryFn: () => apiFetch<BrandKitSummary[]>('/api/brandkits'),
@@ -56,7 +44,6 @@ export default function CampaignDetailPage() {
   })
 
   const campaign = campaignQuery.data
-  const resolved = resolvedQuery.data
 
   // Mirrors the previous try/catch behaviour: a failed/missing campaign
   // bounces back to the list rather than showing a dead-end detail page.
@@ -67,7 +54,6 @@ export default function CampaignDetailPage() {
   function invalidate() {
     return Promise.all([
       queryClient.invalidateQueries({ queryKey: ['campaigns', params.id] }),
-      queryClient.invalidateQueries({ queryKey: ['campaigns', params.id, 'brandkit'] }),
     ])
   }
 
@@ -164,27 +150,10 @@ export default function CampaignDetailPage() {
 
         {/* Brand kit, details, briefs and projects: ruled blocks in the aside. */}
         <aside className="min-w-0 border-t-2 border-fg">
-          {resolved?.kit && (
+          {campaign.brandKit && (
             <section className={ASIDE_BLOCK}>
               <h2 className={`${EYEBROW} mb-3`}>Brand kit</h2>
-              <p className="break-words text-ui-sm font-medium text-fg">{resolved.kit.name}</p>
-              {resolved.source && (
-                <p className="mt-0.5 text-ui-xs text-fg-muted">
-                  {SOURCE_LABEL[resolved.source]}
-                </p>
-              )}
-              {resolved.kit.colors.length > 0 && (
-                <div className="mt-2.5 flex flex-wrap gap-1.5">
-                  {resolved.kit.colors.map(c => (
-                    <span
-                      key={c}
-                      className="inline-block h-5 w-5 rounded-ui-sm border border-line"
-                      style={{ backgroundColor: c }} // ui-exception: brand-kit swatch, the kit's own colour from data
-                      title={c}
-                    />
-                  ))}
-                </div>
-              )}
+              <p className="break-words text-ui-sm font-medium text-fg">{campaign.brandKit.name}</p>
             </section>
           )}
 

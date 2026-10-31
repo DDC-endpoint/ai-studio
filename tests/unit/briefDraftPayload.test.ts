@@ -14,7 +14,7 @@ import {
 
 const base: BriefDraftPayload = {
   step: 2,
-  campaignId: '',
+  projectId: '',
   aspectRatio: 'SQUARE',
   brandKitId: 'kit1',
   designMode: 'GENERATE',

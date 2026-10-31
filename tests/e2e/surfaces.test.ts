@@ -558,9 +558,9 @@ test.describe('Brief wizard (T8)', () => {
     await page.goto('/brief')
     await expect(page.getByRole('heading', { name: 'New post', level: 1 })).toBeVisible()
     // The stepper's first three steps (numeral + label); the current one is announced.
-    expect(await tabThreeFromMain(page)).toEqual(['1Campaign', '2Size & Design', '3Content'])
+    expect(await tabThreeFromMain(page)).toEqual(['1Project', '2Size & Design', '3Content'])
     await expect(page.locator('[aria-current="step"]')).toHaveCount(1)
-    await expect(page.locator('[aria-current="step"]')).toHaveText(/Campaign/)
+    await expect(page.locator('[aria-current="step"]')).toHaveText(/Project/)
 
     // 014 AC-14 (FR-15) supersedes 011 AC-17 for the stepper: a step not yet
     // reached is aria-disabled, and stays focusable (the stops above).
@@ -585,10 +585,10 @@ test.describe('Brief wizard (T8)', () => {
     const cont = page.getByRole('button', { name: /continue/i })
 
     // Step 1 — Campaign
-    await expect(page.getByRole('heading', { name: 'Select a campaign' })).toBeVisible()
-    await expect(page.getByRole('button', { name: /No campaign \(Uncategorized\)/ })).toHaveAttribute('aria-pressed', 'true')
+    await expect(page.getByRole('heading', { name: 'Select a project' })).toBeVisible()
+    await expect(page.getByRole('button', { name: /No project/ })).toHaveAttribute('aria-pressed', 'true')
     await expect(page.getByRole('button', { name: 'Back' })).toBeDisabled()
-    await expectNoHorizontalScroll(page, 'brief: campaign step at 375px')
+    await expectNoHorizontalScroll(page, 'brief: project step at 375px')
     await cont.click()
 
     // Step 2 — Size & Design, the template picker, then Path B's reference picker
@@ -652,8 +652,8 @@ test.describe('Brief wizard (T8)', () => {
     await expectNoHorizontalScroll(page, 'brief: review step at 375px')
 
     // The stepper jumps back to a done step (its label is sr-only below sm).
-    await page.getByRole('button', { name: 'Campaign', exact: true }).click()
-    await expect(page.getByRole('heading', { name: 'Select a campaign' })).toBeVisible()
+    await page.getByRole('button', { name: 'Project', exact: true }).click()
+    await expect(page.getByRole('heading', { name: 'Select a project' })).toBeVisible()
   })
 })
 

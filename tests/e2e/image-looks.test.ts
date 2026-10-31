@@ -329,7 +329,7 @@ test.describe('§AF — the wizard picker', () => {
   test('TC-LOOK-10: five cards, none disabled at any size; Launch and Announcement at 9:16 pre-fill their look; Spotlight at 9:16 is sent, shown on Review and resumed; axe on step 1', async ({ page }) => {
     await pageLogin(page)
     await page.goto('/brief')
-    await expect(page.getByRole('heading', { name: 'Select a campaign' })).toBeVisible({ timeout: 20_000 })
+    await expect(page.getByRole('heading', { name: 'Select a project' })).toBeVisible({ timeout: 20_000 })
     const cont = page.getByRole('button', { name: /continue/i })
     await cont.click()
     await expect(page.getByRole('heading', { name: 'Size & Design' })).toBeVisible()
@@ -415,7 +415,7 @@ test.describe('§AF — the wizard picker', () => {
     test(`${id}: the ${postStyle} post style pre-fills ${look} at 1:1 and at 9:16, with the hint`, async ({ page }) => {
       await pageLogin(page)
       await page.goto('/brief')
-      await expect(page.getByRole('heading', { name: 'Select a campaign' })).toBeVisible({ timeout: 20_000 })
+      await expect(page.getByRole('heading', { name: 'Select a project' })).toBeVisible({ timeout: 20_000 })
       await page.getByRole('button', { name: /continue/i }).click()
       await expect(page.getByRole('heading', { name: 'Size & Design' })).toBeVisible()
       const kit = page.getByRole('combobox', { name: 'Brand kit' })

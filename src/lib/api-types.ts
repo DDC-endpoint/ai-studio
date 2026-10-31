@@ -120,19 +120,6 @@ export interface Campaign {
   _count: { briefs: number }
 }
 
-// GET /api/campaigns/[id]/briefing — versioned campaign briefing rows. The route is
-// gone (038 T2 moved it to /api/projects/[id]/briefing); the wizard's CampaignStep
-// still imports the type until 038 T3 replaces it.
-export interface CampaignBriefing {
-  id: string
-  campaignId: string
-  content: string
-  version: number
-  isActive: boolean
-  createdBy: string
-  createdAt: string
-}
-
 // GET /api/projects/[id]/briefing — versioned project briefing rows
 export interface ProjectBriefing {
   id: string
@@ -152,24 +139,6 @@ export interface ProjectDocumentMeta {
   sizeBytes: number
   truncated: boolean
   createdAt: string
-}
-
-// GET /api/campaigns/[id]/brandkit
-export type BrandKitSource = 'explicit' | 'campaign' | 'project' | 'system'
-
-export interface ResolvedBrandKit {
-  id: string
-  name: string
-  colors: string[]
-  fonts: Array<{ name: string; url: string }>
-  logoUrl: string | null
-  voicePrompt: string | null
-  source: BrandKitSource
-}
-
-export interface ResolvedBrandKitResponse {
-  kit: ResolvedBrandKit | null
-  source: BrandKitSource | null
 }
 
 // ── Projects ─────────────────────────────────────────────────────────────

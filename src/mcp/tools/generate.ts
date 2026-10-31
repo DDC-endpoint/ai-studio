@@ -18,10 +18,38 @@ interface GeneratePostArgs {
   channels: string[]
   designMode: 'TEMPLATE' | 'GENERATE'
   copyProviderKey?: string
-  campaignId?: string
+  /** 038: a project id; its briefing, documents, default kit and default post style apply. */
+  projectId?: string
   description?: string
   /** The calling ApiKey's team (resolved by the ACP route / MCP server via resolveApiKey). */
   teamId: string
+}
+
+// 038 D13: the retired campaign field is refused by name, never ignored, so a
+// stale caller fails loudly instead of silently losing its briefing and kit.
+export class CampaignRetiredError extends Error {
+  readonly code = 'CAMPAIGN_RETIRED'
+  constructor() {
+    super('campaignId is retired; use projectId')
+    this.name = 'CampaignRetiredError'
+  }
+}
+
+// A projectId that is not a live project of the key's team (unknown, deleted or
+// foreign: one answer, NFR-07). The brief is never created, and the id is never
+// read as "no project".
+export class ProjectNotFoundError extends Error {
+  readonly code = 'PROJECT_NOT_FOUND'
+  constructor() {
+    super('Project not found')
+    this.name = 'ProjectNotFoundError'
+  }
+}
+
+// The text MCP returns for an input refusal: `CODE: message`. Null for any other error.
+export function refusalText(err: unknown): string | null {
+  if (err instanceof CampaignRetiredError || err instanceof ProjectNotFoundError) return `${err.code}: ${err.message}`
+  return null
 }
 
 // ACP entry point for post generation — a thin adapter over the same Path B
@@ -30,6 +58,9 @@ interface GeneratePostArgs {
 // and CLI/API dispatch can never drift from the app. TEMPLATE mode needs a
 // template selection this surface doesn't have.
 export async function generatePost(args: GeneratePostArgs, surface: 'mcp' | 'acp' = 'mcp') {
+  // 1. The retired field, before anything else is read or created.
+  if ('campaignId' in args || 'campaign' in args) throw new CampaignRetiredError()
+
   // Channel enum values are uppercase; tolerate lowercase from older callers.
   // Only publishable channels are accepted (010, WhatsApp posting, was dropped on 2026-10-23).
   const channels = args.channels.map((c: string) => c.toUpperCase())
@@ -43,28 +74,27 @@ export async function generatePost(args: GeneratePostArgs, surface: 'mcp' | 'acp
     )
   }
 
-  // Task 13: the caller's team now comes from its resolved ApiKey, not a
-  // campaign lookup. An explicit campaignId still must belong to that same
-  // team — otherwise the new Brief would reference a campaign (and inherit
-  // its brand-kit precedence) the caller has no claim to.
-  let campaign: { teamId: string; defaultPostStyle: string | null; defaultTone: string | null } | null = null
-  if (args.campaignId) {
-    campaign = await prisma.campaign.findFirst({
-      where: { id: args.campaignId, isDeleted: false },
-      select: { teamId: true, defaultPostStyle: true, defaultTone: true },
+  // 2. The caller's team comes from its resolved ApiKey. An explicit projectId
+  // must be a live project of that same team (D12), otherwise the new Brief would
+  // inherit the kit, briefing and style of a project the caller has no claim to.
+  let project: { id: string; defaultPostStyle: string | null; defaultTone: string | null } | null = null
+  if (args.projectId) {
+    // MCP passes its arguments unvalidated: a non-string must not reach Prisma as a filter.
+    if (typeof args.projectId !== 'string') throw new ProjectNotFoundError()
+    project = await prisma.project.findFirst({
+      where: { id: args.projectId, teamId: args.teamId, isDeleted: false },
+      select: { id: true, defaultPostStyle: true, defaultTone: true },
     })
-    if (!campaign || campaign.teamId !== args.teamId) {
-      throw new Error(`Campaign ${args.campaignId} not found`)
-    }
+    if (!project) throw new ProjectNotFoundError()
   }
 
   // 027 FR-06: the one resolution (explicit key, else the legacy goal, else the
-  // campaign default, else General). An unknown key is a named error; it never
+  // project default, else General). An unknown key is a named error; it never
   // degrades to "no style". Unattended, so any image style resolves to classic.
   const resolved = resolvePostStyle({
     style: args.postStyle,
     legacyGoal: args.goal,
-    campaign,
+    project,
     explicit: { tone: args.tone },
     path: 'B',
     aspectRatio: 'SQUARE',
@@ -87,12 +117,12 @@ export async function generatePost(args: GeneratePostArgs, surface: 'mcp' | 'acp
       channels,
       designMode: args.designMode,
       copyProviderKey: args.copyProviderKey ?? 'env-default',
-      campaignId: args.campaignId ?? null,
+      projectId: project?.id ?? null,
     },
   })
 
-  // Shared brief→draft orchestrator: kit precedence (campaign → project →
-  // system default; no explicit kit on this surface), campaign briefing, copy,
+  // Shared brief→draft orchestrator: kit precedence (project default →
+  // team default; no explicit kit on this surface), the project briefing, copy,
   // Path B design, Draft persistence — identical to the web routes. MCP/ACP
   // callers hold server API keys (M2M trust boundary), not app-user sessions,
   // so there is no personal-token tier here — userId: null skips straight to
@@ -120,7 +150,7 @@ export async function generatePost(args: GeneratePostArgs, surface: 'mcp' | 'acp
   } catch (err) {
     if (err instanceof NoBrandKitError) {
       throw new Error(
-        'No brand kit found — configure a brand kit for this campaign, or ask a team admin to set a team default.'
+        'No brand kit found — configure a brand kit for this project, or ask a team admin to set a team default.'
       )
     }
     throw err

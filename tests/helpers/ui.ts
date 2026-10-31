@@ -159,9 +159,6 @@ export async function mintExportedDraft(api: ApiClient, topic: string): Promise<
   const kit = await (
     await api.post('/api/admin/brandkits', { name: `Surfaces Kit ${topic}`, colors: ['#8c4812'] })
   ).json()
-  const camp = await (
-    await api.post('/api/campaigns', { name: `Surfaces Camp ${topic}`, brandKitId: kit.id })
-  ).json()
   const brief = await (
     await api.post('/api/briefs', {
       topic,
@@ -170,7 +167,7 @@ export async function mintExportedDraft(api: ApiClient, topic: string): Promise<
       channels: ['INSTAGRAM'],
       designMode: 'GENERATE',
       copyProviderKey: 'cli',
-      campaignId: camp.id,
+      brandKitId: kit.id,
     })
   ).json()
   const res = await api.post('/api/generate/assemble-b', { briefId: brief.id })

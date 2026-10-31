@@ -11,9 +11,10 @@ import { PRE_STYLE_CASES } from './fixtures/preStyleCases'
 import goldenJson from './fixtures/preStyleGolden.json'
 import { styles } from '@/lib/postStyles/styles'
 import type { PostStyle } from '@/lib/postStyles/types'
+import { ctxFor } from '../helpers/postContext'
 
 const PREAMBLE_GENERAL =
-  'Content rules for this post (post style: General). They outrank the brand voice and the campaign briefing where they conflict. "Stated in the brief" means the value appears in the topic, the description, the campaign briefing or the brand voice text. If a value is not stated, do not write it.'
+  'Content rules for this post (post style: General). They outrank the brand voice and the project briefing where they conflict. "Stated in the brief" means the value appears in the topic, the description, the project briefing or the brand voice text. If a value is not stated, do not write it.'
 
 describe('checklistPromptText', () => {
   it('the preamble constant has one label placeholder and the exact words', () => {
@@ -119,18 +120,18 @@ describe('AC-16 (golden half): a brief with no style produces the prompts of bef
 
   it('a stored null, blank or absent post style adds no caption rules to the BriefInput', () => {
     for (const postStyle of [null, undefined, '', '   '])
-      expect(buildBriefInput(briefRow({ postStyle }))).not.toHaveProperty('captionRules')
+      expect(buildBriefInput(briefRow({ postStyle }), ctxFor(null))).not.toHaveProperty('captionRules')
   })
 })
 
 describe('FR-09: the caption rules', () => {
   it('buildBriefInput sets captionRules to the caption-scope text of the brief’s key at the current version', () => {
-    expect(buildBriefInput(briefRow()).captionRules).toBe(CAPTION)
+    expect(buildBriefInput(briefRow(), ctxFor(null)).captionRules).toBe(CAPTION)
     expect(CAPTION).not.toBe('')
   })
 
   it('the caption user prompt carries them after the Tone line and before "Write the following", and no image rule', () => {
-    const { user } = buildCaptionPrompt(buildBriefInput(briefRow()), ['HEADLINE', 'INSTAGRAM', 'LINKEDIN'])
+    const { user } = buildCaptionPrompt(buildBriefInput(briefRow(), ctxFor(null)), ['HEADLINE', 'INSTAGRAM', 'LINKEDIN'])
     const tone = user.indexOf('Tone: bold')
     const rules = user.indexOf(CAPTION)
     const task = user.indexOf('Write the following')
@@ -142,8 +143,8 @@ describe('FR-09: the caption rules', () => {
   })
 
   it('the system prompt is unchanged by the rules', () => {
-    const base = buildBriefInput(briefRow({ postStyle: null }))
-    const styled = buildBriefInput(briefRow())
+    const base = buildBriefInput(briefRow({ postStyle: null }), ctxFor(null))
+    const styled = buildBriefInput(briefRow(), ctxFor(null))
     expect(buildCaptionPrompt(styled, ['LINKEDIN']).system).toBe(buildCaptionPrompt(base, ['LINKEDIN']).system)
   })
 })
@@ -219,7 +220,7 @@ describe('FR-09: refine reads the draft’s STAMPED version (imageRulesAtStamp)'
 describe('NFR-04: a stored key that does not resolve fails closed', () => {
   it('buildBriefInput, imageRulesFor and briefPostStyleStamp throw the named error', () => {
     const bad = briefRow({ postStyle: 'nope' })
-    expect(() => buildBriefInput(bad)).toThrow('Post style "nope" is not available')
+    expect(() => buildBriefInput(bad, ctxFor(null))).toThrow('Post style "nope" is not available')
     expect(() => imageRulesFor(bad)).toThrow('Post style "nope" is not available')
     expect(() => briefPostStyleStamp(bad)).toThrow('Post style "nope" is not available')
   })

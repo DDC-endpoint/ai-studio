@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test'
-import { loginAs, type ApiClient } from '../helpers/api'
-import { ADMIN_EMAIL, ADMIN_PASSWORD } from '../helpers/ui'
+import { loginAs, waitForDraft, type ApiClient } from '../helpers/api'
+import { ADMIN_EMAIL, ADMIN_PASSWORD, briefDraftIds, expectNoHorizontalScroll, pageLogin } from '../helpers/ui'
 
 // §AL — Projects hold the inputs (038 T2: FR-05, FR-06, FR-13 filter, D9, D15; docs/e2e-test-plan.md).
 //
@@ -8,8 +8,8 @@ import { ADMIN_EMAIL, ADMIN_PASSWORD } from '../helpers/ui'
 // briefing and source documents (the routes under /api/projects/[id]/…). An
 // admin creates, edits and deletes; every member reads; another team gets 404 on
 // every surface. Deleting soft-deletes and unassigns its posts in one step.
-// Cases that need a post assigned to a project come with the brief route (T3)
-// and the assign route (T4). The 200-project cap is covered by the unit suite
+// T3 adds the post's recorded inputs (the draft GET's `inputs`) and the wizard's
+// project step. The cases that move a post come with the assign route (T4). The 200-project cap is covered by the unit suite
 // (projectLimits.test.ts); minting 200 projects here would not add to it.
 
 const EDITOR_EMAIL = 'editor@bisteccare.lk'
@@ -163,5 +163,80 @@ test.describe('Projects (038 T2)', () => {
     const list = (await (await admin.get('/api/projects')).json()) as Array<{ id: string }>
     expect(list.map((p) => p.id)).not.toContain(project.id)
     expect((await admin.del(base)).status()).toBe(404)
+  })
+
+  // TC-PROJ-08 (AC-10): the draft records the project, the briefing version and the kit it was made with.
+  test('a post generated in a project records that project, its briefing version and its kit on the draft', async () => {
+    test.skip(!(process.env.MOCK_AI && process.env.MOCK_PUPPETEER), 'needs MOCK_AI and MOCK_PUPPETEER')
+    const kit = await (await admin.post('/api/admin/brandkits', { name: `Proj Stamp Kit ${stamp}`, colors: ['#0284c7'] })).json()
+    const project = await mint('Proj Stamp', { defaultBrandKitId: kit.id })
+    expect((await admin.post(`/api/projects/${project.id}/briefing`, { content: 'v1 briefing' })).status()).toBe(201)
+    expect((await admin.post(`/api/projects/${project.id}/briefing`, { content: 'v2 briefing' })).status()).toBe(201)
+
+    const brief = await (
+      await admin.post('/api/briefs', {
+        topic: `Stamp ${stamp}`, goal: 'g', tone: 'professional', channels: ['INSTAGRAM'],
+        designMode: 'GENERATE', copyProviderKey: 'cli', projectId: project.id,
+      })
+    ).json()
+    expect(brief.projectId).toBe(project.id)
+    const assembled = await admin.post('/api/generate/assemble-b', { briefId: brief.id })
+    expect(assembled.status()).toBe(202)
+    const draft = await waitForDraft(admin, (await assembled.json()).draftId)
+    expect(draft.status).toBe('EXPORTED')
+    expect(draft.inputs).toEqual({
+      project: { id: project.id, name: project.name },
+      briefingVersion: 2,
+      kitName: kit.name,
+      kitSource: 'project',
+    })
+    expect(draft.brandKitName).toBe(kit.name)
+
+    // The project's post count now includes it.
+    expect((await (await admin.get(`/api/projects/${project.id}`)).json()).postCount).toBe(1)
+  })
+
+  // TC-PROJ-09 (AC-21): the wizard's first step is the project, with "No project" selected.
+  test.describe('the wizard’s project step', () => {
+    let before: Set<string>
+    test.beforeEach(async () => {
+      before = new Set(await briefDraftIds(admin))
+    })
+    test.afterEach(async () => {
+      for (const id of await briefDraftIds(admin)) if (!before.has(id)) await admin.del(`/api/brief-drafts/${id}`)
+    })
+
+    test('"No project" is selected; choosing a project preselects its kit and post style and shows its briefing read-only', async ({ page }) => {
+      const kit = await (await admin.post('/api/admin/brandkits', { name: `Wiz Kit ${stamp}`, colors: ['#0284c7'] })).json()
+      const project = await mint('Wiz Project', { defaultBrandKitId: kit.id, defaultPostStyle: 'event' })
+      expect((await admin.post(`/api/projects/${project.id}/briefing`, { content: 'Wizard briefing text' })).status()).toBe(201)
+
+      await pageLogin(page)
+      await page.goto('/brief')
+      await expect(page.getByRole('heading', { name: 'Select a project' })).toBeVisible({ timeout: 20_000 })
+      await expect(page.getByRole('button', { name: /^No project/ })).toHaveAttribute('aria-pressed', 'true')
+      await expectNoHorizontalScroll(page, 'brief: project step')
+
+      // The project row, then its briefing, read-only and collapsed until opened.
+      await page.getByRole('button', { name: new RegExp(project.name) }).click()
+      await expect(page.getByRole('button', { name: new RegExp(project.name) })).toHaveAttribute('aria-pressed', 'true')
+      const preview = page.getByRole('button', { name: 'Project briefing (applies to every post)' })
+      await expect(preview).toBeVisible()
+      await preview.click()
+      await expect(page.getByText('Wizard briefing text')).toBeVisible()
+      await expect(page.locator('textarea')).toHaveCount(0)
+
+      // Step 2: the project's kit and style are already chosen.
+      await page.getByRole('button', { name: /continue/i }).click()
+      await expect(page.getByRole('heading', { name: 'Size & Design' })).toBeVisible()
+      await expect(page.getByRole('combobox', { name: 'Brand kit' })).toHaveValue(kit.id)
+      await expect(page.getByTestId('post-style-event')).toHaveAttribute('aria-checked', 'true')
+      await expect(page.getByText(new RegExp(`Defaulted from .?${project.name}`))).toBeVisible()
+
+      // Back and clear: the project is gone from the review row too.
+      await page.getByRole('button', { name: /back/i }).click()
+      await page.getByRole('button', { name: /^No project/ }).click()
+      await expect(page.getByRole('button', { name: /^No project/ })).toHaveAttribute('aria-pressed', 'true')
+    })
   })
 })

@@ -12,14 +12,14 @@ export type ResolveNote =
   | 'unattended-classic'
   | 'path-a-classic'
   | 'size-classic'
-  | 'campaign-tone-ignored'
+  | 'project-tone-ignored'
   | 'retired-classic'
   | 'missing-input-classic'
 
 export interface ResolveInput {
   style: string | null | undefined // an explicit key, or absent
   legacyGoal?: string | null // a pre-027 client's goal; picks a style only when `style` is absent
-  campaign?: { defaultPostStyle?: string | null; defaultTone?: string | null } | null
+  project?: { defaultPostStyle?: string | null; defaultTone?: string | null } | null
   explicit?: { tone?: string | null; imageStyle?: string | null }
   path: 'A' | 'B' // 'A' for designMode TEMPLATE
   aspectRatio: AspectRatio
@@ -45,7 +45,7 @@ export type ResolveResult =
 const UNATTENDED: ReadonlySet<Surface> = new Set<Surface>(['mcp', 'acp'])
 
 // The one place a pre-027 goal is read (decided 2026-10-24). Anything not listed
-// maps to nothing, so resolution continues to the campaign default, then general.
+// maps to nothing, so resolution continues to the project default, then general.
 const LEGACY_GOAL_STYLE: Readonly<Record<string, string>> = {
   hiring: 'hiring',
   announcement: 'announcement',
@@ -63,13 +63,13 @@ export function resolvePostStyle(
   source?: Readonly<Record<string, PostStyle>>,
   looks?: ArchetypeMap, // tests only: a fixture look dataset
 ): ResolveResult {
-  // explicit key -> legacy goal mapping -> campaign default -> general. A blank
+  // explicit key -> legacy goal mapping -> project default -> general. A blank
   // style is absent, like a blank tone or image style; a non-blank unknown key is not.
   const explicitStyle = input.style?.trim() || undefined
   const keyIn =
     explicitStyle ??
     legacyGoalStyle(input.legacyGoal) ??
-    input.campaign?.defaultPostStyle ??
+    input.project?.defaultPostStyle ??
     'general'
   const style = getStyle(keyIn, source)
   if (!style)
@@ -85,11 +85,11 @@ export function resolvePostStyle(
 
   const notes: ResolveNote[] = []
 
-  // tone: explicit -> campaign (only if it matches an option) -> style default
+  // tone: explicit -> project (only if it matches an option) -> style default
   const explicitTone = input.explicit?.tone?.trim()
-  const campaignTone = matchToneOption(input.campaign?.defaultTone)
-  if (input.campaign?.defaultTone && !campaignTone) notes.push('campaign-tone-ignored')
-  const tone = explicitTone || campaignTone || v.defaultTone
+  const projectTone = matchToneOption(input.project?.defaultTone)
+  if (input.project?.defaultTone && !projectTone) notes.push('project-tone-ignored')
+  const tone = explicitTone || projectTone || v.defaultTone
 
   // image style: explicit -> style default -> classic; classic wherever it cannot run
   let imageStyle = input.explicit?.imageStyle || v.defaultImageStyle

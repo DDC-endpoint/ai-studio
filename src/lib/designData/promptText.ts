@@ -3,7 +3,7 @@
 import type { Contract, Rect, SizeContract, TextTone } from './composition'
 
 export const PRECEDENCE_LINE =
-  "When an image style is chosen, its layout contract below outranks any layout instruction in the brand voice prompt or the campaign briefing. The brand's colours, fonts, logo and wording rules still apply."
+  "When an image style is chosen, its layout contract below outranks any layout instruction in the brand voice prompt or the project briefing. The brand's colours, fonts, logo and wording rules still apply."
 
 const pct = (n: number) => `${Number(n.toFixed(1))}%`
 
