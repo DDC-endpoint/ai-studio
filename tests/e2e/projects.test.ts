@@ -166,6 +166,58 @@ test.describe('Projects (038 T2)', () => {
     expect((await admin.del(base)).status()).toBe(404)
   })
 
+  // TC-PROJ-07b (AC-14): deleting a project with two posts unassigns both; the posts
+  // keep their recorded inputs and can still be regenerated.
+  test('deleting a project with two posts answers { unassigned: 2 }; the posts keep their inputs and still regenerate', async () => {
+    test.skip(!(process.env.MOCK_AI && process.env.MOCK_PUPPETEER), 'needs MOCK_AI and MOCK_PUPPETEER')
+    const project = await mint('Proj Delete Posts')
+    const base = `/api/projects/${project.id}`
+    expect((await admin.post(`${base}/briefing`, { content: 'Briefing kept after delete' })).status()).toBe(201)
+
+    const drafts: Array<{ id: string; inputs: unknown }> = []
+    for (const n of [1, 2]) {
+      const brief = await (
+        await admin.post('/api/briefs', {
+          topic: `Delete post ${n} ${stamp}`, goal: 'g', tone: 'professional', channels: ['INSTAGRAM'],
+          designMode: 'GENERATE', copyProviderKey: 'cli', projectId: project.id,
+        })
+      ).json()
+      const assembled = await admin.post('/api/generate/assemble-b', { briefId: brief.id })
+      expect(assembled.status()).toBe(202)
+      const draft = await waitForDraft(admin, (await assembled.json()).draftId)
+      expect(draft.status).toBe('EXPORTED')
+      drafts.push(draft as unknown as { id: string; inputs: unknown })
+    }
+
+    // 1. The project counts both posts.
+    expect((await (await admin.get(base)).json()).postCount).toBe(2)
+    // 2. An editor cannot delete it.
+    expect((await editor.del(base)).status()).toBe(403)
+    // 3. The admin's delete unassigns both.
+    const del = await admin.del(base)
+    expect(del.status()).toBe(200)
+    expect(await del.json()).toEqual({ unassigned: 2 })
+
+    // 4. Both posts read no project, and their recorded inputs are unchanged.
+    for (const before of drafts) {
+      const after = await (await admin.get(`/api/drafts/${before.id}`)).json()
+      expect(after.project).toBeNull()
+      expect(after.inputs).toEqual(before.inputs)
+    }
+    // 5. The project is gone from the list and a 404 by id.
+    const list = (await (await admin.get('/api/projects')).json()) as Array<{ id: string }>
+    expect(list.map((p) => p.id)).not.toContain(project.id)
+    expect((await admin.get(base)).status()).toBe(404)
+
+    // 6. A regenerate copy on one of the posts still succeeds.
+    const regen = await admin.post(`/api/drafts/${drafts[0].id}/regenerate-copy`, {})
+    expect(regen.status()).toBe(202)
+    await waitForAction(admin, drafts[0].id)
+    const regenerated = await (await admin.get(`/api/drafts/${drafts[0].id}`)).json()
+    expect(regenerated.status).toBe('EXPORTED')
+    expect(regenerated.pendingAction).toBeNull()
+  })
+
   // TC-PROJ-08 (AC-10): the draft records the project, the briefing version and the kit it was made with.
   test('a post generated in a project records that project, its briefing version and its kit on the draft', async () => {
     test.skip(!(process.env.MOCK_AI && process.env.MOCK_PUPPETEER), 'needs MOCK_AI and MOCK_PUPPETEER')

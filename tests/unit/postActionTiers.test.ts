@@ -32,19 +32,31 @@ for (const file of routeFiles()) {
   })
 }
 
+// Handlers with no tier, and tiers with no handler (AC-03's matcher).
+function untiered(found: Record<string, string>, tiers: Record<string, string>) {
+  return {
+    missing: Object.keys(found).filter((k) => !(k in tiers)),
+    stale: Object.keys(tiers).filter((k) => !(k in found)),
+  }
+}
+
 describe('POST_ACTION_TIERS', () => {
   it('finds the handlers', () => {
     expect(Object.keys(handlers).length).toBeGreaterThan(15)
   })
 
   it('every handler has a tier', () => {
-    const missing = Object.keys(handlers).filter((k) => !(k in POST_ACTION_TIERS))
-    expect(missing).toEqual([])
+    expect(untiered(handlers, POST_ACTION_TIERS).missing).toEqual([])
   })
 
   it('every tier names a handler that exists', () => {
-    const stale = Object.keys(POST_ACTION_TIERS).filter((k) => !(k in handlers))
-    expect(stale).toEqual([])
+    expect(untiered(handlers, POST_ACTION_TIERS).stale).toEqual([])
+  })
+
+  it('a fixture handler with no entry fails the matcher (AC-03)', () => {
+    const key = 'src/app/api/drafts/[id]/fixture/route.ts POST'
+    const fixture = { ...handlers, [key]: 'export const POST = withTeamAuth(async () => {})' }
+    expect(untiered(fixture, POST_ACTION_TIERS).missing).toEqual([key])
   })
 
   it('the predicate in the file matches the tier', () => {

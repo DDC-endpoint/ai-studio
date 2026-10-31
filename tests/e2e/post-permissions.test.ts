@@ -78,7 +78,8 @@ test.describe('Post permissions (038 D10, D11)', () => {
 
     const d = `/api/drafts/${draftId}`
     const attempts: [string, () => ReturnType<ApiClient['post']>][] = [
-      ['PATCH draft', () => editor.patch(d, { headline: 'Editor headline' })],
+      ['PATCH headline', () => editor.patch(d, { headline: 'Editor headline' })],
+      ['PATCH caption', () => editor.patch(d, { channel: 'INSTAGRAM', text: 'Editor caption' })],
       ['DELETE draft', () => editor.del(d)],
       ['apply-text', () => editor.post(`${d}/apply-text`, { field: 'headline' })],
       ['apply-project', () => editor.post(`${d}/apply-project`)],
@@ -184,6 +185,41 @@ test.describe('Post permissions (038 D10, D11)', () => {
       expect(patch.status()).toBe(200)
 
       expect((await teamAdmin.del(d)).status()).toBe(200)
+    } finally {
+      await teamAdmin.dispose()
+    }
+  })
+
+  // TC-PERM-05b — AC-02 (the 2xx half): the author (an editor), a team admin and a
+  // super admin each edit a caption and regenerate the copy of the editor's post.
+  test('the author, a team admin and a super admin get 2xx on PATCH caption and regenerate copy', async ({ request }) => {
+    if (!MOCKED()) { test.skip(); return }
+    const teamId = await findTeamIdByName(admin, 'Bistec')
+    const username = `permcap${Date.now().toString(36)}`
+    const created = await (
+      await admin.post('/api/admin/users', { name: 'Perm Caption Admin', username, role: 'editor', password: 'PermAdminPass1!' })
+    ).json()
+    await addTeamMember(admin, teamId, created.id, 'ADMIN')
+    const teamAdmin = await loginAs(request, `${username}@users.bistec.internal`, 'PermAdminPass1!', { team: 'Bistec' })
+    try {
+      const own = await mint(editor, `Perm Caption Post ${Date.now()}`)
+      const d = `/api/drafts/${own.draftId}`
+      const callers: [string, ApiClient][] = [
+        ['author (editor)', editor],
+        ['team admin', teamAdmin],
+        ['super admin', admin],
+      ]
+      for (const [who, api] of callers) {
+        const text = `Caption by the ${who}`
+        const patch = await api.patch(d, { channel: 'INSTAGRAM', text })
+        expect(patch.status(), who).toBe(200)
+        const caption = (await patch.json()).captions.find((c: { channel: string }) => c.channel === 'INSTAGRAM')
+        expect(caption.text, who).toBe(text)
+
+        const regen = await api.post(`${d}/regenerate-copy`, {})
+        expect(regen.status(), who).toBe(202)
+        await waitForAction(api, own.draftId)
+      }
     } finally {
       await teamAdmin.dispose()
     }
