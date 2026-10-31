@@ -60,6 +60,28 @@ test.describe('UI flows', () => {
     // 037 AC-11: the publishing KPIs are gone.
     await expect(page.getByText('Posts Published')).toHaveCount(0)
     await expect(page.getByText('Active Campaigns')).toHaveCount(0)
+    // 038 FR-17: a Projects KPI in place of the campaign count.
+    await expect(page.getByRole('main').getByText('Projects', { exact: true })).toBeVisible()
+  })
+
+  // TC-UI-08 — 038 AC-23: the Projects KPI is the team's live project count and
+  // the recent-drafts column says Project.
+  test('the dashboard Projects KPI equals the live project count and the recent drafts column says Project', async ({ page }) => {
+    if (!MOCKED()) { test.skip(); return }
+    const created = await api.post('/api/projects', { name: `UI KPI project ${Date.now()}` })
+    expect(created.status()).toBe(201)
+    await apiDraft(api, `UI-Kpi-${Date.now()}`)
+    const live = ((await (await api.get('/api/projects')).json()) as unknown[]).length
+
+    await pageLogin(page)
+    const kpi = await page
+      .getByRole('main')
+      .locator('div.border-b', { has: page.getByText('Projects', { exact: true }) })
+      .locator('div.font-display')
+      .innerText()
+    expect(Number(kpi.trim())).toBe(live)
+    await expect(page.getByRole('columnheader', { name: 'Project', exact: true })).toBeVisible()
+    await expect(page.getByRole('columnheader', { name: 'Campaign' })).toHaveCount(0)
   })
 
   // TC-UI-02 — Brief wizard renders its 5 steps and the primary action.

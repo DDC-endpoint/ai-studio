@@ -81,6 +81,7 @@ test.describe('Post permissions (038 D10, D11)', () => {
       ['PATCH draft', () => editor.patch(d, { headline: 'Editor headline' })],
       ['DELETE draft', () => editor.del(d)],
       ['apply-text', () => editor.post(`${d}/apply-text`, { field: 'headline' })],
+      ['apply-project', () => editor.post(`${d}/apply-project`)],
       ['inline-edit', () => editor.post(`${d}/inline-edit`, { html: '<html><body>x</body></html>' })],
       ['refine', () => editor.post(`${d}/refine`, { instruction: 'Make it pop' })],
       ['regenerate-copy', () => editor.post(`${d}/regenerate-copy`, {})],
@@ -206,5 +207,37 @@ test.describe('Post permissions (038 D10, D11)', () => {
     await expect(page.getByPlaceholder('e.g. Make the logo larger…')).toHaveCount(0)
     // Copy stays.
     await expect(page.getByRole('button', { name: /^Copy .* caption$/ }).first()).toBeVisible()
+    // The Project picker stays for every member (038 D22), and Apply is not offered.
+    await expect(page.getByRole('combobox', { name: 'Project' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Apply project settings' })).toHaveCount(0)
+  })
+
+  // TC-PERM-07 — AC-22: after a member moves the post, the author is offered
+  // Apply and the non-author still is not.
+  test('after a move, the non-author still sees no Apply project settings, and can use the picker', async ({ page }) => {
+    if (!MOCKED) { test.skip(); return }
+    const project = await (await admin.post('/api/projects', { name: `Perm Move ${Date.now()}` })).json()
+    // The post was made with no project; assigning it makes its settings differ from the recorded ones.
+    await page.goto('/login')
+    await page.getByPlaceholder('Username').fill(EDITOR_EMAIL)
+    await page.getByPlaceholder('Password').fill(EDITOR_PASSWORD)
+    await page.getByRole('button', { name: 'Sign in' }).click()
+    await page.waitForURL((url) => url.pathname === '/' || url.pathname === '/choose-team')
+
+    await page.goto(`/drafts/${adminPost.draftId}`)
+    const picker = page.getByRole('combobox', { name: 'Project' })
+    await expect(picker).toBeVisible({ timeout: 20_000 })
+    const response = page.waitForResponse(
+      (r) => r.url().endsWith(`/api/drafts/${adminPost.draftId}/project`) && r.request().method() === 'PUT',
+    )
+    await picker.selectOption(project.id)
+    expect((await response).status()).toBe(200)
+    await expect(picker).toHaveValue(project.id)
+    await expect(page.getByRole('button', { name: 'Apply project settings' })).toHaveCount(0)
+
+    // The author's view of the same post offers it.
+    const draft = await (await admin.get(`/api/drafts/${adminPost.draftId}`)).json()
+    expect(draft.inputsCurrent).toBe(false)
+    expect(draft.canEdit).toBe(true)
   })
 })

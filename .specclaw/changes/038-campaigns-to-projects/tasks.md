@@ -88,7 +88,7 @@ Each task leaves `tsc`, lint and the unit suite green, so it commits on its own 
 
 ### Wave 4: assign, move and apply
 
-- [ ] `T4` — The assign route and the apply route with their events; the post page Project block; the library filter and card control; the dashboard
+- [x] `T4` — The assign route and the apply route with their events; the post page Project block; the library filter and card control; the dashboard
   - Files: src/app/api/drafts/[id]/project/route.ts, src/app/api/drafts/[id]/apply-project/route.ts, src/lib/authz/postActionTiers.ts, src/lib/analytics/catalogue.ts, src/app/api/drafts/[id]/route.ts, src/components/projects/ProjectPicker.tsx, src/app/(app)/drafts/[id]/page.tsx, src/app/(app)/library/page.tsx, src/components/library/LibraryCard.tsx, src/app/api/library/route.ts, src/app/(app)/page.tsx, src/components/dashboard/RecentDraftsCard.tsx, src/lib/api-types.ts, tests/unit/postActionTiers.test.ts, tests/unit/analyticsCoverage.test.ts, tests/unit/analyticsCatalogue.test.ts, tests/unit/applyProjectRoute.test.ts, tests/unit/assignProjectRoute.test.ts, tests/unit/libraryRoute.test.ts, tests/e2e/projects.test.ts, tests/e2e/post-permissions.test.ts, tests/e2e/library.test.ts, tests/e2e/ui.test.ts, tests/e2e/team-isolation.test.ts, tests/e2e/a11y.test.ts, scripts/capture-ui.mjs
   - Estimate: large
   - Depends: T3

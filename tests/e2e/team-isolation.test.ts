@@ -169,6 +169,22 @@ test.describe('Cross-tenant isolation (D7)', () => {
     expect(res.status()).toBe(404)
   })
 
+  // 038 AC-05 (assign and library): the assign route and the library filter keep the team boundary.
+  test('assigning a post to a project 404s across the team boundary, in both directions', async () => {
+    const own = await (await clientxAdmin.post('/api/projects', { name: `Isolation ClientX project ${Date.now()}` })).json()
+    // ClientX cannot touch a Bistec post, even with its own project.
+    expect((await clientxAdmin.put(`/api/drafts/${bistecUncategorizedDraftId}/project`, { projectId: own.id })).status()).toBe(404)
+    expect((await clientxAdmin.put(`/api/drafts/${bistecUncategorizedDraftId}/project`, { projectId: null })).status()).toBe(404)
+    // A Bistec member cannot assign to a ClientX project.
+    const foreign = await bistecAdmin.put(`/api/drafts/${bistecUncategorizedDraftId}/project`, { projectId: own.id })
+    expect(foreign.status()).toBe(404)
+    expect(await foreign.json()).toEqual({ error: 'Project not found', code: 'PROJECT_NOT_FOUND' })
+    // The apply route is a 404 for another team too, and the library filter is the same 404.
+    expect((await clientxAdmin.post(`/api/drafts/${bistecUncategorizedDraftId}/apply-project`)).status()).toBe(404)
+    expect((await bistecAdmin.get(`/api/library?projectId=${own.id}`)).status()).toBe(404)
+    expect((await bistecAdmin.get(`/api/drafts/${bistecUncategorizedDraftId}`)).status()).toBe(200)
+  })
+
   test('campaign by-id (GET/PATCH/DELETE) 404s across the team boundary', async () => {
     expect((await clientxAdmin.get(`/api/campaigns/${bistecCampaignId}`)).status()).toBe(404)
     expect(

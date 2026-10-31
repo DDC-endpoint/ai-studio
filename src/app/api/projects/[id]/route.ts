@@ -94,14 +94,18 @@ export const DELETE = withTeamAdmin<Params>(async (_req, { params }, user) => {
   // D9: soft-delete and unassign the project's posts in one transaction. The
   // briefing, the documents and their objects are kept, because existing drafts'
   // stamps point at them; only the grouping is lost.
+  // The soft delete comes first: it takes the project row lock, so a concurrent
+  // assign (PUT /api/drafts/[id]/project, which holds FOR SHARE on the live
+  // project) either lands before the unassign below sees it, or finds the
+  // project deleted and answers 404 (038 T4).
   const unassigned = await prisma.$transaction(async (tx) => {
-    const { count } = await tx.brief.updateMany({
-      where: { projectId: params.id, teamId: user.teamId },
-      data: { projectId: null },
-    })
     await tx.project.update({
       where: { id: params.id },
       data: { isDeleted: true, deletedAt: new Date() },
+    })
+    const { count } = await tx.brief.updateMany({
+      where: { projectId: params.id, teamId: user.teamId },
+      data: { projectId: null },
     })
     return count
   })

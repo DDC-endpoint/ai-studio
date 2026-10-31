@@ -165,7 +165,7 @@ export default function ProjectDetailPage() {
               <>
                 <div className={GRID}>
                   {posts.map(draft => (
-                    <LibraryCard key={draft.id} draft={draft} isTeamAdmin={isTeamAdmin} />
+                    <LibraryCard key={draft.id} draft={draft} />
                   ))}
                 </div>
                 {postsQuery.hasNextPage && (

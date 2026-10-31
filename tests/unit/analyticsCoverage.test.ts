@@ -136,6 +136,46 @@ describe('analytics coverage guard: the headline vocabularies (030 FR-18)', () =
     expect(hits).toHaveLength(1)
   })
 
+  // 038 D14, AC-24: each new event has exactly one emitter file, and no
+  // catalogue key or payload field name says "campaign".
+  it.each(['draft.project_changed', 'draft.inputs_applied'])('%s has exactly one emitter file in src (038 D14)', (name) => {
+    const hits: string[] = []
+    const re = new RegExp(`track\\(\\s*['"]${name.replace('.', '\\.')}['"]`)
+    const walk = (dir: string) => {
+      for (const e of readdirSync(dir, { withFileTypes: true })) {
+        const full = join(dir, e.name)
+        if (e.isDirectory()) walk(full)
+        else if (/\.tsx?$/.test(e.name) && re.test(readFileSync(full, 'utf8'))) hits.push(full)
+      }
+    }
+    walk(join(process.cwd(), 'src'))
+    expect(hits).toHaveLength(1)
+  })
+
+  it('the 038 events are web events and carry ids, enums and counts only', () => {
+    expect(CATALOGUE['draft.project_changed'].source).toEqual(['web'])
+    expect(CATALOGUE['draft.project_changed'].outcomes).toEqual([])
+    expect(CATALOGUE['draft.inputs_applied'].outcomes).toEqual(['ok'])
+    const parsed = CATALOGUE['draft.project_changed'].schema.safeParse({
+      change: 'move',
+      fromProjectId: 'a',
+      toProjectId: 'b',
+      name: 'Secret project name',
+    })
+    expect(parsed.success && JSON.stringify(parsed.data)).not.toContain('Secret')
+    expect(CATALOGUE['draft.project_changed'].schema.safeParse({ change: 'x', fromProjectId: null, toProjectId: null }).success).toBe(false)
+  })
+
+  it('no catalogue key or payload field name matches /campaign/i (038 AC-24)', () => {
+    const keys: string[] = []
+    for (const name of EVENT_NAMES) {
+      keys.push(name)
+      const shape = (CATALOGUE[name].schema as unknown as { shape?: Record<string, unknown> }).shape ?? {}
+      keys.push(...Object.keys(shape))
+    }
+    expect(keys.filter((k) => /campaign/i.test(k))).toEqual([])
+  })
+
   it('carries every HEADLINE_CHECKS value in generation.finished', () => {
     for (const headlineCheck of HEADLINE_CHECKS) {
       expect(CATALOGUE['generation.finished'].schema.safeParse({ headlineCheck }).success, headlineCheck).toBe(true)

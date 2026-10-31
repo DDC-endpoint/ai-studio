@@ -18,6 +18,8 @@ import {
 } from 'lucide-react'
 import { ImageLightbox } from '@/components/ui/ImageLightbox'
 import { Button } from '@/components/ui/Button'
+import { SectionHead } from '@/components/ui/SectionHead'
+import { ProjectPicker } from '@/components/projects/ProjectPicker'
 import { Panel } from '@/components/ui/Panel'
 import { StatusChip } from '@/components/ui/StatusChip'
 import { CaptionPanels } from '@/components/drafts/CaptionPanels'
@@ -107,6 +109,7 @@ export default function DraftDetailPage() {
   const [showInlineEdit, setShowInlineEdit] = useState(false)
   const [regenDesign, setRegenDesign] = useState(false)
   const [applyingText, setApplyingText] = useState(false)
+  const [applyingProject, setApplyingProject] = useState(false)
   const confirm = useConfirm()
   // 008 FR-20: the design regenerate's model pick (undefined = the current
   // design's stamp, A5) and a refused pick's 400 message.
@@ -202,6 +205,21 @@ export default function DraftDetailPage() {
   function refreshAfterChange() {
     fetchDraft()
     fetchRevisions()
+  }
+
+  // 038 FR-11: take the post's current project settings (author or team admin).
+  // The reply is the draft GET body, so the page replaces its copy with it.
+  async function handleApplyProject() {
+    setApplyingProject(true)
+    try {
+      setDraft(await apiFetch<DraftDetail>(`/api/drafts/${draftId}/apply-project`, { method: 'POST' }))
+      toast.success('Project settings applied')
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : 'Project settings could not be applied')
+      fetchDraft()
+    } finally {
+      setApplyingProject(false)
+    }
   }
 
   async function handleDownload() {
@@ -793,6 +811,30 @@ export default function DraftDetailPage() {
             onActionStarted={fetchDraft}
             canEdit={canEdit}
           />
+
+          {/* The project (038 FR-15): any member can assign or move the post; only
+              the author or a team admin can apply the project's settings. */}
+          <section aria-labelledby="draft-project-head" className="pt-[22px] pb-5" data-testid="project-block">
+            <SectionHead id="draft-project-head" title="Project" className="mb-3" />
+            <ProjectPicker
+              draftId={draftId}
+              label="Project"
+              id="draft-project"
+              value={draft.project}
+              onChanged={() => fetchDraft()}
+            />
+            {canEdit && !draft.inputsCurrent && (
+              <div className="mt-3 flex flex-col items-start gap-2" data-testid="apply-project">
+                <p className="text-ui-xs text-fg-muted">
+                  Made with {draft.inputs?.project?.name ?? 'no project'} settings.
+                </p>
+                <Button variant="secondary" size="sm" onClick={handleApplyProject} disabled={applyingProject || actionPending}>
+                  {applyingProject && <Loader2 {...ICON} className="animate-spin" />}
+                  Apply project settings
+                </Button>
+              </div>
+            )}
+          </section>
         </div>
       </div>
 

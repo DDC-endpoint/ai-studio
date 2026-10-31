@@ -28,6 +28,7 @@ async function getDashboardData(user: TeamAuthedUser) {
   const [
     draftsReady,
     postsThisMonth,
+    projectCount,
     aiProviders,
     recentDrafts,
     recentProviders,
@@ -39,6 +40,8 @@ async function getDashboardData(user: TeamAuthedUser) {
     prisma.draft.count({
       where: { teamId, status: 'EXPORTED', createdAt: { gte: monthStartUtc(new Date()) } },
     }),
+    // 038 FR-17: the team's live projects.
+    prisma.project.count({ where: { teamId, isDeleted: false } }),
     prisma.availableProvider.count({ where: { isEnabled: true, teamId } }),
     // Team-wide visibility (038 D10); never another team's drafts.
     prisma.draft.findMany({
@@ -53,7 +56,7 @@ async function getDashboardData(user: TeamAuthedUser) {
             topic: true,
             designMode: true,
             channels: true,
-            campaign: { select: { name: true } },
+            project: { select: { name: true } },
           },
         },
       },
@@ -90,6 +93,7 @@ async function getDashboardData(user: TeamAuthedUser) {
   return {
     draftsReady,
     postsThisMonth,
+    projectCount,
     aiProviders,
     recentDrafts,
     unfinishedBriefs,
@@ -164,9 +168,10 @@ export default async function DashboardPage() {
       />
 
       {/* KPI summary: a 2 px --fg rule opens the block; ruled cells, no boxes */}
-      <div className="grid grid-cols-2 gap-x-6 border-t-2 border-fg lg:grid-cols-3">
+      <div className="grid grid-cols-2 gap-x-6 border-t-2 border-fg lg:grid-cols-4">
         <KpiCard label="Drafts Ready" value={data.draftsReady} />
         <KpiCard label="Posts this month" value={data.postsThisMonth} />
+        <KpiCard label="Projects" value={data.projectCount} />
         <KpiCard label="AI providers" value={data.aiProviders} />
       </div>
 
@@ -199,7 +204,7 @@ export default async function DashboardPage() {
                   topic: d.brief.topic,
                   designMode: d.brief.designMode,
                   channels: d.brief.channels,
-                  campaign: d.brief.campaign,
+                  project: d.brief.project,
                 }
               : null,
           }))}

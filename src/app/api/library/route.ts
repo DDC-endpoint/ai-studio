@@ -2,12 +2,13 @@ import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { PROJECT_NOT_FOUND } from '@/lib/projects/errors'
 import { withTeamAuth } from "@/lib/api/handler"
-import { draftVisibilityWhere } from "@/lib/authz/visibility"
+import { canEditPost, draftVisibilityWhere } from "@/lib/authz/visibility"
 import { resolveExportUrl } from "@/lib/storage/minio"
 import { Prisma } from "@prisma/client"
 import { isStyleKey } from "@/lib/postStyles"
 import { headlineState } from "@/lib/renderedText/state"
 import { parseRenderedText } from "@/lib/renderedText/stamp"
+import { parseGenerationInputs } from "@/lib/projects/inputs"
 
 export const GET = withTeamAuth(async (req: NextRequest, _ctx, user) => {
   const { searchParams } = new URL(req.url)
@@ -43,8 +44,6 @@ export const GET = withTeamAuth(async (req: NextRequest, _ctx, user) => {
     })
   }
 
-  // D6 visibility: own drafts, or anything shared via a campaign-linked brief
-  // (team-wide admins/super-admins see the whole team).
   if (postStyle) {
     andConditions.push({ brief: { postStyle } })
   }
@@ -64,12 +63,13 @@ export const GET = withTeamAuth(async (req: NextRequest, _ctx, user) => {
     andConditions.push({ brief: { projectId } })
   }
 
-  // Kit filter: the brief's own kit, else (no explicit kit) the campaign's.
+  // Kit filter (038 FR-13): the kit the post was generated with (the stamp's
+  // kitId), else, for a post with no stamp, the brief's own kit (037 D10).
   if (brandKitId) {
     andConditions.push({
       OR: [
-        { brief: { brandKitId } },
-        { brief: { brandKitId: null, campaign: { brandKitId } } },
+        { generationInputs: { path: ["kitId"], equals: brandKitId } },
+        { generationInputs: { equals: Prisma.DbNull }, brief: { brandKitId } },
       ],
     })
   }
@@ -88,16 +88,20 @@ export const GET = withTeamAuth(async (req: NextRequest, _ctx, user) => {
         status: true,
         exportUrl: true,
         createdAt: true,
+        teamId: true,
+        // The stamp's kit names the card's kit (038 FR-12); never returned.
+        generationInputs: true,
         // 030 FR-12: read only to derive the state; neither is returned.
         headline: true,
         renderedText: true,
         brief: {
           select: {
             topic: true,
+            userId: true,
             aspectRatio: true,
             postStyle: true,
-            brandKit: { select: { name: true } },
-            campaign: { select: { brandKit: { select: { name: true } } } },
+            brandKitId: true,
+            project: { select: { id: true, name: true } },
           },
         },
       },
@@ -108,21 +112,43 @@ export const GET = withTeamAuth(async (req: NextRequest, _ctx, user) => {
     prisma.draft.count({ where }),
   ])
 
+  // Kit names for the page: one read for every kit the page names (the stamp's
+  // kit, else the brief's own for a post with no stamp).
+  const kitIdOf = (d: (typeof drafts)[number]) => {
+    const stamp = parseGenerationInputs(d.generationInputs)
+    return stamp ? stamp.kitId : (d.brief.brandKitId ?? null)
+  }
+  const kitIds = [...new Set(drafts.map(kitIdOf).filter((id): id is string => !!id))]
+  const kits = kitIds.length
+    ? await prisma.brandKit.findMany({
+        where: { id: { in: kitIds }, teamId: user.teamId },
+        select: { id: true, name: true },
+      })
+    : []
+  const kitName = new Map(kits.map((k) => [k.id, k.name]))
+
   // exportUrl is stored as an EXPORTS object key — sign each for the browser
   // (thumbnails). Signing is local (no network round-trip), so mapping is cheap.
   const signedDrafts = await Promise.all(
-    drafts.map(async ({ headline, renderedText, brief, ...d }) => ({
-      ...d,
-      brief: {
-        topic: brief.topic,
-        aspectRatio: brief.aspectRatio,
-        postStyle: brief.postStyle,
-        // The explicit kit wins; a brief with none falls to its campaign's.
-        brandKitName: brief.brandKit?.name ?? brief.campaign?.brandKit?.name ?? null,
-      },
-      exportUrl: await resolveExportUrl(d.exportUrl),
-      headlineState: headlineState(parseRenderedText(renderedText), headline),
-    }))
+    drafts.map(async (d) => {
+      const kitId = kitIdOf(d)
+      return {
+        id: d.id,
+        status: d.status,
+        createdAt: d.createdAt,
+        brief: {
+          topic: d.brief.topic,
+          aspectRatio: d.brief.aspectRatio,
+          postStyle: d.brief.postStyle,
+          brandKitName: kitId ? (kitName.get(kitId) ?? null) : null,
+        },
+        project: d.brief.project,
+        // The author and team admins edit (038 D11); the card shows Delete only then.
+        canEdit: canEditPost(user, { teamId: d.teamId, ownerId: d.brief.userId }),
+        exportUrl: await resolveExportUrl(d.exportUrl),
+        headlineState: headlineState(parseRenderedText(d.renderedText), d.headline),
+      }
+    })
   )
 
   return NextResponse.json({ drafts: signedDrafts, total, page, pageSize })

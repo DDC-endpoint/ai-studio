@@ -194,6 +194,32 @@ export const CATALOGUE = {
       failure: z.enum(DOWNLOAD_FAILURES).optional(),
     }),
   },
+  // 038 D14: a post assigned, moved or unassigned. Ids and an enum only. The one
+  // emitter is PUT /api/drafts/[id]/project.
+  'draft.project_changed': {
+    schemaVersion: 1,
+    source: ['web'],
+    outcomes: [],
+    schema: z.object({
+      change: z.enum(['assign', 'move', 'unassign']),
+      fromProjectId: z.string().max(64).nullable(),
+      toProjectId: z.string().max(64).nullable(),
+    }),
+  },
+  // 038 D14: "Apply project settings" took effect. The one emitter is
+  // POST /api/drafts/[id]/apply-project.
+  'draft.inputs_applied': {
+    schemaVersion: 1,
+    source: ['web'],
+    outcomes: ['ok'],
+    schema: z.object({
+      fromProjectId: z.string().max(64).nullable(),
+      toProjectId: z.string().max(64).nullable(),
+      kitChanged: z.boolean(),
+      briefingChanged: z.boolean(),
+      factsStatus: z.enum(FACTS_STATUSES).nullable(),
+    }),
+  },
   'wizard.step': {
     schemaVersion: 1,
     source: ['web'],

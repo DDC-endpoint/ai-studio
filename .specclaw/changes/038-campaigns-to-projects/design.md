@@ -294,7 +294,7 @@ if (brandKitId)
 ### UI
 
 - **`src/components/projects/`** holds `ProjectPicker` (a Select: "No project" plus the team's live projects; used by the wizard step, the post page and the library card), `ProjectBriefingSection` and `BriefingAssistantPanel` (moved), `classes.ts` (moved), and `postStyleOptions.ts` (moved).
-- **The post page** gets a Project block in the right column above Captions.
+- **The post page** gets a Project block in the right column, below Captions. (Amended at build, T4: above Captions it pushed the captions card down and broke 021 AC-12, "tops level", in `surfaces.test.ts`. FR-15 sets no position.)
   - The picker shows for every viewer.
   - When `canEdit && !inputsCurrent`, it shows the line "Made with `<inputs.project ?? 'no project'>` settings." and the button "Apply project settings".
   - When `!canEdit`, the `ViewOnlyNote` replaces the action rows.

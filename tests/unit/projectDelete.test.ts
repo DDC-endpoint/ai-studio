@@ -78,6 +78,11 @@ describe('DELETE /api/projects/[id] (038 D9)', () => {
     expect(update.data.deletedAt).toBeInstanceOf(Date)
   })
 
+  it('soft-deletes first, then unassigns: the row lock makes a concurrent assign land before the unassign or fail 404 (038 T4)', async () => {
+    await del()
+    expect(h.projectUpdate.mock.invocationCallOrder[0]).toBeLessThan(h.briefUpdateMany.mock.invocationCallOrder[0])
+  })
+
   it('never deletes a briefing, a document or a stored object', async () => {
     await del()
     expect(h.briefingDelete).not.toHaveBeenCalled()

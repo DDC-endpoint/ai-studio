@@ -5,8 +5,8 @@ import { pageLogin } from '../helpers/ui'
 // §H — Library (docs/e2e-test-plan.md).
 //
 // Contract (src/app/api/library/route.ts):
-//   GET /api/library?page&pageSize&search&brandKitId&postStyle
-//     → { drafts:[{id,status,exportUrl(signed),brief:{topic,aspectRatio,postStyle,brandKitName},…}], total, page, pageSize }
+//   GET /api/library?page&pageSize&search&brandKitId&postStyle&projectId
+//     → { drafts:[{id,status,exportUrl(signed),brief:{topic,aspectRatio,postStyle,brandKitName},project,canEdit,…}], total, page, pageSize }
 //   pageSize clamped to 1..50. Lists EXPORTED drafts only (037: no status param).
 //   An unknown postStyle is 400.
 //   Every member of a team sees every post in it (038 D10); nothing from another team.
@@ -154,6 +154,69 @@ test.describe('Library', () => {
     await page.getByLabel('Post style').selectOption('')
     await expect(cardA).toBeVisible()
     await expect(cardB).toBeVisible()
+  })
+
+  // TC-LIB-07 — 038 AC-23: the Project filter (all, no project, a project) narrows
+  // the list, and a card shows its project and can move it.
+  test('the library Project filter narrows the list and a card moves its post', async ({ page }) => {
+    if (!MOCKED()) { test.skip(); return }
+    const stamp = Date.now()
+    const project = await (await api.post('/api/projects', { name: `LibProj ${stamp}` })).json()
+    const inProject = await adminDraft(api, `LibPA-${stamp}`)
+    const bare = await adminDraft(api, `LibPB-${stamp}`)
+    expect((await api.put(`/api/drafts/${inProject}/project`, { projectId: project.id })).status()).toBe(200)
+
+    await pageLogin(page)
+    await page.goto('/library')
+    const cardIn = page.getByText(`LibPA-${stamp}`, { exact: true })
+    const cardBare = page.getByText(`LibPB-${stamp}`, { exact: true })
+    await expect(cardIn).toBeVisible({ timeout: 20_000 })
+    await expect(cardBare).toBeVisible()
+    // The card names its project.
+    await expect(page.getByLabel(`Project for LibPA-${stamp}`)).toHaveValue(project.id)
+    await expect(page.getByLabel(`Project for LibPB-${stamp}`)).toHaveValue('')
+
+    const filter = page.getByRole('combobox', { name: 'Project', exact: true })
+    const inResponse = page.waitForResponse((r) => r.url().includes('/api/library') && r.url().includes(`projectId=${project.id}`))
+    await filter.selectOption(project.id)
+    await inResponse
+    await expect(cardIn).toBeVisible()
+    await expect(cardBare).toHaveCount(0)
+
+    const noneResponse = page.waitForResponse((r) => r.url().includes('/api/library') && r.url().includes('projectId=none'))
+    await filter.selectOption('none')
+    await noneResponse
+    await expect(cardBare).toBeVisible()
+    await expect(cardIn).toHaveCount(0)
+
+    // Move the unassigned post from its card, with the request awaited first.
+    const moved = page.waitForResponse((r) => r.url().endsWith(`/api/drafts/${bare}/project`) && r.request().method() === 'PUT')
+    await page.getByLabel(`Project for LibPB-${stamp}`).selectOption(project.id)
+    expect((await moved).status()).toBe(200)
+    await expect(cardBare).toHaveCount(0) // it left the "No project" list
+    expect((await (await api.get(`/api/drafts/${bare}`)).json()).project.id).toBe(project.id)
+
+    await filter.selectOption('')
+    await expect(cardIn).toBeVisible()
+    await expect(cardBare).toBeVisible()
+  })
+
+  // TC-LIB-08 — 038 D11 (T1 review): a card offers Delete only for a post the caller may edit.
+  test('the library says per post whether the caller may edit it (the card shows Delete only then)', async ({ request }) => {
+    if (!MOCKED()) { test.skip(); return }
+    const adminId = await adminDraft(api, `LibDelA-${Date.now()}`)
+    const editor = await loginAs(request, EDITOR_EMAIL, EDITOR_PASSWORD)
+    try {
+      const editorId = await editorDraft(editor, `LibDelE-${Date.now()}`)
+      const asEditor = (await (await editor.get('/api/library?pageSize=50')).json()).drafts as Array<{ id: string; canEdit: boolean }>
+      expect(asEditor.find((d) => d.id === editorId)?.canEdit).toBe(true)
+      expect(asEditor.find((d) => d.id === adminId)?.canEdit).toBe(false)
+      const asAdmin = (await (await api.get('/api/library?pageSize=50')).json()).drafts as Array<{ id: string; canEdit: boolean }>
+      expect(asAdmin.find((d) => d.id === adminId)?.canEdit).toBe(true)
+      expect(asAdmin.find((d) => d.id === editorId)?.canEdit).toBe(true) // a team admin edits any post
+    } finally {
+      await editor.dispose()
+    }
   })
 
   // TC-LIB-03 — Search by topic substring.

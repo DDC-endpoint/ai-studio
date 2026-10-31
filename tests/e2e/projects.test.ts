@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { loginAs, waitForDraft, type ApiClient } from '../helpers/api'
+import { loginAs, waitForAction, waitForDraft, type ApiClient } from '../helpers/api'
 import { ADMIN_EMAIL, ADMIN_PASSWORD, briefDraftIds, expectNoHorizontalScroll, pageLogin } from '../helpers/ui'
 
 // §AL — Projects hold the inputs (038 T2: FR-05, FR-06, FR-13 filter, D9, D15; docs/e2e-test-plan.md).
@@ -9,7 +9,8 @@ import { ADMIN_EMAIL, ADMIN_PASSWORD, briefDraftIds, expectNoHorizontalScroll, p
 // admin creates, edits and deletes; every member reads; another team gets 404 on
 // every surface. Deleting soft-deletes and unassigns its posts in one step.
 // T3 adds the post's recorded inputs (the draft GET's `inputs`) and the wizard's
-// project step. The cases that move a post come with the assign route (T4). The 200-project cap is covered by the unit suite
+// project step. T4 adds the assign and apply routes (AC-11 to AC-13) and the post
+// page's Project block (AC-21 steps 4 and 5, AC-22). The 200-project cap is covered by the unit suite
 // (projectLimits.test.ts); minting 200 projects here would not add to it.
 
 const EDITOR_EMAIL = 'editor@bisteccare.lk'
@@ -237,6 +238,201 @@ test.describe('Projects (038 T2)', () => {
       await page.getByRole('button', { name: /back/i }).click()
       await page.getByRole('button', { name: /^No project/ }).click()
       await expect(page.getByRole('button', { name: /^No project/ })).toHaveAttribute('aria-pressed', 'true')
+    })
+  })
+
+  // 038 T4 (AC-11 to AC-13, AC-21 steps 4 and 5, AC-22): assign, move, apply.
+  test.describe('assign, move and apply (038 T4)', () => {
+    const MOCKED = !!(process.env.MOCK_AI && process.env.MOCK_PUPPETEER)
+    let projA: { id: string; name: string }
+    let projB: { id: string; name: string }
+
+    test.beforeAll(async () => {
+      if (!MOCKED) return
+      projA = await mint('Move A')
+      projB = await mint('Move B')
+      expect(
+        (
+          await admin.post(`/api/projects/${projB.id}/briefing`, {
+            content: 'We now serve 1,250 customers. Launch offer: 35% off for the first month.',
+          })
+        ).status(),
+      ).toBe(201)
+    })
+
+    type PostBody = {
+      id: string
+      inputs: { project: { id: string } | null } | null
+      inputsCurrent: boolean
+      project: { id: string; name: string } | null
+      factsCheck: { status: string } | null
+    }
+
+    // Mints an EXPORTED post as the admin (the author), optionally in a project.
+    async function post(topic: string, projectId?: string): Promise<PostBody> {
+      const brief = await (
+        await admin.post('/api/briefs', {
+          topic: `${topic} ${stamp}`, goal: 'g', tone: 'professional', channels: ['INSTAGRAM'],
+          designMode: 'GENERATE', copyProviderKey: 'cli', ...(projectId ? { projectId } : {}),
+        })
+      ).json()
+      const assembled = await admin.post('/api/generate/assemble-b', { briefId: brief.id })
+      expect(assembled.status()).toBe(202)
+      const draft = await waitForDraft(admin, (await assembled.json()).draftId)
+      expect(draft.status).toBe('EXPORTED')
+      return draft as unknown as PostBody
+    }
+
+    async function events(name: string, draftId: string) {
+      const res = await admin.get(`/api/test/analytics-events?name=${name}&draftId=${draftId}`)
+      expect(res.status()).toBe(200)
+      return (await res.json()).events as Array<{ outcome: string | null; payload: Record<string, unknown> }>
+    }
+
+    // TC-PROJ-10 (AC-13): any member assigns, moves and unassigns; one event per change.
+    test('a member assigns, moves and unassigns a post; each change emits one event and a repeat emits none', async () => {
+      test.skip(!MOCKED, 'needs MOCK_AI and MOCK_PUPPETEER')
+      const q = await post('Assign Q')
+      expect(q.project).toBeNull()
+      const projectOf = async () => (await (await admin.get(`/api/drafts/${q.id}`)).json()).project
+
+      // The editor is not the author: the view tier still lets them assign.
+      const assign = await editor.put(`/api/drafts/${q.id}/project`, { projectId: projA.id })
+      expect(assign.status()).toBe(200)
+      expect(await assign.json()).toEqual({ project: { id: projA.id, name: projA.name } })
+      expect(await projectOf()).toEqual({ id: projA.id, name: projA.name })
+      expect((await events('draft.project_changed', q.id)).length).toBe(1)
+
+      // A repeat of the same assignment is 200 and emits nothing.
+      expect((await editor.put(`/api/drafts/${q.id}/project`, { projectId: projA.id })).status()).toBe(200)
+      expect((await events('draft.project_changed', q.id)).length).toBe(1)
+
+      expect((await editor.put(`/api/drafts/${q.id}/project`, { projectId: projB.id })).status()).toBe(200)
+      expect((await projectOf()).id).toBe(projB.id)
+      const inB = (await (await admin.get(`/api/library?projectId=${projB.id}&pageSize=50`)).json()).drafts as Array<{
+        id: string
+        project: { id: string } | null
+      }>
+      expect(inB.find((d) => d.id === q.id)?.project?.id).toBe(projB.id)
+
+      expect((await editor.put(`/api/drafts/${q.id}/project`, { projectId: null })).status()).toBe(200)
+      expect(await projectOf()).toBeNull()
+      const none = (await (await admin.get('/api/library?projectId=none&pageSize=50')).json()).drafts as Array<{ id: string }>
+      expect(none.map((d) => d.id)).toContain(q.id)
+
+      expect((await events('draft.project_changed', q.id)).map((e) => e.payload)).toEqual([
+        { change: 'assign', fromProjectId: null, toProjectId: projA.id },
+        { change: 'move', fromProjectId: projA.id, toProjectId: projB.id },
+        { change: 'unassign', fromProjectId: projB.id, toProjectId: null },
+      ])
+      // The assignment alone never rewrites the recorded inputs.
+      expect((await (await admin.get(`/api/drafts/${q.id}`)).json()).inputs.project).toBeNull()
+    })
+
+    test('assign refuses a foreign, deleted or unknown project with the one 404, and another team cannot assign at all', async () => {
+      test.skip(!MOCKED, 'needs MOCK_AI and MOCK_PUPPETEER')
+      const q = await post('Assign 404')
+      const gone = await mint('Assign Gone')
+      expect((await admin.del(`/api/projects/${gone.id}`)).status()).toBe(200)
+      const foreignRes = await clientx.post('/api/projects', { name: `Foreign ${stamp}` })
+      expect(foreignRes.status()).toBe(201)
+      const foreign = await foreignRes.json()
+      for (const projectId of [gone.id, 'no-such-project', foreign.id]) {
+        const res = await admin.put(`/api/drafts/${q.id}/project`, { projectId })
+        expect(res.status(), projectId).toBe(404)
+        expect(await res.json()).toEqual({ error: 'Project not found', code: 'PROJECT_NOT_FOUND' })
+      }
+      expect((await clientx.put(`/api/drafts/${q.id}/project`, { projectId: null })).status()).toBe(404)
+      expect((await (await admin.get(`/api/drafts/${q.id}`)).json()).project).toBeNull()
+    })
+
+    // TC-PROJ-11 (AC-11, AC-12): a move only relabels; Apply project settings is the one way to take new inputs.
+    test('a move only relabels the post; apply project settings takes the new inputs, recomputes the facts check and emits once', async () => {
+      test.skip(!MOCKED, 'needs MOCK_AI and MOCK_PUPPETEER')
+      // Project B's briefing states 35% and 1,250: the post is clear under B.
+      const p = await post('__MOCK_FACT_PCT__ __MOCK_FACT_NUM__ Move P', projB.id)
+      expect(p.factsCheck?.status).toBe('clear')
+      const get = async () => (await (await admin.get(`/api/drafts/${p.id}`)).json()) as PostBody
+
+      // A non-author editor moves it to A, which states nothing.
+      expect((await editor.put(`/api/drafts/${p.id}/project`, { projectId: projA.id })).status()).toBe(200)
+      let d = await get()
+      expect(d.inputs?.project?.id).toBe(projB.id)
+      expect(d.project?.id).toBe(projA.id)
+      expect(d.inputsCurrent).toBe(false)
+
+      // The author edits a caption: the check still reads the recorded sources (B).
+      const edit = await admin.patch(`/api/drafts/${p.id}`, { channel: 'INSTAGRAM', text: 'A calm caption about the offer' })
+      expect(edit.status()).toBe(200)
+      expect((await get()).factsCheck?.status).toBe('clear')
+
+      // So does a regenerate: it keeps the recorded project.
+      expect((await admin.post(`/api/drafts/${p.id}/regenerate-copy`, {})).status()).toBe(202)
+      d = (await waitForAction(admin, p.id)) as unknown as PostBody
+      expect(d.inputs?.project?.id).toBe(projB.id)
+      expect(d.factsCheck?.status).toBe('clear')
+
+      // A non-author cannot apply.
+      const refused = await editor.post(`/api/drafts/${p.id}/apply-project`)
+      expect(refused.status()).toBe(403)
+      expect((await refused.json()).code).toBe('not-author')
+      expect((await events('draft.inputs_applied', p.id)).length).toBe(0)
+
+      // The author applies A's settings.
+      const applied = await admin.post(`/api/drafts/${p.id}/apply-project`)
+      expect(applied.status()).toBe(200)
+      d = (await applied.json()) as PostBody
+      expect(d.inputs?.project?.id).toBe(projA.id)
+      expect(d.inputsCurrent).toBe(true)
+      expect(d.factsCheck?.status).toBe('flagged')
+      const applyEvents = await events('draft.inputs_applied', p.id)
+      expect(applyEvents).toHaveLength(1)
+      expect(applyEvents[0].outcome).toBe('ok')
+      expect(applyEvents[0].payload).toMatchObject({
+        fromProjectId: projB.id,
+        toProjectId: projA.id,
+        briefingChanged: true,
+        factsStatus: 'flagged',
+      })
+
+      // A second apply has nothing to change.
+      const again = await admin.post(`/api/drafts/${p.id}/apply-project`)
+      expect(again.status()).toBe(409)
+      expect((await again.json()).code).toBe('no-change')
+      expect((await events('draft.inputs_applied', p.id)).length).toBe(1)
+    })
+
+    // TC-PROJ-12 (AC-21 steps 4 and 5, AC-22): the post page shows the project, and Apply only after a move.
+    test('the post page shows the project or "No project"; the author sees Apply project settings only after a move', async ({ page }) => {
+      test.skip(!MOCKED, 'needs MOCK_AI and MOCK_PUPPETEER')
+      const inB = await post('Page In B', projB.id)
+      const bare = await post('Page Bare')
+
+      await pageLogin(page)
+      await page.goto(`/drafts/${inB.id}`)
+      const picker = page.getByRole('combobox', { name: 'Project' })
+      await expect(picker).toBeVisible({ timeout: 20_000 })
+      await expect(picker).toHaveValue(projB.id)
+      await expect(page.getByRole('button', { name: 'Apply project settings' })).toHaveCount(0)
+      await expectNoHorizontalScroll(page, 'post page: project block')
+
+      await page.goto(`/drafts/${bare.id}`)
+      await expect(page.getByRole('combobox', { name: 'Project' })).toHaveValue('', { timeout: 20_000 })
+      await expect(page.getByRole('combobox', { name: 'Project' }).locator('option:checked')).toHaveText('No project')
+
+      // A member moves the post (API); the author's page then offers Apply.
+      expect((await editor.put(`/api/drafts/${inB.id}/project`, { projectId: projA.id })).status()).toBe(200)
+      await page.goto(`/drafts/${inB.id}`)
+      await expect(page.getByRole('combobox', { name: 'Project' })).toHaveValue(projA.id, { timeout: 20_000 })
+      const apply = page.getByRole('button', { name: 'Apply project settings' })
+      await expect(apply).toBeVisible()
+      await expect(page.getByText(`Made with ${projB.name} settings.`)).toBeVisible()
+      const response = page.waitForResponse(
+        (r) => r.url().endsWith(`/api/drafts/${inB.id}/apply-project`) && r.request().method() === 'POST',
+      )
+      await apply.click()
+      expect((await response).status()).toBe(200)
+      await expect(apply).toHaveCount(0)
     })
   })
 })

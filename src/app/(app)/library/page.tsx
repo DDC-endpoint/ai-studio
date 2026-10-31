@@ -16,8 +16,7 @@ import { LibraryCard } from '@/components/library/LibraryCard'
 import { postStyleOptions } from '@/components/projects/postStyleOptions'
 import { cn } from '@/lib/utils'
 import { apiFetch } from '@/lib/apiFetch'
-import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
-import type { BrandKitSummary, LibraryResponse } from '@/lib/api-types'
+import type { BrandKitSummary, LibraryResponse, ProjectSummary } from '@/lib/api-types'
 
 const PAGE_SIZE = 20
 
@@ -48,10 +47,11 @@ export default function LibraryPage() {
   const confirm = useConfirm()
   const [brandKitId, setBrandKitId] = useState('')
   const [postStyle, setPostStyle] = useState('')
+  // '' = all projects, 'none' = posts with no project, else a project id (038 FR-13).
+  const [projectId, setProjectId] = useState('')
   const [searchInput, setSearchInput] = useState('')
   const searchId = React.useId()
   const [search, setSearch] = useState('')
-  const { isTeamAdmin } = useCurrentUser()
 
   // Debounce search input
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -75,13 +75,14 @@ export default function LibraryPage() {
     hasNextPage,
     isFetchingNextPage,
   } = useInfiniteQuery({
-    queryKey: ['library', brandKitId, postStyle, search],
+    queryKey: ['library', brandKitId, postStyle, projectId, search],
     queryFn: ({ pageParam }) => {
       const params = new URLSearchParams({
         page: String(pageParam),
         pageSize: String(PAGE_SIZE),
         ...(brandKitId ? { brandKitId } : {}),
         ...(postStyle ? { postStyle } : {}),
+        ...(projectId ? { projectId } : {}),
         ...(search ? { search } : {}),
       })
       return apiFetch<LibraryResponse>(`/api/library?${params}`)
@@ -98,6 +99,15 @@ export default function LibraryPage() {
   const kitOptions = [
     { value: '', label: 'All kits' },
     ...brandKits.map((k) => ({ value: k.id, label: k.name })),
+  ]
+  const { data: projects = [] } = useQuery({
+    queryKey: ['projects'],
+    queryFn: () => apiFetch<ProjectSummary[]>('/api/projects'),
+  })
+  const projectOptions = [
+    { value: '', label: 'All projects' },
+    { value: 'none', label: 'No project' },
+    ...projects.map((p) => ({ value: p.id, label: p.name })),
   ]
   const styleOptions = postStyleOptions('All styles')
 
@@ -175,6 +185,14 @@ export default function LibraryPage() {
             onChange={(e) => setPostStyle(e.target.value)}
           />
         </div>
+        <div className="sm:w-64">
+          <Select
+            label="Project"
+            options={projectOptions}
+            value={projectId}
+            onChange={(e) => setProjectId(e.target.value)}
+          />
+        </div>
       </div>
 
       {/* Grid */}
@@ -195,7 +213,6 @@ export default function LibraryPage() {
               <LibraryCard
                 key={draft.id}
                 draft={draft}
-                isTeamAdmin={isTeamAdmin}
                 onDelete={handleDelete}
               />
             ))}

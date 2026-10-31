@@ -8,6 +8,7 @@ import type { AspectRatio } from '@prisma/client'
 import { FOCUS } from '@/components/ui/atoms'
 import { aspectClassFor } from '@/lib/aspectRatio'
 import { postStyleLabel } from '@/components/projects/postStyleOptions'
+import { ProjectPicker } from '@/components/projects/ProjectPicker'
 import { formatDateTime } from '@/lib/format'
 
 interface LibraryCardDraft {
@@ -20,12 +21,14 @@ interface LibraryCardDraft {
     postStyle: string | null
     brandKitName: string | null
   }
+  project: { id: string; name: string } | null
+  // 038 D11: the author or a team admin. Edit-tier controls (Delete) show only then.
+  canEdit: boolean
 }
 
 interface LibraryCardProps {
   draft: LibraryCardDraft
-  isTeamAdmin: boolean
-  // Admin-only hard delete (button hidden when omitted).
+  // Hard delete for the author or a team admin (button hidden when omitted).
   onDelete?: (draftId: string) => void
 }
 
@@ -35,9 +38,9 @@ interface LibraryCardProps {
 const EXPAND_BUTTON =
   'absolute top-2.5 right-2.5 inline-flex h-control-sm w-control-sm items-center justify-center rounded-ui-sm border border-[#211c18] bg-[#fffefb] text-[#211c18] opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity duration-fast ease-standard focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus' // ui-exception: drawn on the post image, fixed ink-on-paper per DESIGN_SYSTEM.md §8.12
 
-export function LibraryCard({ draft, isTeamAdmin, onDelete }: LibraryCardProps) {
+export function LibraryCard({ draft, onDelete }: LibraryCardProps) {
   const styleLabel = postStyleLabel(draft.brief.postStyle)
-  const metaLine = [draft.brief.brandKitName, styleLabel].filter(Boolean).join(' · ')
+  const metaLine = [draft.brief.brandKitName, styleLabel, draft.project?.name].filter(Boolean).join(' · ')
   const [showPreview, setShowPreview] = useState(false)
 
   return (
@@ -94,6 +97,15 @@ export function LibraryCard({ draft, isTeamAdmin, onDelete }: LibraryCardProps) 
         </p>
         <p className="text-ui-xs text-fg-muted">{formatDateTime(draft.createdAt)}</p>
 
+        {/* Any team member can move a post (038 D22): a move only relabels it. */}
+        <div className="pt-1" data-testid="library-card-project">
+          <ProjectPicker
+            draftId={draft.id}
+            value={draft.project}
+            ariaLabel={`Project for ${draft.brief.topic}`}
+          />
+        </div>
+
         {/* Actions. The floating Create post button is the view's one
             primary (§8.2), so Open is Outline here. */}
         <div className="flex items-center gap-2 pt-2">
@@ -103,7 +115,7 @@ export function LibraryCard({ draft, isTeamAdmin, onDelete }: LibraryCardProps) 
           >
             Open
           </Link>
-          {isTeamAdmin && onDelete && (
+          {draft.canEdit && onDelete && (
             <button
               type="button"
               aria-label={`Delete ${draft.brief.topic}`}

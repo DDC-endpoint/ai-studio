@@ -13,6 +13,8 @@ const h = vi.hoisted(() => ({
   teamFindUnique: vi.fn(),
   copyProviderIsClaude: vi.fn(),
   resolveBrandKit: vi.fn(),
+  projectFindFirst: vi.fn(),
+  briefingFindFirst: vi.fn(),
   saveHeadlineEdit: vi.fn(),
   canEditPost: vi.fn(() => true),
   trackHeadlineEdited: vi.fn(),
@@ -26,6 +28,8 @@ vi.mock('@/lib/prisma', () => ({
     draft: { findUnique: h.draftFindUnique, updateMany: h.draftUpdateMany },
     availableProvider: { findMany: h.providerFindMany },
     team: { findUnique: h.teamFindUnique },
+    project: { findFirst: h.projectFindFirst },
+    projectBriefing: { findFirst: h.briefingFindFirst },
   },
 }))
 // 030 AC-10: the renderer and the mock check throw if reached, to show the read
@@ -134,6 +138,8 @@ beforeEach(() => {
   h.copyProviderIsClaude.mockImplementation(realCopyProviderIsClaude)
   h.resolveBrandKit.mockReset()
   h.resolveBrandKit.mockResolvedValue(null)
+  h.projectFindFirst.mockReset().mockResolvedValue(null)
+  h.briefingFindFirst.mockReset().mockResolvedValue(null)
   h.saveHeadlineEdit.mockReset().mockResolvedValue(true)
   h.trackHeadlineEdited.mockReset().mockResolvedValue(undefined)
   h.renderBoom.mockClear()
@@ -410,5 +416,64 @@ describe('PATCH { headline } — draft.headline_edited (030 FR-15)', () => {
     h.saveHeadlineEdit.mockResolvedValue(false)
     expect((await patchHeadline('New line')).status).toBe(409)
     expect(h.trackHeadlineEdited).not.toHaveBeenCalled()
+  })
+})
+
+
+// 038 FR-12, NFR-06: `project` and `inputsCurrent`. The live comparison runs only
+// for an EXPORTED draft with nothing running.
+describe('GET /api/drafts/[id] — project and inputsCurrent (038)', () => {
+  const stamp = (projectId: string | null, briefingId: string | null, kitId: string | null) => ({
+    v: 1,
+    projectId,
+    briefingId,
+    briefingVersion: briefingId ? 1 : null,
+    kitId,
+    kitSource: kitId ? 'team' : null,
+  })
+  const kit = { id: 'kit1', name: 'Kit', source: 'team' }
+
+  it('is true when the recorded inputs match the current assignment', async () => {
+    h.resolveBrandKit.mockResolvedValue(kit)
+    h.draftFindUnique.mockResolvedValue({ ...exportedDraft(null), generationInputs: stamp(null, null, 'kit1') })
+    const { body } = await get()
+    expect(body.inputsCurrent).toBe(true)
+    expect(body.project).toBeNull()
+  })
+
+  it('is false after a move: the brief points at project A, the stamp records B', async () => {
+    h.resolveBrandKit.mockResolvedValue(kit)
+    h.projectFindFirst.mockResolvedValue({ id: 'pA', name: 'A' })
+    const d = exportedDraft(null)
+    h.draftFindUnique.mockResolvedValue({
+      ...d,
+      generationInputs: stamp('pB', 'bB', 'kit1'),
+      brief: { ...d.brief, projectId: 'pA' },
+    })
+    const { body } = await get()
+    expect(body.inputsCurrent).toBe(false)
+    expect(body.project).toEqual({ id: 'pA', name: 'A' })
+  })
+
+  it('a draft with no stamp reads as no project and the brief kit: current when nothing changed', async () => {
+    h.resolveBrandKit.mockResolvedValue(kit)
+    h.draftFindUnique.mockResolvedValue({ ...exportedDraft(null), generationInputs: null })
+    expect((await get()).body.inputsCurrent).toBe(true)
+  })
+
+  it('is true without a comparison while an action runs (no extra reads)', async () => {
+    const d = exportedDraft(null)
+    h.draftFindUnique.mockResolvedValue({
+      ...d,
+      pendingAction: 'REFINE',
+      updatedAt: new Date(),
+      generationInputs: stamp('pB', 'bB', 'kit1'),
+      brief: { ...d.brief, projectId: 'pA' },
+    })
+    const { body } = await get()
+    expect(body.inputsCurrent).toBe(true)
+    expect(h.briefingFindFirst).not.toHaveBeenCalled()
+    // Two project reads: the recorded project (the stamp) and the current assignment's name.
+    expect(h.projectFindFirst).toHaveBeenCalledTimes(2)
   })
 })

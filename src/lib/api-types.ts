@@ -370,6 +370,18 @@ export interface DraftDetail {
   revisionCount: number
   currentRevisionNumber: number | null
   brandKitName: string | null
+  // 038 FR-12: the post's current project (null = none).
+  project: { id: string; name: string } | null
+  // False when the recorded inputs differ from what the current assignment
+  // resolves to; read as true unless the draft is EXPORTED and idle.
+  inputsCurrent: boolean
+  // What the post was generated with (null = made before 038).
+  inputs: {
+    project: { id: string; name: string } | null
+    briefingVersion: number | null
+    kitName: string | null
+    kitSource: 'explicit' | 'project' | 'team' | null
+  } | null
   brief: {
     id: string
     topic: string
@@ -398,6 +410,10 @@ export interface DraftRecord {
     postStyle: string | null
     brandKitName: string | null
   }
+  // 038 FR-13: the post's project (null = none), and whether the caller may
+  // edit the post (its author or a team admin), which shows Delete.
+  project: { id: string; name: string } | null
+  canEdit: boolean
 }
 
 export interface LibraryResponse {

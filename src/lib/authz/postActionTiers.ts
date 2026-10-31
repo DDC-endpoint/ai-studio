@@ -13,9 +13,12 @@ export const POST_ACTION_TIERS: Record<string, PostActionTier> = {
   'src/app/api/drafts/[id]/route.ts GET': 'view',
   'src/app/api/drafts/[id]/route.ts PATCH': 'edit',
   'src/app/api/drafts/[id]/route.ts DELETE': 'edit',
+  'src/app/api/drafts/[id]/apply-project/route.ts POST': 'edit',
   'src/app/api/drafts/[id]/apply-text/route.ts POST': 'edit',
   'src/app/api/drafts/[id]/download/route.ts GET': 'view',
   'src/app/api/drafts/[id]/inline-edit/route.ts POST': 'edit',
+  // 038 D8: any member can assign, move or unassign (the move only relabels).
+  'src/app/api/drafts/[id]/project/route.ts PUT': 'view',
   'src/app/api/drafts/[id]/refine/route.ts POST': 'edit',
   'src/app/api/drafts/[id]/regenerate-copy/route.ts POST': 'edit',
   'src/app/api/drafts/[id]/regenerate-design/route.ts POST': 'edit',

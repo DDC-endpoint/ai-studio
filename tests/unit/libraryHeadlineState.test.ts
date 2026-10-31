@@ -19,7 +19,7 @@ vi.mock('@/lib/api/handler', () => ({
     (req: unknown) =>
       handler(req, {}, { userId: 'u1', teamId: 'team1', teamRole: 'ADMIN', isSuperAdmin: false }),
 }))
-vi.mock('@/lib/authz/visibility', () => ({ draftVisibilityWhere: () => ({}) }))
+vi.mock('@/lib/authz/visibility', () => ({ draftVisibilityWhere: () => ({}), canEditPost: () => true }))
 vi.mock('@/lib/storage/minio', () => ({ resolveExportUrl: async (k: string | null) => (k ? `signed:${k}` : null) }))
 vi.mock('@/lib/renderer/puppeteer', () => ({ renderPost: h.boom, renderHtmlToPng: h.boom }))
 vi.mock('@/lib/renderedText/mockCheck', () => ({ mockHeadlineCheck: h.boom }))
@@ -33,7 +33,9 @@ const row = (id: string, headline: string | null, renderedText: unknown) => ({
   createdAt: new Date('2026-10-26T00:00:00Z'),
   headline,
   renderedText,
-  brief: { topic: 'T', aspectRatio: 'SQUARE', postStyle: null, brandKit: null, campaign: null },
+  teamId: 'team1',
+  generationInputs: null,
+  brief: { topic: 'T', userId: 'u1', aspectRatio: 'SQUARE', postStyle: null, brandKitId: null, project: null },
 })
 
 async function list() {

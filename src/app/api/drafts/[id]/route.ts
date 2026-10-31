@@ -4,8 +4,8 @@ import type { DraftAction, DraftStatus } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { withTeamAuth, parseBody } from '@/lib/api/handler'
 import { canView, canEditPost, NOT_AUTHOR } from '@/lib/authz/visibility'
-import { postContext } from '@/lib/projects/context'
-import { parseGenerationInputs } from '@/lib/projects/inputs'
+import { postContext, resolveInputsFor } from '@/lib/projects/context'
+import { parseGenerationInputs, sameInputs } from '@/lib/projects/inputs'
 import { BUCKET_DOCS, deleteObject, resolveExportUrl } from '@/lib/storage/minio'
 import { parseCompositeSource } from '@/lib/brief/compositeSource'
 import { planDraftRecovery, STUCK_ACTION_REASON, STUCK_REASON } from '@/lib/drafts/recovery'
@@ -155,7 +155,10 @@ async function loadDraft(id: string) {
   const imageSource = parseImageSource(draft.imageSource)
 
   // Independent reads, run together (018 FR-04: this GET is the 4 s poll).
-  const [ctx, notApplied, captionProviderIsClaude] = await Promise.all([
+  // 038 NFR-06: the live comparison for `inputsCurrent` runs only for an
+  // EXPORTED draft with nothing running; any other state reads `true`.
+  const compareInputs = effective.status === 'EXPORTED' && !effective.pendingAction
+  const [ctx, notApplied, captionProviderIsClaude, nextCtx, assigned] = await Promise.all([
     // 038 FR-12: the kit name and the project come from the recorded stamp (a
     // draft made before 038 has none: its brief's own kit, then the team default).
     postContext(draft),
@@ -168,7 +171,25 @@ async function loadDraft(id: string) {
     // (the brief's key, else the team default), not GET /api/models' team
     // default. It selects the provider name only.
     copyProviderIsClaude(draft.brief.teamId, draft.brief.copyProviderKey ?? undefined),
+    // What the post's current assignment resolves to (its project, active
+    // briefing and kit), for `inputsCurrent`.
+    compareInputs
+      ? resolveInputsFor({
+          teamId: draft.brief.teamId,
+          projectId: draft.brief.projectId,
+          brandKitId: draft.brief.brandKitId,
+        })
+      : null,
+    // 038 FR-12: the current assignment (a live project of this team), when the
+    // comparison above does not already hold it.
+    !compareInputs && draft.brief.projectId
+      ? prisma.project.findFirst({
+          where: { id: draft.brief.projectId, teamId: draft.brief.teamId, isDeleted: false },
+          select: { id: true, name: true },
+        })
+      : null,
   ])
+  const project = nextCtx ? nextCtx.project : assigned
 
   const composition = draftCompositionStamp(draft)
   const stamp = parseGenerationInputs(draft.generationInputs)
@@ -219,6 +240,10 @@ async function loadDraft(id: string) {
     revisionCount: draft._count.revisions,
     currentRevisionNumber: draft.currentRevisionNumber,
     brandKitName: ctx.kit?.name ?? null,
+    // 038 FR-12: the current assignment, and whether the recorded inputs still
+    // match it (a move only relabels; Apply project settings re-reads it).
+    project,
+    inputsCurrent: nextCtx ? sameInputs(ctx.inputs, nextCtx.inputs) : true,
     // 038 FR-12: what the post was generated with, from the stamp (null = made before 038).
     inputs: stamp
       ? {

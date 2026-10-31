@@ -2,11 +2,16 @@
 // param, and filters by brandKitId and postStyle. An unknown postStyle is 400.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { Prisma } from '@prisma/client'
 
-const h = vi.hoisted(() => ({ findMany: vi.fn(), count: vi.fn(), projectFind: vi.fn() }))
+const h = vi.hoisted(() => ({ findMany: vi.fn(), count: vi.fn(), projectFind: vi.fn(), kitFindMany: vi.fn(), canEdit: vi.fn() }))
 
 vi.mock('@/lib/prisma', () => ({
-  prisma: { draft: { findMany: h.findMany, count: h.count }, project: { findFirst: h.projectFind } },
+  prisma: {
+    draft: { findMany: h.findMany, count: h.count },
+    project: { findFirst: h.projectFind },
+    brandKit: { findMany: h.kitFindMany },
+  },
 }))
 vi.mock('@/lib/api/handler', () => ({
   withTeamAuth:
@@ -14,7 +19,10 @@ vi.mock('@/lib/api/handler', () => ({
     (req: unknown) =>
       handler(req, {}, { userId: 'u1', teamId: 'team1', teamRole: 'ADMIN', isSuperAdmin: false }),
 }))
-vi.mock('@/lib/authz/visibility', () => ({ draftVisibilityWhere: () => ({ VISIBILITY: true }) }))
+vi.mock('@/lib/authz/visibility', () => ({
+  draftVisibilityWhere: () => ({ VISIBILITY: true }),
+  canEditPost: h.canEdit,
+}))
 vi.mock('@/lib/storage/minio', () => ({ resolveExportUrl: async (k: string | null) => k }))
 
 const { GET } = await import('@/app/api/library/route')
@@ -28,6 +36,8 @@ beforeEach(() => {
   h.findMany.mockReset().mockResolvedValue([])
   h.count.mockReset().mockResolvedValue(0)
   h.projectFind.mockReset().mockResolvedValue({ id: 'proj1' })
+  h.kitFindMany.mockReset().mockResolvedValue([])
+  h.canEdit.mockReset().mockReturnValue(true)
 })
 
 describe('GET /api/library (037)', () => {
@@ -53,10 +63,13 @@ describe('GET /api/library (037)', () => {
     expect(h.findMany.mock.calls[0][0].where.AND).toContainEqual({ brief: { postStyle: key } })
   })
 
-  it('filters by kit: the brief kit, else the campaign kit when the brief has none', async () => {
+  it('filters by kit: the stamp kit, else the brief kit when the draft has no stamp (038 FR-13)', async () => {
     await call('?brandKitId=kit1')
     expect(h.findMany.mock.calls[0][0].where.AND).toContainEqual({
-      OR: [{ brief: { brandKitId: 'kit1' } }, { brief: { brandKitId: null, campaign: { brandKitId: 'kit1' } } }],
+      OR: [
+        { generationInputs: { path: ['kitId'], equals: 'kit1' } },
+        { generationInputs: { equals: Prisma.DbNull }, brief: { brandKitId: 'kit1' } },
+      ],
     })
   })
 
@@ -93,14 +106,30 @@ describe('GET /api/library (037)', () => {
     expect(h.findMany.mock.calls[0][0].where.AND).toEqual([{ VISIBILITY: true }])
   })
 
-  it('returns kit name (explicit kit first, then campaign kit) and the post style', async () => {
-    const base = { id: 'd', status: 'EXPORTED', exportUrl: 'k', createdAt: new Date(), headline: null, renderedText: null }
-    h.findMany.mockResolvedValue([
-      { ...base, id: 'a', brief: { topic: 'T', aspectRatio: 'SQUARE', postStyle: 'launch', brandKit: { name: 'Own' }, campaign: { brandKit: { name: 'Camp' } } } },
-      { ...base, id: 'b', brief: { topic: 'T', aspectRatio: 'SQUARE', postStyle: null, brandKit: null, campaign: { brandKit: { name: 'Camp' } } } },
+  it('returns the kit name (the stamp kit first, then the brief kit for no stamp), the project and canEdit', async () => {
+    const stamp = (kitId: string | null) => ({ v: 1, projectId: 'proj1', briefingId: null, briefingVersion: null, kitId, kitSource: 'project' })
+    const base = { status: 'EXPORTED', exportUrl: 'k', createdAt: new Date(), teamId: 'team1', headline: null, renderedText: null }
+    const brief = { topic: 'T', userId: 'u1', aspectRatio: 'SQUARE', brandKitId: 'briefKit' }
+    h.kitFindMany.mockResolvedValue([
+      { id: 'stampKit', name: 'Stamped' },
+      { id: 'briefKit', name: 'Brief kit' },
     ])
-    const body = (await (await call()).json()) as { drafts: Array<{ brief: Record<string, unknown> }> }
-    expect(body.drafts[0].brief).toMatchObject({ brandKitName: 'Own', postStyle: 'launch' })
-    expect(body.drafts[1].brief).toMatchObject({ brandKitName: 'Camp', postStyle: null })
+    h.canEdit.mockReturnValueOnce(true).mockReturnValueOnce(false).mockReturnValueOnce(false)
+    h.findMany.mockResolvedValue([
+      { ...base, id: 'a', generationInputs: stamp('stampKit'), brief: { ...brief, postStyle: 'launch', project: { id: 'proj1', name: 'P1' } } },
+      { ...base, id: 'b', generationInputs: null, brief: { ...brief, postStyle: null, project: null } },
+      { ...base, id: 'c', generationInputs: stamp(null), brief: { ...brief, postStyle: null, project: null } },
+    ])
+    const body = (await (await call()).json()) as {
+      drafts: Array<{ brief: Record<string, unknown>; project: unknown; canEdit: boolean }>
+    }
+    expect(h.kitFindMany.mock.calls[0][0].where).toEqual({ id: { in: ['stampKit', 'briefKit'] }, teamId: 'team1' })
+    expect(body.drafts[0].brief).toMatchObject({ brandKitName: 'Stamped', postStyle: 'launch' })
+    expect(body.drafts[0].project).toEqual({ id: 'proj1', name: 'P1' })
+    expect(body.drafts[1].brief).toMatchObject({ brandKitName: 'Brief kit', postStyle: null })
+    // A stamp with no kit is not the brief's kit.
+    expect(body.drafts[2].brief).toMatchObject({ brandKitName: null })
+    expect(body.drafts.map((d) => d.canEdit)).toEqual([true, false, false])
+    expect(JSON.stringify(body)).not.toContain('generationInputs')
   })
 })

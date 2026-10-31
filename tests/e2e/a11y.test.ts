@@ -500,6 +500,26 @@ test.describe('Labels: login, library, brief (T13)', () => {
     }
   })
 
+  // 038 T4 (AC-23): the Project filter is a labelled select like Brand kit and Post style.
+  test('038: the library Project filter is a labelled select, and the head still fits at the md and phone widths', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await pageLogin(page)
+    await page.goto('/library')
+    await expect(page.getByRole('heading', { name: 'Library', level: 1 })).toBeVisible()
+    await expectLabelled(page, 'Project', { tag: 'SELECT' })
+    const filter = page.getByRole('combobox', { name: 'Project', exact: true })
+    await expect(filter).toBeVisible()
+    await expect(filter.locator('option').first()).toHaveText('All projects')
+    await expect(filter.locator('option').nth(1)).toHaveText('No project')
+    const reference = await labelStyle(await labelFor(page, page.getByRole('combobox', { name: 'Brand kit', exact: true })))
+    expect(await labelStyle(await labelFor(page, filter)), 'the "Project" label matches "Brand kit"').toEqual(reference)
+    for (const width of [768, 375]) {
+      await page.setViewportSize({ width, height: 900 })
+      await expect(filter).toBeVisible()
+      await expectNoHorizontalScroll(page, `library project filter at ${width}px`)
+    }
+  })
+
   test('AC-11 rows 4 and 5: the brief Topic and Description fields are labelled', async ({ page, request }) => {
     const api = await loginAs(request, ADMIN_EMAIL, ADMIN_PASSWORD)
     const before = new Set(await briefDraftIds(api))

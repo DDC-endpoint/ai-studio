@@ -57,7 +57,7 @@ export interface RecentDraftRow {
     topic: string | null
     designMode: string | null
     channels: string[]
-    campaign: { name: string } | null
+    project: { name: string } | null
   } | null
 }
 
@@ -151,7 +151,7 @@ export function RecentDraftsCard({
             <thead>
               <tr className={TABLE_HEAD_ROW}>
                 <th scope="col" className={`${HEAD_CELL} pr-3`}>Topic</th>
-                <th scope="col" className={`${HEAD_CELL} pr-3`}>Campaign</th>
+                <th scope="col" className={`${HEAD_CELL} pr-3`}>Project</th>
                 <th scope="col" className={`${HEAD_CELL} pr-3`}>Channels</th>
                 <th scope="col" className={`${HEAD_CELL} pr-3`}>Design mode</th>
                 <th scope="col" className={`${HEAD_CELL} pr-3`}>Status</th>
@@ -198,7 +198,7 @@ export function RecentDraftsCard({
                       {d.brief?.topic ?? 'Untitled'}
                     </Link>
                   </td>
-                  <td className="py-2.5 pr-3 text-fg-muted">{d.brief?.campaign?.name ?? '—'}</td>
+                  <td className="py-2.5 pr-3 text-fg-muted">{d.brief?.project?.name ?? '—'}</td>
                   <td className="py-2.5 pr-3 text-fg-muted">{channelLabel(d.brief?.channels ?? [])}</td>
                   <td className="py-2.5 pr-3 text-fg-muted">
                     {d.brief?.designMode === 'TEMPLATE' ? 'Template' : 'Freeform'}
