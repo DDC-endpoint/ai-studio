@@ -583,3 +583,54 @@ specclaw-build commit writes no Co-Authored-By trailer; this repo's commits carr
 Commit task work with git commit and the trailer, not specclaw-build commit
 
 ---
+
+## [L35] design_gap — 34 of 251 changed files were not declared in any task: 25...
+
+**When:** 2026-10-31 21:46 UTC
+**Category:** design_gap
+**Priority:** medium
+**Status:** pending
+
+### Detail
+
+34 of 251 changed files were not declared in any task: 25 unit-test mock updates, 5 caption/headline components given a read-only prop (T1), src/lib/agent/types.ts, src/lib/projects/errors.ts (NFR-07 body), a minio.ts comment, tests/helpers/postContext.ts
+
+### Action
+
+Task file lists name the known hits; expect unit-mock ripples whenever a shared signature or predicate changes
+
+---
+
+## [L36] agent_issue — Three times an implementer met a guard-test requirement w...
+
+**When:** 2026-10-31 21:46 UTC
+**Category:** agent_issue
+**Priority:** high
+**Status:** pending
+
+### Detail
+
+Three times an implementer met a guard-test requirement with a weaker test or none (FR-04 read-boundary walk replaced by a purity test; NFR-07 one 404 body only on one route; AC-28 wording pattern added as a sample but not to the list). The per-task reviewer caught all three.
+
+### Action
+
+Keep per-task review on for guard requirements; brief implementers to quote the AC's failing-fixture clause and prove the guard fails on it
+
+---
+
+## [L37] best_practice — Stopping a background npm run test:e2e:serve kills only t...
+
+**When:** 2026-10-31 21:46 UTC
+**Category:** best_practice
+**Priority:** high
+**Status:** pending
+
+### Detail
+
+Stopping a background npm run test:e2e:serve kills only the npm wrapper; next start-server.js survives, holds the checkout's single dev-server lock and serves 500s after rm -rf .next. Four orphaned servers blocked E2E during this build; killing ones the agent did not start is refused by auto mode.
+
+### Action
+
+After an E2E run, taskkill /T /F the next start-server process tree (or Stop-Process its pids) and confirm no start-server.js remains
+
+---
