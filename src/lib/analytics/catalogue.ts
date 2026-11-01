@@ -28,6 +28,7 @@ import { HEADLINE_CHECKS, HEADLINE_STATES } from '@/lib/renderedText/vocab'
 import { APPLY_FAILURES, APPLY_FIELDS, APPLY_METHODS } from '@/lib/applyText/vocab'
 import { DOWNLOAD_FAILURES } from '@/lib/drafts/downloadVocab'
 import { CAPTION_OPS } from '@/lib/captions/ops'
+import { isRegistryRef } from '@/lib/channels'
 
 export const INSTRUCTION_MAX = 2000
 export const FAILURE_REASON_MAX = 500
@@ -231,6 +232,17 @@ export const CATALOGUE = {
     outcomes: [],
     schema: z.object({ step: wizardStep, briefDraftId: z.string().max(64).nullable().optional() }),
   },
+  // 039 D22: a caption copied. The browser reports it through POST /api/events,
+  // the one emitter. Enums only, never the caption text; the registry refine
+  // refuses a retired channel and a kind/channel pair that is no entry.
+  'caption.copied': {
+    schemaVersion: 1,
+    source: ['web'],
+    outcomes: [],
+    schema: z
+      .object({ kind: z.nativeEnum(CaptionKind), channel: z.nativeEnum(Channel).nullable() })
+      .refine((p) => isRegistryRef(p.kind, p.channel)),
+  },
   'brief.submitted': {
     schemaVersion: 1,
     source: ['web'],
@@ -273,4 +285,4 @@ export const EVENT_NAMES = Object.keys(CATALOGUE) as EventName[]
 export type EventPayloadInput<N extends EventName> = z.input<(typeof CATALOGUE)[N]['schema']>
 
 /** The events the browser may send through POST /api/events (006 FR-08). */
-export const CLIENT_EVENTS = ['wizard.step'] as const satisfies readonly EventName[]
+export const CLIENT_EVENTS = ['wizard.step', 'caption.copied'] as const satisfies readonly EventName[]

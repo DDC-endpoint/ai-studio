@@ -157,6 +157,35 @@ export function PostStylesSection({ data }: { data: Insights['postStyles'] }) {
   )
 }
 
+// ── 3c. Captions ───────────────────────────────────────────────────────────
+
+export function CaptionsSection({ data }: { data: Insights['captions'] }) {
+  const cols: Column<Insights['captions']['rows'][number]>[] = [
+    { key: 'caption', header: 'Caption', cell: (r) => r.label },
+    { key: 'written', header: 'Written', align: 'right', cell: (r) => num(r.written) },
+    { key: 'failed', header: 'Failed', align: 'right', cell: (r) => num(r.failed) },
+    { key: 'copied', header: 'Copied (client-reported)', align: 'right', cell: (r) => num(r.copied) },
+  ]
+  const { downloads, curateRate } = data
+  return (
+    <InsightSection
+      id="captions"
+      title="Captions"
+      question="Which captions are written and copied? Copies are reported by the browser and can be missed or repeated. Curate rate = posts with a curated caption ÷ posts generated."
+    >
+      <DataTable label="Captions" columns={cols} rows={data.rows} rowKey={(r) => r.key} rowTestId={(r) => `caption-row-${r.key}`} minWidth={520} />
+      <div className="grid grid-cols-2 gap-4">
+        <Stat label="Downloads" value={`${num(downloads.ok)} ok, ${num(downloads.failed)} failed`} testId="captions-downloads" />
+        <Stat
+          label="Curate rate"
+          value={`${pct(curateRate.rate)} (${num(curateRate.curated)} of ${num(curateRate.generated)})`}
+          testId="captions-curate-rate"
+        />
+      </div>
+    </InsightSection>
+  )
+}
+
 // ── 4. Model and route choices ─────────────────────────────────────────────
 
 export function DurationsSection({ data }: { data: Insights['durations'] }) {

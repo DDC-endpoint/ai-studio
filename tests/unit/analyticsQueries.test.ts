@@ -30,6 +30,7 @@ import {
   ratio,
   rangeFor,
   retentionLoopState,
+  shapeCaptions,
   shapeFunnel,
   shapeRefine,
   shapeStyles,
@@ -103,6 +104,46 @@ describe('pure shaping helpers', () => {
     const now = new Date('2026-10-24T12:00:00Z')
     expect(ageDays(now, null)).toBeNull()
     expect(ageDays(now, new Date('2026-04-27T11:00:00Z'))).toBe(180)
+  })
+})
+
+describe('shapeCaptions (039 FR-20, AC-22)', () => {
+  it('gives one row per registry entry in order, zeros for an entry no event names', () => {
+    const out = shapeCaptions({ rows: [], downloads: { ok: 0, failed: 0 }, curated: 0, generated: 0 })
+    expect(out.rows.map((r) => r.key)).toEqual(['GENERAL', 'INSTAGRAM', 'LINKEDIN', 'FACEBOOK'])
+    expect(out.rows.every((r) => r.written === 0 && r.failed === 0 && r.copied === 0)).toBe(true)
+    expect(out.curateRate).toEqual({ curated: 0, generated: 0, rate: null })
+    expect(out.downloads).toEqual({ ok: 0, failed: 0 })
+  })
+
+  it('orders by the registry, not by the input, and ignores a retired channel', () => {
+    const out = shapeCaptions({
+      rows: [
+        { kind: 'CURATED', channel: 'FACEBOOK', written: 2, failed: 1, copied: 4 },
+        { kind: 'CURATED', channel: 'WHATSAPP', written: 9, failed: 9, copied: 9 },
+        { kind: 'GENERAL', channel: null, written: 5, failed: 0, copied: 3 },
+      ],
+      downloads: { ok: 5, failed: 2 },
+      curated: 2,
+      generated: 4,
+    })
+    expect(out.rows.map((r) => [r.key, r.written, r.failed, r.copied])).toEqual([
+      ['GENERAL', 5, 0, 3],
+      ['INSTAGRAM', 0, 0, 0],
+      ['LINKEDIN', 0, 0, 0],
+      ['FACEBOOK', 2, 1, 4],
+    ])
+    expect(out.curateRate).toEqual({ curated: 2, generated: 4, rate: 0.5 })
+    expect(out.downloads).toEqual({ ok: 5, failed: 2 })
+  })
+
+  it('insights() carries the captions section, from tagged-template queries', async () => {
+    h.queryRaw.mockReset().mockResolvedValue([])
+    h.dropFindMany.mockReset().mockResolvedValue([])
+    h.heartbeat.mockReset().mockResolvedValue(null)
+    const out = await insights('7d', new Date('2026-10-24T12:00:00Z'))
+    expect(out.captions.rows).toHaveLength(4)
+    expect(out.captions.curateRate.rate).toBeNull()
   })
 })
 

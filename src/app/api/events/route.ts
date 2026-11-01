@@ -1,8 +1,10 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { withTeamAuth } from '@/lib/api/handler'
-import { CATALOGUE, CLIENT_EVENTS } from '@/lib/analytics/catalogue'
+import { CATALOGUE, CLIENT_EVENTS, type EventPayloadInput } from '@/lib/analytics/catalogue'
 import { allow } from '@/lib/analytics/rateLimit'
+import { canView } from '@/lib/authz/visibility'
+import { createWindowLimiter } from '@/lib/api/windowLimiter'
 import { count, track } from '@/lib/analytics/track'
 
 // POST /api/events: the browser's way into the event store (006 FR-08). Only
@@ -14,6 +16,15 @@ import { count, track } from '@/lib/analytics/track'
 // 204 like any other (the client must not learn or react) and counted in
 // AnalyticsDrop, which the insights page shows.
 export const MAX_BODY_BYTES = 2048
+
+// 039 D22: one caption.copied per user, post and caption in 10 s. The excess is
+// answered 204 and counted as dropped, like the 60-a-minute window.
+export const COPY_DEDUPE_MS = 10_000
+const copyDedupe = createWindowLimiter(1, COPY_DEDUPE_MS)
+/** Test helper: forget every dedupe window. */
+export function resetCopyDedupe(): void {
+  copyDedupe.reset()
+}
 
 // The body as text, or null once it passes the cap. A declared Content-Length
 // over the cap is refused without reading; otherwise the stream is read with a
@@ -63,6 +74,29 @@ export const POST = withTeamAuth(async (req, _ctx, user) => {
 
   if (!allow(user.userId)) {
     await count('dropped', eventName, 'rate-limit')
+    return new NextResponse(null, { status: 204 })
+  }
+
+  if (eventName === 'caption.copied') {
+    // The payload schema holds the registry check; the draft must be the caller's team's.
+    const draftId = typeof body?.draftId === 'string' && body.draftId.length <= 64 ? body.draftId : null
+    const draft = draftId ? await prisma.draft.findUnique({ where: { id: draftId }, select: { teamId: true } }) : null
+    if (!draftId || !draft || !canView(user, draft)) {
+      return NextResponse.json({ error: 'Not found' }, { status: 404 })
+    }
+    const p = payload.data as EventPayloadInput<'caption.copied'>
+    if (!copyDedupe.allow(`${user.userId}|${draftId}|${p.kind}|${p.channel}`)) {
+      await count('dropped', eventName, 'rate-limit')
+      return new NextResponse(null, { status: 204 })
+    }
+    // The one emitter of caption.copied (analyticsCoverage counts this literal).
+    await track('caption.copied', {
+      source: 'web',
+      teamId: user.teamId,
+      userId: user.userId,
+      draftId,
+      payload: { kind: p.kind, channel: p.channel },
+    })
     return new NextResponse(null, { status: 204 })
   }
 

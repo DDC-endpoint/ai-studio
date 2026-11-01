@@ -9,6 +9,7 @@ const h = vi.hoisted(() => ({
   track: vi.fn(),
   count: vi.fn(),
   draftFindFirst: vi.fn(),
+  postFindUnique: vi.fn(),
   draftFindMany: vi.fn(),
   draftDeleteMany: vi.fn(),
   draftCreate: vi.fn(),
@@ -27,6 +28,7 @@ vi.mock('@/lib/prisma', () => ({
       create: h.draftCreate,
     },
     brief: { create: h.briefCreate },
+    draft: { findUnique: h.postFindUnique },
     availableProvider: { findFirst: vi.fn().mockResolvedValue(null) },
     brandKit: { findFirst: vi.fn().mockResolvedValue(null) },
     brandKitTemplate: { findUnique: vi.fn().mockResolvedValue(null) },
@@ -67,6 +69,8 @@ beforeEach(() => {
   h.deleteObject.mockResolvedValue(undefined)
   h.draftDeleteMany.mockResolvedValue({ count: 1 })
   resetRateLimit()
+  eventsRoute.resetCopyDedupe()
+  h.postFindUnique.mockReset()
 })
 
 describe('POST /api/events', () => {
@@ -187,6 +191,71 @@ describe('POST /api/events', () => {
 
   it('is wrapped in withTeamAuth, so no session is the wrapper 401', () => {
     expect(readFileSync('src/app/api/events/route.ts', 'utf8')).toContain('export const POST = withTeamAuth(')
+  })
+})
+
+describe('POST /api/events: caption.copied (039 D22, AC-21)', () => {
+  const copy = (draftId: unknown, payload: unknown = { kind: 'GENERAL', channel: null }) =>
+    post({ name: 'caption.copied', draftId, teamId: 'evil', userId: 'evil', source: 'mcp', payload })
+
+  it('stores one event with the session team, user and source and the draft id', async () => {
+    h.postFindUnique.mockResolvedValue({ teamId: 'team1' })
+    expect((await copy('d1', { kind: 'CURATED', channel: 'FACEBOOK', text: 'x' })).status).toBe(204)
+    expect(h.postFindUnique).toHaveBeenCalledWith({ where: { id: 'd1' }, select: { teamId: true } })
+    expect(h.track).toHaveBeenCalledTimes(1)
+    expect(h.track).toHaveBeenCalledWith('caption.copied', {
+      source: 'web',
+      teamId: 'team1',
+      userId: 'u1',
+      draftId: 'd1',
+      payload: { kind: 'CURATED', channel: 'FACEBOOK' },
+    })
+  })
+
+  it('a foreign, unknown or missing draft is 404 and writes nothing', async () => {
+    h.postFindUnique.mockResolvedValueOnce({ teamId: 'other-team' })
+    expect((await copy('foreign')).status).toBe(404)
+    h.postFindUnique.mockResolvedValueOnce(null)
+    expect((await copy('nope')).status).toBe(404)
+    expect((await copy(undefined)).status).toBe(404)
+    expect((await copy('x'.repeat(65))).status).toBe(404)
+    expect(h.track).not.toHaveBeenCalled()
+    expect(h.count).not.toHaveBeenCalled()
+  })
+
+  it('a pair that is no registry entry is 400 and writes nothing', async () => {
+    h.postFindUnique.mockResolvedValue({ teamId: 'team1' })
+    for (const payload of [
+      { kind: 'CURATED', channel: 'WHATSAPP' },
+      { kind: 'GENERAL', channel: 'INSTAGRAM' },
+      { kind: 'CURATED', channel: null },
+      { kind: 'NOPE', channel: null },
+      {},
+    ]) {
+      expect((await copy('d1', payload)).status, JSON.stringify(payload)).toBe(400)
+    }
+    expect(h.track).not.toHaveBeenCalled()
+  })
+
+  it('a second copy of the same caption within 10 s is 204, counted as dropped, not stored; another caption is stored', async () => {
+    h.postFindUnique.mockResolvedValue({ teamId: 'team1' })
+    expect((await copy('d1')).status).toBe(204)
+    expect((await copy('d1')).status).toBe(204)
+    expect(h.track).toHaveBeenCalledTimes(1)
+    expect(h.count).toHaveBeenCalledWith('dropped', 'caption.copied', 'rate-limit')
+    expect((await copy('d1', { kind: 'CURATED', channel: 'INSTAGRAM' })).status).toBe(204)
+    expect((await copy('d2')).status).toBe(204)
+    expect(h.track).toHaveBeenCalledTimes(3)
+    expect(eventsRoute.COPY_DEDUPE_MS).toBe(10_000)
+  })
+
+  it('the 60-a-minute window applies first: the 61st event is dropped before any draft lookup', async () => {
+    h.postFindUnique.mockResolvedValue({ teamId: 'team1' })
+    for (let i = 0; i < 60; i++) await post({ name: 'wizard.step', payload: { step: 1 } })
+    h.postFindUnique.mockClear()
+    expect((await copy('d1')).status).toBe(204)
+    expect(h.postFindUnique).not.toHaveBeenCalled()
+    expect(h.count).toHaveBeenCalledWith('dropped', 'caption.copied', 'rate-limit')
   })
 })
 

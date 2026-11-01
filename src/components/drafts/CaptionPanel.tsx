@@ -9,6 +9,7 @@ import { Notice } from '@/components/ui/Notice'
 import { ModelPicker } from '@/components/ui/ModelPicker'
 import { ICON } from '@/components/ui/atoms'
 import { apiFetch } from '@/lib/apiFetch'
+import { sendCaptionCopied } from '@/lib/analytics/client'
 import { captionLength, captionSpec } from '@/lib/channels'
 import { NO_WEBSITE_NOTICE, checkCaptionRules, ruleMissText } from '@/lib/captions/rules'
 import type { DraftCaptionDetail } from '@/lib/api-types'
@@ -207,11 +208,13 @@ export function CaptionPanel({
   async function copy() {
     try {
       await navigator.clipboard.writeText(value)
-      toast.success('Caption copied')
     } catch {
       // Clipboard can be blocked (insecure origin, no permission).
       toast.error("Couldn't copy. Select the text and copy it manually.")
+      return
     }
+    toast.success('Caption copied')
+    sendCaptionCopied(draftId, caption.kind, caption.channel)
   }
 
   // 039 D14: a deleted caption shows only its name, "Deleted" and Undo.

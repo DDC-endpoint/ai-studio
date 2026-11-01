@@ -3,9 +3,10 @@
 // payload copies a vocabulary that already has an owner.
 import { describe, it, expect } from 'vitest'
 import { readFileSync, readdirSync } from 'node:fs'
-import { join } from 'node:path'
+import { join, relative, sep } from 'node:path'
 import { AspectRatio, CaptionKind, CaptionRoute, Channel, DraftAction } from '@prisma/client'
-import { CATALOGUE, EVENT_NAMES, RETIRED_EVENT_NAMES, RETIRED_SOURCES } from '@/lib/analytics/catalogue'
+import { CAPTION_REGISTRY } from '@/lib/channels'
+import { CATALOGUE, CLIENT_EVENTS, EVENT_NAMES, RETIRED_EVENT_NAMES, RETIRED_SOURCES } from '@/lib/analytics/catalogue'
 import { MODEL_KEYS } from '@/lib/models/catalogue'
 import { INSTRUCTION_CLASS_KEYS } from '@/lib/agent/instructionClasses'
 import { archetypes, FALLBACK_REASONS } from '@/lib/designData'
@@ -236,5 +237,65 @@ describe('analytics coverage guard: the headline vocabularies (030 FR-18)', () =
       const keys = Object.keys((schema as unknown as { shape: Record<string, unknown> }).shape)
       expect(keys.filter((k) => /headline(?!State|Check)|text|html/i.test(k)), name).toEqual([])
     }
+  })
+})
+
+
+// 039 D22, AC-21: caption.copied is a client event with one emitter, carries every
+// CaptionKind and every registry entry, and cannot hold text.
+describe('analytics coverage guard: caption.copied (039 D22, AC-21)', () => {
+  const emitters = (sources: Record<string, string>, name: string) => {
+    const re = new RegExp(`track\\(\\s*['"]${name.replace('.', '\\.')}['"]`)
+    return Object.keys(sources).filter((f) => re.test(sources[f]))
+  }
+  const srcFiles = () => {
+    const out: Record<string, string> = {}
+    const walk = (dir: string) => {
+      for (const e of readdirSync(dir, { withFileTypes: true })) {
+        const full = join(dir, e.name)
+        if (e.isDirectory()) walk(full)
+        else if (/\.tsx?$/.test(e.name)) out[relative(process.cwd(), full).split(sep).join('/')] = readFileSync(full, 'utf8')
+      }
+    }
+    walk(join(process.cwd(), 'src'))
+    return out
+  }
+
+  it('is in CLIENT_EVENTS, a web event with no outcome', () => {
+    expect([...CLIENT_EVENTS]).toContain('caption.copied')
+    expect(CATALOGUE['caption.copied'].source).toEqual(['web'])
+    expect(CATALOGUE['caption.copied'].outcomes).toEqual([])
+  })
+
+  it('has exactly one emitter file, src/app/api/events/route.ts', () => {
+    expect(emitters(srcFiles(), 'caption.copied')).toEqual(['src/app/api/events/route.ts'])
+  })
+
+  it('the emitter count fails on a second emitter (asserted on a fixture)', () => {
+    const files = { ...srcFiles(), 'src/components/Planted.tsx': `track('caption.copied', { source: 'web' })` }
+    expect(emitters(files, 'caption.copied')).toHaveLength(2)
+  })
+
+  it('carries every CaptionKind value, and every registry entry', () => {
+    const schema = CATALOGUE['caption.copied'].schema
+    const seen = new Set<string>()
+    for (const spec of CAPTION_REGISTRY) {
+      expect(schema.safeParse({ kind: spec.kind, channel: spec.channel }).success, spec.target).toBe(true)
+      seen.add(spec.kind)
+    }
+    expect([...seen].sort()).toEqual(Object.values(CaptionKind).sort())
+  })
+
+  it('refuses a retired channel, a general caption with a channel and a curated one without', () => {
+    const schema = CATALOGUE['caption.copied'].schema
+    expect(schema.safeParse({ kind: 'CURATED', channel: 'WHATSAPP' }).success).toBe(false)
+    expect(schema.safeParse({ kind: 'GENERAL', channel: 'INSTAGRAM' }).success).toBe(false)
+    expect(schema.safeParse({ kind: 'CURATED', channel: null }).success).toBe(false)
+  })
+
+  it('no payload schema of caption.copied accepts a text field (NFR-04)', () => {
+    const parsed = CATALOGUE['caption.copied'].schema.parse({ kind: 'GENERAL', channel: null, text: 'Secret caption', caption: 'Secret caption' })
+    expect(JSON.stringify(parsed)).not.toContain('Secret')
+    expect(Object.keys(parsed).sort()).toEqual(['channel', 'kind'])
   })
 })

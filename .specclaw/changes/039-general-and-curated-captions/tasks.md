@@ -202,7 +202,7 @@ Each task leaves `tsc`, lint and the unit suite green, so it commits on its own 
 
 ### Wave 5: events and Insights
 
-- [ ] `T5` — `caption.copied` through `/api/events`, with the team check, the registry check and the 10 s dedupe; `sendCaptionCopied` on every Copy; `CaptionKind` coverage completed; the Insights "Captions" section.
+- [x] `T5` — `caption.copied` through `/api/events`, with the team check, the registry check and the 10 s dedupe; `sendCaptionCopied` on every Copy; `CaptionKind` coverage completed; the Insights "Captions" section.
   - Files: src/lib/analytics/catalogue.ts, src/lib/analytics/client.ts, src/lib/analytics/queries.ts, src/app/api/events/route.ts, src/components/drafts/CaptionPanel.tsx, src/components/admin/insights/sections.tsx, src/app/(app)/admin/insights/page.tsx, tests/unit/analyticsCoverage.test.ts, tests/unit/analyticsCatalogue.test.ts, tests/unit/analyticsEventsRoute.test.ts, tests/unit/analyticsQueries.test.ts, tests/unit/visibilityBoundary.test.ts, tests/e2e/analytics.test.ts
   - Estimate: medium
   - Depends: T4

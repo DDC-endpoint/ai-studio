@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test'
-import { loginAs, waitForDraft, waitForAction, findTeamIdByName, addTeamMember, type ApiClient } from '../helpers/api'
+import { loginAs, waitForDraft, waitForAction, curate, findTeamIdByName, addTeamMember, type ApiClient } from '../helpers/api'
 import { prisma, dbAvailable } from '../helpers/db'
 import { expectNoAxeViolations } from '../helpers/axe'
 import { ADMIN_EMAIL, expectNoHorizontalScroll, pageLogin } from '../helpers/ui'
@@ -953,12 +953,142 @@ test.describe('§AD — product observability', () => {
     }
   })
 
+  // ── Captions (039 D22, D23, AC-21, AC-22) ────────────────────────────────
+
+  test('TC-OBS-32: Copy on the general caption writes one caption.copied with the draft id; a repeat within 10 s is dropped; a foreign draft is 404 and a non-registry pair is 400', async ({ page, playwright }) => {
+    if (!MOCKED() || !dbAvailable) { test.skip(); return }
+    await page.context().grantPermissions(['clipboard-read', 'clipboard-write'])
+    const draft = await exportedDraft(admin, `Obs Copy ${Date.now()}`)
+    await pageLogin(page)
+    await page.goto(`/drafts/${draft.id}`)
+    await expect(page.getByTestId('download-button')).toBeVisible({ timeout: 20_000 })
+
+    const send = page.waitForResponse((r) => r.url().endsWith('/api/events') && r.request().method() === 'POST')
+    await page.getByRole('button', { name: 'Copy general caption', exact: true }).click()
+    expect((await send).status()).toBe(204)
+    const copied = await waitEvents(admin, {}, 'caption.copied', 1)
+    expect(copied).toHaveLength(1)
+    expect(copied[0]).toMatchObject({ source: 'web', outcome: null, draftId: draft.id, payload: { kind: 'GENERAL', channel: null } })
+    expect(copied[0].teamId).toBeTruthy()
+    expect(copied[0].userId).toBeTruthy()
+
+    // A second copy of the same caption inside 10 s: 204, not stored, counted as dropped.
+    const again = page.waitForResponse((r) => r.url().endsWith('/api/events') && r.request().method() === 'POST')
+    await page.getByRole('button', { name: 'Copy general caption', exact: true }).click()
+    expect((await again).status()).toBe(204)
+    await waitDrop(admin, 'caption.copied', 1)
+    expect(byName(await events(admin), 'caption.copied')).toHaveLength(1)
+
+    // A non-registry pair is 400, a missing or unknown draft is 404; nothing is stored for either.
+    for (const payload of [{ kind: 'CURATED', channel: 'WHATSAPP' }, { kind: 'GENERAL', channel: 'INSTAGRAM' }, { kind: 'CURATED', channel: null }, { kind: 'GENERAL' }]) {
+      expect((await admin.post('/api/events', { name: 'caption.copied', draftId: draft.id, payload })).status(), JSON.stringify(payload)).toBe(400)
+    }
+    const good = { kind: 'GENERAL', channel: null }
+    expect((await admin.post('/api/events', { name: 'caption.copied', payload: good })).status()).toBe(404)
+    expect((await admin.post('/api/events', { name: 'caption.copied', draftId: 'no-such-draft', payload: good })).status()).toBe(404)
+    const outsider = await loginAs(await playwright.request.newContext({ baseURL: process.env.TEST_BASE_URL }), CLIENTX_EMAIL, PASSWORD)
+    try {
+      expect((await outsider.post('/api/events', { name: 'caption.copied', draftId: draft.id, payload: good })).status()).toBe(404)
+    } finally {
+      await outsider.dispose()
+    }
+    // No session: 401 (a bogus cookie reaches the route's own check).
+    const anon = await playwright.request.newContext({ baseURL: process.env.TEST_BASE_URL, extraHTTPHeaders: { cookie: 'better-auth.session_token=not-a-real-session' } })
+    try {
+      expect((await anon.post('/api/events', { data: { name: 'caption.copied', draftId: draft.id, payload: good } })).status()).toBe(401)
+    } finally {
+      await anon.dispose()
+    }
+    await new Promise((r) => setTimeout(r, 400))
+    expect(byName(await events(admin), 'caption.copied')).toHaveLength(1)
+  })
+
+  test('TC-OBS-33: a Facebook curate writes one draft_action.settled with captionKind CURATED, channel FACEBOOK, captionOp create and ok; a second writes replace', async () => {
+    if (!MOCKED()) { test.skip(); return }
+    const draft = await exportedDraft(admin, `Obs Curate ${Date.now()}`)
+    const id = draft.id as string
+    const settled = async (n: number) =>
+      (await waitEvents(admin, { draftId: id }, 'draft_action.settled', n)).filter((e) => e.payload.action === 'REGENERATE_COPY')
+
+    rememberText(await curate(admin, id, 'FACEBOOK'))
+    const first = await settled(1)
+    expect(first).toHaveLength(1)
+    expect(first[0]).toMatchObject({ outcome: 'ok', source: 'web', payload: { action: 'REGENERATE_COPY', captionKind: 'CURATED', channel: 'FACEBOOK', captionOp: 'create' } })
+
+    rememberText(await curate(admin, id, 'FACEBOOK'))
+    const both = await settled(2)
+    expect(both).toHaveLength(2)
+    expect(both.map((e) => e.payload.captionOp).sort()).toEqual(['create', 'replace'])
+    expect(both.every((e) => e.outcome === 'ok' && e.payload.captionKind === 'CURATED' && e.payload.channel === 'FACEBOOK')).toBe(true)
+  })
+
+  test('TC-OBS-34: the Captions section equals a hand count over a seeded set, and the copies column reads client-reported', async ({ page }) => {
+    if (!MOCKED()) { test.skip(); return }
+    const team = await findTeamIdByName(admin, 'Bistec')
+    const at = (hoursAgo: number) => new Date(Date.now() - hoursAgo * 3600_000).toISOString()
+    const row = (name: string, outcome: string | null, payload: Record<string, unknown>, draftId: string | null = null, hoursAgo = 2) =>
+      ({ name, source: 'web', teamId: team, userId: 'u1', draftId, outcome, at: at(hoursAgo), payload })
+    const settled = (outcome: string, payload: Record<string, unknown>, draftId: string, hoursAgo = 2) =>
+      row('draft_action.settled', outcome, { action: 'REGENERATE_COPY', ...payload }, draftId, hoursAgo)
+    const downloaded = { rendered: false, factsStatus: null, headlineState: 'fresh' }
+    const rows = [
+      ...Array.from({ length: 4 }, () => row('generation.finished', 'ok', {})),
+      row('generation.finished', 'failed', {}),
+      settled('ok', { captionKind: 'GENERAL' }, 'sd1'),
+      settled('ok', { captionKind: 'CURATED', channel: 'INSTAGRAM', captionOp: 'create' }, 'sd1'),
+      settled('ok', { captionKind: 'CURATED', channel: 'INSTAGRAM', captionOp: 'create' }, 'sd2'),
+      settled('failed', { captionKind: 'CURATED', channel: 'LINKEDIN', captionOp: 'create' }, 'sd3'),
+      settled('ok', { captionKind: 'CURATED', channel: 'FACEBOOK', captionOp: 'create' }, 'sd1'),
+      settled('ok', { captionKind: 'CURATED', channel: 'FACEBOOK', captionOp: 'replace' }, 'sd1'),
+      ...Array.from({ length: 3 }, () => row('caption.copied', null, { kind: 'GENERAL', channel: null }, 'sd1')),
+      ...Array.from({ length: 2 }, () => row('caption.copied', null, { kind: 'CURATED', channel: 'INSTAGRAM' }, 'sd1')),
+      row('caption.copied', null, { kind: 'CURATED', channel: 'FACEBOOK' }, 'sd1'),
+      ...Array.from({ length: 5 }, () => row('draft.downloaded', 'ok', downloaded, 'sd1')),
+      ...Array.from({ length: 2 }, () => row('draft.downloaded', 'failed', downloaded, 'sd1')),
+      // outside the 30-day range: counted by nothing
+      settled('ok', { captionKind: 'CURATED', channel: 'INSTAGRAM', captionOp: 'create' }, 'sd9', 24 * 40),
+    ]
+    await seed(admin, rows)
+
+    // The 4 ok generations are the general written, plus one general regenerate.
+    const expected = [
+      { key: 'GENERAL', label: 'General', written: 5, failed: 0, copied: 3 },
+      { key: 'INSTAGRAM', label: 'Instagram', written: 2, failed: 0, copied: 2 },
+      { key: 'LINKEDIN', label: 'LinkedIn', written: 0, failed: 1, copied: 0 },
+      { key: 'FACEBOOK', label: 'Facebook', written: 2, failed: 0, copied: 1 },
+    ]
+    const captions = (await (await admin.get('/api/admin/insights?range=30d')).json()).captions
+    expect(captions.rows).toEqual(expected)
+    expect(captions.downloads).toEqual({ ok: 5, failed: 2 })
+    // sd1 and sd2 hold a created curated caption; 4 posts were generated ok.
+    expect(captions.curateRate).toEqual({ curated: 2, generated: 4, rate: 0.5 })
+
+    await pageLogin(page)
+    await page.goto('/admin/insights')
+    await expect(page.getByTestId('insights-body')).toBeVisible()
+    const section = page.getByTestId('section-captions')
+    await expect(section.getByRole('columnheader', { name: 'Copied (client-reported)' })).toBeVisible()
+    for (const e of expected) {
+      const r = page.getByTestId(`caption-row-${e.key}`)
+      await expect(r).toContainText(e.label)
+      await expect(r.getByRole('cell').nth(1)).toHaveText(String(e.written))
+      await expect(r.getByRole('cell').nth(2)).toHaveText(String(e.failed))
+      await expect(r.getByRole('cell').nth(3)).toHaveText(String(e.copied))
+    }
+    await expect(page.getByTestId('captions-downloads')).toContainText('5 ok, 2 failed')
+    await expect(page.getByTestId('captions-curate-rate')).toContainText('50%')
+  })
+
   // ── Privacy (AC-04) ──────────────────────────────────────────────────────
 
   test('TC-OBS-22: no event the suite collected holds the brief text, a caption, the headline or HTML', async () => {
     if (!MOCKED()) { test.skip(); return }
     expect(collected.length).toBeGreaterThan(10)
     expect(forbiddenText.size).toBeGreaterThan(0)
+    // 039 D22: the caption events hold enums only (kind and channel), never text.
+    const copies = collected.filter((e) => e.name === 'caption.copied')
+    expect(copies.length).toBeGreaterThan(0)
+    for (const e of copies) expect(Object.keys(e.payload).sort(), 'caption.copied keys').toEqual(['channel', 'kind'])
     for (const e of collected) {
       const text = JSON.stringify(e.payload)
       expect(text, `${e.name} payload`).not.toContain(DESC_MARKER)

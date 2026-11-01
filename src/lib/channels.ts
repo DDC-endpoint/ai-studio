@@ -141,6 +141,10 @@ export function targetOf(row: {
   return spec ? spec.target : null
 }
 
+// True when (kind, channel) names one registry entry; a retired channel is not one.
+export const isRegistryRef = (kind: CaptionKind, channel: Channel | null): boolean =>
+  CAPTION_REGISTRY.some((s) => s.kind === kind && s.channel === channel)
+
 // What registry and enums disagree on, as `Channel:X` (an enum value that is
 // neither a curated entry nor retired), `registry:X` (a curated entry whose
 // channel is not an enum value), `kind:X` (a kind with no entry) and
