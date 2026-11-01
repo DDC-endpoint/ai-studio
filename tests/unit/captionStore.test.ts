@@ -13,6 +13,7 @@ const h = vi.hoisted(() => ({
   captionFindFirst: vi.fn(),
   captionCreateMany: vi.fn(),
   captionUpdateMany: vi.fn(),
+  captionDeleteMany: vi.fn(),
   transaction: vi.fn(),
   refresh: vi.fn(),
 }))
@@ -28,6 +29,7 @@ vi.mock('@/lib/prisma', () => ({
       findFirst: h.captionFindFirst,
       createMany: h.captionCreateMany,
       updateMany: h.captionUpdateMany,
+      deleteMany: h.captionDeleteMany,
     },
     $transaction: h.transaction,
   },
@@ -36,12 +38,14 @@ vi.mock('@/lib/prisma', () => ({
 const {
   captionRowsFromFields,
   claimCaptionAction,
+  deleteCaption,
   loadDraftCaptions,
   saveCaptionEdit,
   saveGenerationCaptions,
   saveHeadlineEdit,
   settleCaptionAction,
   settlePendingCaptions,
+  undoCaption,
 } = await import('@/lib/captions/store')
 
 const T = new Date('2026-10-11T00:00:00Z')
@@ -99,12 +103,13 @@ beforeEach(() => {
   for (const fn of Object.values(h)) fn.mockReset()
   // Batch form: each op is the value its builder returned.
   h.transaction.mockImplementation(async (ops: unknown) =>
-    typeof ops === 'function' ? ops({ draft: { updateMany: h.draftUpdateMany, findUnique: h.draftFindUnique }, draftCaption: { findMany: h.captionFindMany, findFirst: h.captionFindFirst, createMany: h.captionCreateMany, updateMany: h.captionUpdateMany } }) : Promise.all(ops as unknown[]),
+    typeof ops === 'function' ? ops({ draft: { updateMany: h.draftUpdateMany, findUnique: h.draftFindUnique }, draftCaption: { findMany: h.captionFindMany, findFirst: h.captionFindFirst, createMany: h.captionCreateMany, updateMany: h.captionUpdateMany, deleteMany: h.captionDeleteMany } }) : Promise.all(ops as unknown[]),
   )
   h.captionFindMany.mockResolvedValue([])
   h.captionCreateMany.mockResolvedValue({ count: 2 })
   h.draftUpdateMany.mockResolvedValue({ count: 1 })
   h.captionUpdateMany.mockResolvedValue({ count: 1 })
+  h.captionDeleteMany.mockResolvedValue({ count: 1 })
   h.captionFindFirst.mockResolvedValue(editable())
 })
 
@@ -774,5 +779,146 @@ describe('027 FR-05: regenerate copy writes Draft.postStyle in its claim-guarded
     expect(h.draftUpdateMany).toHaveBeenCalledTimes(1)
     expect(h.captionUpdateMany).not.toHaveBeenCalled()
     warn.mockRestore()
+  })
+})
+
+// ── 039 T3: delete and undo (D14, D15), and generalHash on the settle (D4) ───
+
+const SNAP = {
+  v: 1,
+  text: 'earlier',
+  deleted: false,
+  model: 'claude-haiku-4-5',
+  modelSubstitutedFrom: null,
+  route: 'API_KEY',
+  generalHash: 'aaaaaaaaaaaaaaaa',
+}
+
+describe('deleteCaption (039 D14)', () => {
+  it('soft-deletes a row that holds text and keeps its live state in previous, then recomputes the facts check', async () => {
+    expect(await deleteCaption('d1', 'INSTAGRAM')).toBe('deleted')
+    expect(h.captionFindFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { draftId: 'd1', kind: 'CURATED', channel: 'INSTAGRAM' } }),
+    )
+    const [arg] = h.captionUpdateMany.mock.calls[0]
+    expect(arg.where).toEqual({ id: 'row1', status: { not: 'PENDING' }, updatedAt: T })
+    expect(arg.data.deletedAt).toBeInstanceOf(Date)
+    expect(arg.data.previous).toEqual({
+      v: 1,
+      text: 'old text',
+      deleted: false,
+      model: 'claude-sonnet-5-5',
+      modelSubstitutedFrom: null,
+      route: 'CLI',
+      generalHash: null,
+    })
+    expect(h.captionDeleteMany).not.toHaveBeenCalled()
+    expect(h.refresh).toHaveBeenCalledTimes(1)
+  })
+
+  it('removes a row with no text outright (nothing to undo)', async () => {
+    h.captionFindFirst.mockResolvedValue(editable({ text: '', status: 'FAILED' }))
+    expect(await deleteCaption('d1', 'LINKEDIN')).toBe('removed')
+    expect(h.captionDeleteMany).toHaveBeenCalledWith({ where: { id: 'row1', status: { not: 'PENDING' }, updatedAt: T } })
+    expect(h.captionUpdateMany).not.toHaveBeenCalled()
+    expect(h.refresh).toHaveBeenCalledTimes(1)
+  })
+
+  it('refuses a PENDING row, an already deleted row and a missing row, writing nothing', async () => {
+    h.captionFindFirst.mockResolvedValue(editable({ status: 'PENDING' }))
+    expect(await deleteCaption('d1', 'INSTAGRAM')).toBe('pending')
+    h.captionFindFirst.mockResolvedValue(editable({ deletedAt: T }))
+    expect(await deleteCaption('d1', 'INSTAGRAM')).toBe('missing')
+    h.captionFindFirst.mockResolvedValue(null)
+    expect(await deleteCaption('d1', 'INSTAGRAM')).toBe('missing')
+    expect(h.captionUpdateMany).not.toHaveBeenCalled()
+    expect(h.captionDeleteMany).not.toHaveBeenCalled()
+    expect(h.refresh).not.toHaveBeenCalled()
+  })
+
+  it('a newer write between the read and the write is pending, with no recompute', async () => {
+    h.captionUpdateMany.mockResolvedValue({ count: 0 })
+    expect(await deleteCaption('d1', 'INSTAGRAM')).toBe('pending')
+    expect(h.refresh).not.toHaveBeenCalled()
+  })
+})
+
+describe('undoCaption (039 D15)', () => {
+  it('swaps the live state and previous, so a second undo returns what the first replaced', async () => {
+    h.captionFindFirst.mockResolvedValue(editable({ previous: SNAP }))
+    expect(await undoCaption('d1', CURATED_LI)).toBe('undone')
+    const [arg] = h.captionUpdateMany.mock.calls[0]
+    expect(arg.where).toEqual({ id: 'row1', status: { not: 'PENDING' }, updatedAt: T })
+    expect(arg.data).toMatchObject({
+      text: 'earlier',
+      deletedAt: null,
+      status: 'READY',
+      failureReason: null,
+      model: 'claude-haiku-4-5',
+      route: 'API_KEY',
+      generalHash: 'aaaaaaaaaaaaaaaa',
+      previous: { v: 1, text: 'old text', deleted: false, model: 'claude-sonnet-5-5' },
+    })
+    expect(h.refresh).toHaveBeenCalledTimes(1)
+  })
+
+  it('undoing a delete brings the row back; undoing into a deleted state deletes it again', async () => {
+    h.captionFindFirst.mockResolvedValue(editable({ deletedAt: T, previous: SNAP }))
+    await undoCaption('d1', CURATED_LI)
+    expect(h.captionUpdateMany.mock.calls[0][0].data.deletedAt).toBeNull()
+    expect(h.captionUpdateMany.mock.calls[0][0].data.previous.deleted).toBe(true)
+    h.captionUpdateMany.mockClear()
+    h.captionFindFirst.mockResolvedValue(editable({ previous: { ...SNAP, deleted: true } }))
+    await undoCaption('d1', CURATED_LI)
+    expect(h.captionUpdateMany.mock.calls[0][0].data.deletedAt).toBeInstanceOf(Date)
+  })
+
+  it('never deletes the general caption, whatever the snapshot says', async () => {
+    h.captionFindFirst.mockResolvedValue(editable({ previous: { ...SNAP, deleted: true } }))
+    await undoCaption('d1', GENERAL_REF)
+    expect(h.captionFindFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { draftId: 'd1', kind: 'GENERAL' } }))
+    expect(h.captionUpdateMany.mock.calls[0][0].data.deletedAt).toBeNull()
+  })
+
+  it.each([
+    ['no snapshot', editable({ previous: null }), 'nothing'],
+    ['a malformed snapshot', editable({ previous: { v: 2 } }), 'nothing'],
+    ['a PENDING row', editable({ status: 'PENDING', previous: SNAP }), 'pending'],
+    ['no row', null, 'missing'],
+  ])('%s is answered as the refusal, and writes nothing', async (_n, found, expected) => {
+    h.captionFindFirst.mockResolvedValue(found)
+    expect(await undoCaption('d1', CURATED_LI)).toBe(expected)
+    expect(h.captionUpdateMany).not.toHaveBeenCalled()
+    expect(h.refresh).not.toHaveBeenCalled()
+  })
+
+  it('a newer write between the read and the write is changed', async () => {
+    h.captionFindFirst.mockResolvedValue(editable({ previous: SNAP }))
+    h.captionUpdateMany.mockResolvedValue({ count: 0 })
+    expect(await undoCaption('d1', CURATED_LI)).toBe('changed')
+    expect(h.refresh).not.toHaveBeenCalled()
+  })
+})
+
+describe('settleCaptionAction stores the source general hash on a curate (039 D4)', () => {
+  it('writes generalHash on the validated curated row, and null when none was passed', async () => {
+    h.captionFindMany.mockResolvedValue([pendingRow('INSTAGRAM', 'old')])
+    await settleCaptionAction('d1', CLAIM, ['INSTAGRAM'], { INSTAGRAM: { ok: true, text: 'new' } }, null, undefined, undefined, {
+      generalHash: 'bbbbbbbbbbbbbbbb',
+    })
+    expect(h.captionUpdateMany.mock.calls[0][0].data.generalHash).toBe('bbbbbbbbbbbbbbbb')
+    h.captionUpdateMany.mockClear()
+    await settleCaptionAction('d1', CLAIM, ['INSTAGRAM'], { INSTAGRAM: { ok: true, text: 'new' } })
+    expect(h.captionUpdateMany.mock.calls[0][0].data.generalHash).toBeNull()
+  })
+
+  it('a failed field writes no generalHash and no previous', async () => {
+    h.captionFindMany.mockResolvedValue([pendingRow('INSTAGRAM', 'old')])
+    await settleCaptionAction('d1', CLAIM, ['INSTAGRAM'], { INSTAGRAM: { ok: false, reason: 'missing' } }, null, undefined, undefined, {
+      generalHash: 'bbbbbbbbbbbbbbbb',
+    })
+    const { data } = h.captionUpdateMany.mock.calls[0][0]
+    expect(data).not.toHaveProperty('generalHash')
+    expect(data).not.toHaveProperty('previous')
   })
 })

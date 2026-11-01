@@ -4,6 +4,7 @@
 import { describe, it, expect } from 'vitest'
 import { buildBrandKitSystemContext } from '@/lib/brandkit/systemContext'
 import { PROMPT_VERSION } from '@/lib/agent/prompts/shared'
+import { CAPTION_PROMPT_VERSION } from '@/lib/agent/prompts/caption'
 import { POST_STYLES_REVISION } from '@/lib/postStyles'
 import type { ResolvedBrandKit } from '@/lib/brandkit/resolve'
 
@@ -42,5 +43,8 @@ describe('generation is untouched by 007', () => {
   it('PROMPT_VERSION moved only by 027 (the derived post-styles suffix), 031 and 039 (the base bumps)', () => {
     // 2026-11-02.1: the Path B user message lost its "Channels:" line (039 D21).
     expect(PROMPT_VERSION).toBe(`2026-11-02.1+ps${POST_STYLES_REVISION}`)
+  })
+  it('CAPTION_PROMPT_VERSION is pinned (039 T3: a curate carries the general caption; T4 takes .3)', () => {
+    expect(CAPTION_PROMPT_VERSION).toBe(`2026-11-02.2+ps${POST_STYLES_REVISION}`)
   })
 })

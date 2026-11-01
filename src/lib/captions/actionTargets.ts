@@ -53,8 +53,8 @@ export interface CaptionRowSettle {
   previous?: CaptionSnapshot
   /** 039 D14: a validated write brings a deleted caption back. */
   deletedAt?: null
-  /** 039 D4: a curated row's source general caption (T3 supplies it); null = none. */
-  generalHash?: null
+  /** 039 D4: a curated row's source general caption (its hash); null = none. */
+  generalHash?: string | null
 }
 
 // The model that wrote a caption reply (008 FR-08): the arg that crossed the
@@ -90,16 +90,22 @@ export function settleCaptionRow(
   },
   field: FieldResult,
   stamp?: CaptionStamp | null,
+  // 039 D4: the hash of the general caption a curate was written from (null or
+  // absent = none).
+  extra?: { generalHash?: string | null },
 ): CaptionRowSettle {
   if (field.ok) {
     return {
       status: 'READY',
       text: field.text,
       failureReason: null,
-      // 039 D15: one-step undo. An empty, live row has nothing to go back to.
-      ...(row.text !== '' || row.deletedAt !== null ? { previous: snapshotOf(row) } : {}),
+      // 039 D15: one-step undo, for a write that changes what the row shows: new
+      // text over text, or a caption that was deleted. An empty, live row has
+      // nothing to go back to, and the same text again changes nothing, so it
+      // keeps the earlier snapshot (as change 015's Undo dropped it).
+      ...((row.text !== '' && row.text !== field.text) || row.deletedAt !== null ? { previous: snapshotOf(row) } : {}),
       deletedAt: null,
-      ...(row.kind === 'CURATED' ? { generalHash: null } : {}),
+      ...(row.kind === 'CURATED' ? { generalHash: extra?.generalHash ?? null } : {}),
       ...(stamp
         ? { model: stamp.model, modelSubstitutedFrom: stamp.substitutedFrom, route: stamp.route }
         : {}),

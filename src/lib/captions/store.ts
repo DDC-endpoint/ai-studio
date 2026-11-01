@@ -10,10 +10,22 @@
 
 import type { CaptionKind, CaptionStatus, Channel, Prisma, PrismaClient } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
-import { CAPTION_REGISTRY, captionSpec, targetOf, type CaptionTarget, type CuratedChannel } from '@/lib/channels'
+import {
+  CAPTION_REGISTRY,
+  captionSpec,
+  targetOf,
+  type CaptionTarget,
+  type CuratedChannel,
+} from '@/lib/channels'
 import type { FieldResult } from '@/lib/captions/extract'
 import { settleCaptionRow, type CaptionStamp } from '@/lib/captions/actionTargets'
-import { claimData, claimWhere, logLostClaim, newClaimId, type DraftClaim } from '@/lib/drafts/claim'
+import {
+  claimData,
+  claimWhere,
+  logLostClaim,
+  newClaimId,
+  type DraftClaim,
+} from '@/lib/drafts/claim'
 import { refreshFactsCheck } from '@/lib/factsCheck/refresh'
 import { postStyleColumn } from '@/lib/drafts/revisions'
 import type { PostStyleStamp } from '@/lib/postStyles'
@@ -93,7 +105,10 @@ export async function loadDraftCaptions(
   })
   if (!draft) return null
   const rows = toCaptionRows(draft.captions)
-  return { general: rows.find((r) => r.kind === 'GENERAL') ?? null, curated: rows.filter((r) => r.kind === 'CURATED') }
+  return {
+    general: rows.find((r) => r.kind === 'GENERAL') ?? null,
+    curated: rows.filter((r) => r.kind === 'CURATED'),
+  }
 }
 
 // ── Writers ─────────────────────────────────────────────────────────────────
@@ -191,7 +206,10 @@ export async function saveGenerationCaptions(
   const headline = fields.HEADLINE
   await prisma.$transaction([
     ...captionRowsFromFields(fields, stamp).map(({ kind, channel, ...data }) =>
-      prisma.draftCaption.updateMany({ where: { draftId, kind, channel, status: 'PENDING' }, data }),
+      prisma.draftCaption.updateMany({
+        where: { draftId, kind, channel, status: 'PENDING' },
+        data,
+      }),
     ),
     ...(headline?.ok
       ? [
@@ -214,7 +232,9 @@ function captionTargets(targets: readonly CaptionTarget[]): Exclude<CaptionTarge
 
 // The row filter for a set of caption targets: the general row, and the curated
 // rows of the named channels.
-function targetRowFilter(targets: readonly Exclude<CaptionTarget, 'HEADLINE'>[]): Prisma.DraftCaptionWhereInput {
+function targetRowFilter(
+  targets: readonly Exclude<CaptionTarget, 'HEADLINE'>[],
+): Prisma.DraftCaptionWhereInput {
   const channels = targets.filter((t): t is CuratedChannel => t !== 'GENERAL')
   return {
     OR: [
@@ -284,6 +304,7 @@ async function settlePendingRows(
   targets: readonly Exclude<CaptionTarget, 'HEADLINE'>[] | null,
   fieldFor: (target: string) => FieldResult,
   stamp: CaptionStamp | null = null,
+  extra?: { generalHash?: string | null },
 ): Promise<void> {
   const rows = await tx.draftCaption.findMany({
     where: {
@@ -306,7 +327,7 @@ async function settlePendingRows(
   for (const row of rows) {
     await tx.draftCaption.updateMany({
       where: { id: row.id, status: 'PENDING' },
-      data: settleCaptionRow(row, fieldFor(row.channel ?? 'GENERAL'), stamp),
+      data: settleCaptionRow(row, fieldFor(row.channel ?? 'GENERAL'), stamp, extra),
     })
   }
 }
@@ -343,6 +364,8 @@ export async function settleCaptionAction(
   stamp: CaptionStamp | null = null,
   db: PrismaClient = prisma,
   postStyle?: PostStyleStamp | null,
+  // 039 D4: the hash of the general caption a curate was written from.
+  extra?: { generalHash?: string | null },
 ): Promise<SettleResult> {
   const headline = targets.includes('HEADLINE') ? fields.HEADLINE : undefined
   let settled = false
@@ -366,10 +389,14 @@ export async function settleCaptionAction(
       captionTargets(targets),
       (target) => fields[target as CaptionTarget] ?? { ok: false, reason: 'missing' },
       stamp,
+      extra,
     )
     if (headline?.ok) {
       // 030 FR-15: the value before, read in the same transaction.
-      const before = await tx.draft.findUnique({ where: { id: draftId }, select: { headline: true } })
+      const before = await tx.draft.findUnique({
+        where: { id: draftId },
+        select: { headline: true },
+      })
       const wrote = await tx.draft.updateMany({
         where: { id: draftId, ...claimWhere(claim) },
         data: { headline: headline.text, ...(stamp ? headlineStampFields(stamp) : {}) },
@@ -410,7 +437,12 @@ export async function saveCaptionEdit(
 ): Promise<CaptionEditResult> {
   const result = await db.$transaction(async (tx): Promise<CaptionEditResult> => {
     const row = await tx.draftCaption.findFirst({
-      where: { draftId, ...(ref.kind === 'GENERAL' ? { kind: 'GENERAL' } : { kind: 'CURATED', channel: ref.channel }) },
+      where: {
+        draftId,
+        ...(ref.kind === 'GENERAL'
+          ? { kind: 'GENERAL' }
+          : { kind: 'CURATED', channel: ref.channel }),
+      },
       select: {
         id: true,
         status: true,
@@ -461,4 +493,99 @@ export async function saveHeadlineEdit(
   })
   if (count === 1) await refreshAfterWrite(draftId, db)
   return count === 1
+}
+
+// The columns a delete or an undo reads from a row.
+const MOVE_SELECT = {
+  id: true,
+  status: true,
+  updatedAt: true,
+  text: true,
+  deletedAt: true,
+  model: true,
+  modelSubstitutedFrom: true,
+  route: true,
+  generalHash: true,
+  previous: true,
+} satisfies Prisma.DraftCaptionSelect
+
+// Delete one curated caption (039 D14). A row that holds text is soft-deleted
+// and keeps its live state in `previous` for Undo ('deleted'); a row with no
+// text (a failed first curate) has nothing to undo and is removed ('removed').
+// Refused while the row is PENDING, or when a newer write lands between the
+// read and this write ('pending': busy or changed). A missing or already
+// deleted row is 'missing'.
+export type CaptionDeleteResult = 'deleted' | 'removed' | 'pending' | 'missing'
+
+export async function deleteCaption(
+  draftId: string,
+  channel: CuratedChannel,
+  db: PrismaClient = prisma,
+): Promise<CaptionDeleteResult> {
+  const result = await db.$transaction(async (tx): Promise<CaptionDeleteResult> => {
+    const row = await tx.draftCaption.findFirst({
+      where: { draftId, kind: 'CURATED', channel },
+      select: MOVE_SELECT,
+    })
+    if (!row || row.deletedAt !== null) return 'missing'
+    if (row.status === 'PENDING') return 'pending'
+    const guard = { id: row.id, status: { not: 'PENDING' as const }, updatedAt: row.updatedAt }
+    if (row.text === '') {
+      const { count } = await tx.draftCaption.deleteMany({ where: guard })
+      return count === 1 ? 'removed' : 'pending'
+    }
+    const { count } = await tx.draftCaption.updateMany({
+      where: guard,
+      data: { deletedAt: new Date(), previous: snapshotOf(row) },
+    })
+    return count === 1 ? 'deleted' : 'pending'
+  })
+  if (result === 'deleted' || result === 'removed') await refreshAfterWrite(draftId, db)
+  return result
+}
+
+// One step of undo (039 D15): swap the row's live state with `previous`, so a
+// second Undo brings back what the first replaced and no text is lost. 'nothing'
+// when there is no readable snapshot, 'pending' while the row is being written,
+// 'changed' when a newer write lands between the read and this write.
+export type CaptionUndoResult = 'undone' | 'nothing' | 'pending' | 'changed' | 'missing'
+
+export async function undoCaption(
+  draftId: string,
+  ref: CaptionRef,
+  db: PrismaClient = prisma,
+): Promise<CaptionUndoResult> {
+  const result = await db.$transaction(async (tx): Promise<CaptionUndoResult> => {
+    const row = await tx.draftCaption.findFirst({
+      where: {
+        draftId,
+        ...(ref.kind === 'GENERAL'
+          ? { kind: 'GENERAL' }
+          : { kind: 'CURATED', channel: ref.channel }),
+      },
+      select: MOVE_SELECT,
+    })
+    if (!row) return 'missing'
+    if (row.status === 'PENDING') return 'pending'
+    const prev = parseCaptionSnapshot(row.previous)
+    if (!prev) return 'nothing'
+    const { count } = await tx.draftCaption.updateMany({
+      where: { id: row.id, status: { not: 'PENDING' }, updatedAt: row.updatedAt },
+      data: {
+        text: prev.text,
+        // The general caption is never deleted (its CHECK), whatever the snapshot says.
+        deletedAt: prev.deleted && ref.kind === 'CURATED' ? new Date() : null,
+        status: 'READY',
+        failureReason: null,
+        model: prev.model,
+        modelSubstitutedFrom: prev.modelSubstitutedFrom,
+        route: prev.route,
+        generalHash: prev.generalHash,
+        previous: snapshotOf(row),
+      },
+    })
+    return count === 1 ? 'undone' : 'changed'
+  })
+  if (result === 'undone') await refreshAfterWrite(draftId, db)
+  return result
 }

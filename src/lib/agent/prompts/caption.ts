@@ -14,13 +14,15 @@ import { rulesPromptText } from '@/lib/captions/rules'
 import { captionReplyKeys } from '@/lib/captions/extract'
 import { HEADLINE_MAX } from '@/lib/captions/headline'
 import { derivedPromptVersion } from '@/lib/postStyles'
+import { fenceUntrusted, UNTRUSTED_CONTENT_GUARD } from '@/lib/agent/untrusted'
 
 // Bump when caption prompt content changes materially; logged with every
 // caption call. Separate from PROMPT_VERSION, which versions the design prompts.
 // 2026-10-25.1: post styles (027): derived from the post-style dataset, like
 // PROMPT_VERSION, and the user prompt carries the style's caption rules.
 // 2026-11-02.1: the general caption and each target's rules rendered from the registry (039).
-export const CAPTION_PROMPT_VERSION_BASE = '2026-11-02.1'
+// 2026-11-02.2: a curate carries the general caption, fenced as untrusted (039 T3).
+export const CAPTION_PROMPT_VERSION_BASE = '2026-11-02.2'
 export const CAPTION_PROMPT_VERSION = derivedPromptVersion(CAPTION_PROMPT_VERSION_BASE)
 
 // Room for the requested targets, including non-Latin scripts at about one
@@ -78,16 +80,26 @@ ${brief.captionRules}` : ''
     .join(', ')
   const generalOnly = specs.length > 0 && specs.every((s) => s.kind === 'GENERAL')
   const labels = specs.map((s) => s.label).join(', ')
+  // 039 D18: a curate (one curated caption, no general among the targets) carries
+  // the general caption the author has, fenced because it is model output or an edit.
+  const curated = specs.filter((s) => s.kind === 'CURATED')
+  const curate = curated.length > 0 && !specs.some((s) => s.kind === 'GENERAL')
+  const general = curate && brief.generalCaption ? brief.generalCaption : null
+  const generalBlock = general
+    ? `\n\nGeneral caption for this post (keep its facts, offers and dates; adapt it to the channel):\n${fenceUntrusted(general)}`
+    : ''
   const task = generalOnly
     ? 'Write the general caption for the post: compelling, on-brand and platform-neutral.'
+    : curate && curated.length === 1
+      ? `Write a compelling, on-brand caption for ${curated[0].label}, tailored to its channel.`
     : `Write compelling, on-brand captions${labels ? ` for ${labels}` : ''}, each tailored to its channel.`
 
   return {
-    system: systemPrompt(brief, task),
+    system: systemPrompt(brief, task) + (general ? `\n\n${UNTRUSTED_CONTENT_GUARD}` : ''),
     user: `Topic: ${brief.topic}
 Description: ${brief.description}
 Goal: ${brief.goal}
-Tone: ${brief.tone}${rulesBlock}
+Tone: ${brief.tone}${rulesBlock}${generalBlock}
 
 Write the following for the brief above:
 ${bullets.join('\n')}

@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { loginAs, findTeamIdByName, addTeamMember, waitForDraft, waitForAction, type ApiClient } from '../helpers/api'
+import { loginAs, findTeamIdByName, addTeamMember, waitForDraft, waitForAction, curate, type ApiClient } from '../helpers/api'
 import { ADMIN_EMAIL, ADMIN_PASSWORD } from '../helpers/ui'
 
 // §AJ — Post permissions (038 AC-01 to AC-04; docs/e2e-test-plan.md).
@@ -243,6 +243,12 @@ test.describe('Post permissions (038 D10, D11)', () => {
     await expect(page.getByPlaceholder('e.g. Make the logo larger…')).toHaveCount(0)
     // Copy stays.
     await expect(page.getByRole('button', { name: /^Copy .* caption$/ }).first()).toBeVisible()
+    // 039 AC-23: the captions are shown, with no curate, regenerate, delete or undo.
+    await expect(page.getByRole('textbox', { name: 'General caption', exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: /^Curate for / })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: /^(Regenerate|Generate) (general|Instagram|LinkedIn) caption$/ })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: /^Delete .* caption$/ })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: /^Undo .* caption$/ })).toHaveCount(0)
     // The Project picker stays for every member (038 D22), and Apply is not offered.
     await expect(page.getByRole('combobox', { name: 'Project' })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Apply project settings' })).toHaveCount(0)
@@ -275,5 +281,41 @@ test.describe('Post permissions (038 D10, D11)', () => {
     const draft = await (await admin.get(`/api/drafts/${adminPost.draftId}`)).json()
     expect(draft.inputsCurrent).toBe(false)
     expect(draft.canEdit).toBe(true)
+  })
+
+  // TC-PERM-08 — 039 AC-14: a same-team editor who is not the author is refused on
+  // every caption action, with the rows untouched and no model call.
+  test('an editor gets 403 not-author on curate, the general caption, its edit, delete and undo, and nothing changes', async () => {
+    if (!MOCKED()) { test.skip(); return }
+    const post = await mint(admin, `Perm Captions ${Date.now()}`)
+    await curate(admin, post.draftId, 'INSTAGRAM')
+    const rowsOf = async () =>
+      (await (await admin.get(`/api/drafts/${post.draftId}`)).json()).captions.map(
+        (c: { target: string; text: string; updatedAt: string; canUndo: boolean; deleted: boolean }) => [c.target, c.text, c.updatedAt, c.canUndo, c.deleted],
+      )
+    const before = await rowsOf()
+    expect((await admin.del(CALLS)).status()).toBe(204)
+
+    const d = `/api/drafts/${post.draftId}`
+    const attempts: [string, () => ReturnType<ApiClient['post']>][] = [
+      ['curate', () => editor.post(`${d}/regenerate-copy`, { channel: 'LINKEDIN' })],
+      ['regenerate general', () => editor.post(`${d}/regenerate-copy`, { kind: 'GENERAL' })],
+      ['PATCH general', () => editor.patch(d, { kind: 'GENERAL', text: 'Editor caption' })],
+      ['PATCH curated', () => editor.patch(d, { channel: 'INSTAGRAM', text: 'Editor caption' })],
+      ['DELETE caption', () => editor.del(`${d}/captions?channel=INSTAGRAM`)],
+      ['undo', () => editor.post(`${d}/captions/undo`, { channel: 'INSTAGRAM' })],
+    ]
+    for (const [name, run] of attempts) {
+      const res = await run()
+      expect(res.status(), name).toBe(403)
+      expect((await res.json()).code, name).toBe('not-author')
+    }
+
+    expect(await rowsOf()).toEqual(before)
+    expect((await (await admin.get(CALLS)).json()).calls).toHaveLength(0)
+
+    // Another team gets a 404 on the same routes.
+    expect((await clientx.del(`${d}/captions?channel=INSTAGRAM`)).status()).toBe(404)
+    expect((await clientx.post(`${d}/captions/undo`, { channel: 'INSTAGRAM' })).status()).toBe(404)
   })
 })

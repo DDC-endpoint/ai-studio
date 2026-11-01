@@ -437,6 +437,30 @@ const STATES = [
       await snap(`draft-notice-${key}`)
     },
   })),
+  // 039 T3: the curated caption cards (curate Instagram on the facts-flagged post, so
+  // the flagged-general line and the card's facts line show), then the deleted
+  // card with its Undo. The delete is undone afterwards, so a rerun starts alike.
+  // Mirrors curated-captions.test.ts TC-CUR-07 and TC-CUR-12.
+  {
+    name: 'curated-captions',
+    ready: (d) => d.notices['facts-flagged'],
+    run: async (page, data, snap) => {
+      const id = data.notices['facts-flagged']
+      await page.goto(`/drafts/${id}`)
+      await page.getByRole('heading', { name: 'General caption', level: 3 }).waitFor({ timeout: 20_000 })
+      const field = page.getByRole('textbox', { name: 'Instagram caption', exact: true })
+      if ((await field.count()) === 0) {
+        await page.getByRole('button', { name: 'Curate for Instagram' }).click()
+        await field.waitFor({ timeout: 20_000 })
+      }
+      await snap('draft-captions-curated')
+      await page.getByRole('button', { name: 'Delete Instagram caption' }).click()
+      await page.getByRole('button', { name: 'Undo Instagram caption' }).waitFor({ timeout: 20_000 })
+      await snap('draft-captions-deleted')
+      await page.getByRole('button', { name: 'Undo Instagram caption' }).click()
+      await field.waitFor({ timeout: 20_000 })
+    },
+  },
 ]
 
 async function runStates(browser, data) {

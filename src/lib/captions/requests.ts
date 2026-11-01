@@ -15,12 +15,19 @@ export const CAPTION_TEXT_MAX = 10_000
 const CHANNELS = CAPTION_CHANNELS.map((s) => s.channel) as [CuratedChannel, ...CuratedChannel[]]
 
 const orList = (values: readonly string[]) =>
-  values.length > 1 ? `${values.slice(0, -1).join(', ')} or ${values[values.length - 1]}` : values[0]
+  values.length > 1
+    ? `${values.slice(0, -1).join(', ')} or ${values[values.length - 1]}`
+    : values[0]
 
 export const CHANNEL_MESSAGE = `channel must be ${orList(CHANNELS)}`
-export const PATCH_SHAPE_MESSAGE = "Send { kind: 'GENERAL', text }, { channel, text } or { headline }"
-export const REGENERATE_SHAPE_MESSAGE = "Send { kind: 'GENERAL' }, { channel } or { headline: true }"
-export const REGENERATE_BOTH_MESSAGE = "Send one of { kind: 'GENERAL' }, { channel } or { headline: true }, not several"
+export const PATCH_SHAPE_MESSAGE =
+  "Send { kind: 'GENERAL', text }, { channel, text } or { headline }"
+export const REGENERATE_SHAPE_MESSAGE =
+  "Send { kind: 'GENERAL' }, { channel } or { headline: true }"
+export const UNDO_SHAPE_MESSAGE = "Send { kind: 'GENERAL' } or { channel }"
+export const GENERAL_NOT_DELETABLE_MESSAGE = 'The general caption cannot be deleted'
+export const REGENERATE_BOTH_MESSAGE =
+  "Send one of { kind: 'GENERAL' }, { channel } or { headline: true }, not several"
 
 const kindSchema = z.literal('GENERAL', { errorMap: () => ({ message: "kind must be 'GENERAL'" }) })
 const channelSchema = z.enum(CHANNELS, { errorMap: () => ({ message: CHANNEL_MESSAGE }) })
@@ -34,12 +41,17 @@ const shapeErrorMap =
 export type ParseResult<T> = { ok: true; value: T } | { ok: false; error: string }
 
 function firstIssue<T>(parsed: z.SafeParseReturnType<unknown, T>): ParseResult<T> {
-  return parsed.success ? { ok: true, value: parsed.data } : { ok: false, error: parsed.error.issues[0].message }
+  return parsed.success
+    ? { ok: true, value: parsed.data }
+    : { ok: false, error: parsed.error.issues[0].message }
 }
 
 // ── PATCH /api/drafts/[id] ──────────────────────────────────────────────────
 
-export type CaptionPatch = { kind: 'GENERAL'; text: string } | { channel: CuratedChannel; text: string } | { headline: string }
+export type CaptionPatch =
+  | { kind: 'GENERAL'; text: string }
+  | { channel: CuratedChannel; text: string }
+  | { headline: string }
 
 const patchSchema = z
   .object(
@@ -48,7 +60,10 @@ const patchSchema = z
       channel: channelSchema.optional(),
       text: z
         .string({ errorMap: () => ({ message: 'text must be a string' }) })
-        .max(CAPTION_TEXT_MAX, `text must be at most ${CAPTION_TEXT_MAX.toLocaleString('en-US')} characters`)
+        .max(
+          CAPTION_TEXT_MAX,
+          `text must be at most ${CAPTION_TEXT_MAX.toLocaleString('en-US')} characters`,
+        )
         .optional(),
       headline: z.string({ errorMap: () => ({ message: 'headline must be a string' }) }).optional(),
     },
@@ -56,12 +71,18 @@ const patchSchema = z
   )
   .strict(PATCH_SHAPE_MESSAGE)
   .transform((b, ctx): CaptionPatch => {
-    if (b.headline !== undefined && b.kind === undefined && b.channel === undefined && b.text === undefined) {
+    if (
+      b.headline !== undefined &&
+      b.kind === undefined &&
+      b.channel === undefined &&
+      b.text === undefined
+    ) {
       return { headline: b.headline }
     }
     if (b.headline === undefined && b.text !== undefined) {
       if (b.kind !== undefined && b.channel === undefined) return { kind: b.kind, text: b.text }
-      if (b.kind === undefined && b.channel !== undefined) return { channel: b.channel, text: b.text }
+      if (b.kind === undefined && b.channel !== undefined)
+        return { channel: b.channel, text: b.text }
     }
     ctx.addIssue({ code: z.ZodIssueCode.custom, message: PATCH_SHAPE_MESSAGE })
     return z.NEVER
@@ -83,15 +104,21 @@ export interface RegenerateRequest {
 
 // AC-27: a regenerate body that names no curatable target (an unknown kind or
 // channel, WhatsApp included) gets the shape message.
-const regenerateKindSchema = z.literal('GENERAL', { errorMap: () => ({ message: REGENERATE_SHAPE_MESSAGE }) })
-const regenerateChannelSchema = z.enum(CHANNELS, { errorMap: () => ({ message: REGENERATE_SHAPE_MESSAGE }) })
+const regenerateKindSchema = z.literal('GENERAL', {
+  errorMap: () => ({ message: REGENERATE_SHAPE_MESSAGE }),
+})
+const regenerateChannelSchema = z.enum(CHANNELS, {
+  errorMap: () => ({ message: REGENERATE_SHAPE_MESSAGE }),
+})
 
 const regenerateSchema = z
   .object(
     {
       kind: regenerateKindSchema.optional(),
       channel: regenerateChannelSchema.optional(),
-      headline: z.literal(true, { errorMap: () => ({ message: 'headline must be true' }) }).optional(),
+      headline: z
+        .literal(true, { errorMap: () => ({ message: 'headline must be true' }) })
+        .optional(),
       model: modelKeySchema.optional(),
     },
     { errorMap: shapeErrorMap(REGENERATE_SHAPE_MESSAGE) },
@@ -126,4 +153,47 @@ export function parseRegenerateBody(
     return { ok: false, error: parsed.error.issues[0].message, code: MODEL_NOT_ALLOWED }
   }
   return firstIssue(parsed)
+}
+
+// ── POST /api/drafts/[id]/captions/undo ─────────────────────────────────────
+
+export type CaptionRefBody = { kind: 'GENERAL' } | { kind: 'CURATED'; channel: CuratedChannel }
+
+const undoSchema = z
+  .object(
+    {
+      kind: kindSchema.optional(),
+      channel: channelSchema.optional(),
+    },
+    { errorMap: shapeErrorMap(UNDO_SHAPE_MESSAGE) },
+  )
+  .strict(UNDO_SHAPE_MESSAGE)
+  .transform((b, ctx): CaptionRefBody => {
+    if (b.kind !== undefined && b.channel === undefined) return { kind: 'GENERAL' }
+    if (b.kind === undefined && b.channel !== undefined)
+      return { kind: 'CURATED', channel: b.channel }
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: UNDO_SHAPE_MESSAGE })
+    return z.NEVER
+  })
+
+// Exactly one of { kind: 'GENERAL' } or { channel } (039 D15).
+export function parseUndoBody(raw: unknown): ParseResult<CaptionRefBody> {
+  return firstIssue(undoSchema.safeParse(raw))
+}
+
+// ── DELETE /api/drafts/[id]/captions?channel=<CHANNEL> ──────────────────────
+
+export type DeleteQuery =
+  | { ok: true; channel: CuratedChannel }
+  | { ok: false; error: string; code?: 'general-not-deletable' }
+
+// The channel names a curated caption (039 D14). The general caption is never
+// deleted: ?channel=GENERAL and ?kind=GENERAL are 400 general-not-deletable.
+export function parseDeleteQuery(params: URLSearchParams): DeleteQuery {
+  const channel = params.get('channel')
+  if (params.get('kind') === 'GENERAL' || channel === 'GENERAL') {
+    return { ok: false, error: GENERAL_NOT_DELETABLE_MESSAGE, code: 'general-not-deletable' }
+  }
+  const parsed = channelSchema.safeParse(channel ?? undefined)
+  return parsed.success ? { ok: true, channel: parsed.data } : { ok: false, error: CHANNEL_MESSAGE }
 }

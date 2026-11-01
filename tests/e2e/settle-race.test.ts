@@ -17,9 +17,9 @@ import { ADMIN_EMAIL, ADMIN_PASSWORD, mintExportedDraft, pageLogin } from '../he
 //          panel settles on state once armed, not on an observed edge.
 //          The mock caption reply is deterministic (`Mock General caption
 //          [<topic>]`), so regenerating a freshly minted draft writes the
-//          same text again. (039 T2: the caption panel has no client Undo any
-//          more, so its case now holds the settle itself: the panel is idle
-//          again with the same text and no Undo ever showing.)
+//          same text again. (039: the caption's Undo is on the server, and the
+//          same text again writes no snapshot, so the panel is idle again with
+//          the same text and no Undo ever showing.)
 //   AC-06: a failed /revisions fetch after a design regenerate is retried,
 //          so the new version is listed without a reload.
 
@@ -109,8 +109,8 @@ test.describe('§X — draft-page settle race (015)', () => {
     )
     await regen.click()
     expect((await accepted).status()).toBe(202)
-    // There is no client-side Undo on a caption (039): not while the refetch is held,
-    // and not once it lands, when the regenerate has already settled with the same text.
+    // The same text again saves no undo snapshot (039 D15), so no Undo shows: not
+    // while the refetch is held, and not once it lands.
     const undo = page.getByRole('button', { name: /^Undo .* caption$/ })
     await expect(undo).toHaveCount(0)
     await expect(regen).toBeEnabled({ timeout: 15_000 })

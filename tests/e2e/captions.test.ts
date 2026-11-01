@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test'
-import { loginAs, waitForDraft, waitForAction, type ApiClient } from '../helpers/api'
+import { loginAs, waitForDraft, waitForAction, curate, type ApiClient } from '../helpers/api'
 import { prisma, dbAvailable, seedCuratedCaption } from '../helpers/db'
 import { expectNoAxeViolations } from '../helpers/axe'
 import { ADMIN_EMAIL, ADMIN_PASSWORD, pageLogin } from '../helpers/ui'
@@ -18,7 +18,9 @@ import { ADMIN_EMAIL, ADMIN_PASSWORD, pageLogin } from '../helpers/ui'
 //   PATCH {kind:'GENERAL', text} | {channel, text} | {headline}; never touches
 //     Draft.status.
 //   (Publishing was removed by 037; its cases are gone from this suite. Curate
-//   is 039 T3; a curated row here is seeded through the test DB.)
+//   is 039 T3 and is covered by curated-captions.test.ts; a curated row here is
+//   made through the route, or seeded through the test DB where the case needs
+//   a state the route never leaves: an old post, a fixed text.)
 //
 // Deterministic seams (MOCK_AI + MOCK_PUPPETEER):
 //   - the mock caption reply is "Mock <Label> caption [<topic>]" and "Mock
@@ -210,7 +212,7 @@ test.describe('§W — per-channel captions', () => {
     const draft = await exportedDraft(api, `Cap Flight ${Date.now()}`)
     const id = draft.id as string
     // A curated Instagram row too, so the post has a READY row besides the general one.
-    await seedCuratedCaption(id, 'INSTAGRAM', 'A curated Instagram caption.')
+    await curate(api, id, 'INSTAGRAM')
 
     // A caption action in flight: the claim, and its general row being written.
     await prisma!.draft.update({ where: { id }, data: { pendingAction: 'REGENERATE_COPY' } })
@@ -427,7 +429,13 @@ test.describe('§W — wave 2: the headline and the caption panels', () => {
       .locator('section')
       .filter({ has: page.getByRole('heading', { name: 'Captions', level: 2, exact: true }) })
       .last()
-    await expect(desk.getByRole('heading', { level: 3 })).toHaveText(['Headline', 'General caption', 'Instagram caption', 'LinkedIn caption'])
+    await expect(desk.getByRole('heading', { level: 3 })).toHaveText([
+      'Headline',
+      'General caption',
+      'Curated captions',
+      'Instagram caption',
+      'LinkedIn caption',
+    ])
     await expect(desk.getByRole('textbox', { name: 'Headline', exact: true })).toHaveCount(1)
 
     // Each caption textarea is named by its own h3, and its counter is exact.
@@ -463,8 +471,8 @@ test.describe('§W — wave 2: the headline and the caption panels', () => {
   })
 
   // TC-CAP-18 — AC-24 (FR-19): Copy the general caption, and Regenerate writes the mock text over a
-  // hand edit. The client-side Undo is gone (039 T2): a card shows no Undo until T3's server Undo.
-  test('Copy general caption fills the clipboard, and Regenerate replaces a hand edit with no Undo showing', async ({ page }) => {
+  // hand edit, after which the card offers the server Undo (039 T3), which brings the hand edit back.
+  test('Copy general caption fills the clipboard, and Regenerate replaces a hand edit, which Undo brings back', async ({ page }) => {
     if (!MOCKED()) { test.skip(); return }
     await page.context().grantPermissions(['clipboard-read', 'clipboard-write'])
     const topic = `Cap Copy Regen ${Date.now()}`
@@ -485,8 +493,12 @@ test.describe('§W — wave 2: the headline and the caption panels', () => {
 
     await page.getByRole('button', { name: 'Regenerate general caption', exact: true }).click()
     await expect(field(page, 'GENERAL')).toHaveValue(`Mock General caption [${topic}]`, { timeout: 20_000 })
-    await expect(page.getByRole('button', { name: /^Undo/ })).toHaveCount(0)
     await expect(page.getByRole('button', { name: 'Regenerate all', exact: true })).toHaveCount(0)
+    const undo = page.getByRole('button', { name: 'Undo general caption', exact: true })
+    await expect(undo).toBeVisible()
+    await undo.click()
+    await expect(field(page, 'GENERAL')).toHaveValue(hand)
+    expect(captionOf(await read(draft.id), 'GENERAL').text).toBe(hand)
   })
 
   // TC-CAP-20 — AC-24 (FR-19): a FAILED row shows its error notice and Generate.
@@ -552,14 +564,16 @@ test.describe('§W — wave 2: the headline and the caption panels', () => {
     expect(captionsOf(after).map((c) => c.target)).toEqual(['GENERAL', 'INSTAGRAM', 'LINKEDIN'])
   })
 
-  // 039 D12 (T2): a curated caption with no row is made by curate (T3), not here.
-  test('a regenerate of a curated channel with no row is 404 caption-not-found, and claims nothing', async () => {
+  // 039 D12 (T3): a regenerate of a curated channel with no row makes the row (curate).
+  test('a regenerate of a curated channel with no row makes it, and the post then has two captions', async () => {
     if (!MOCKED()) { test.skip(); return }
-    const draft = await exportedDraft(api, `Cap No Row ${Date.now()}`)
-    const res = await api.post(`/api/drafts/${draft.id}/regenerate-copy`, { channel: 'INSTAGRAM' })
-    expect(res.status()).toBe(404)
-    expect((await res.json()).code).toBe('caption-not-found')
-    expect((await read(draft.id)).pendingAction).toBeNull()
+    const topic = `Cap No Row ${Date.now()}`
+    const draft = await exportedDraft(api, topic)
+    expect(captionsOf(draft).map((c) => c.target)).toEqual(['GENERAL'])
+    const done = await curate(api, draft.id as string, 'INSTAGRAM')
+    expect(done.pendingActionError).toBeNull()
+    expect(captionsOf(done).map((c) => c.target)).toEqual(['GENERAL', 'INSTAGRAM'])
+    expect(captionOf(done, 'INSTAGRAM').text).toBe(`Mock Instagram caption [${topic}] [from general]`)
   })
 
   // TC-CAP-21 — AC-05 (026 FR-04, FR-05): a legacy WhatsApp row is hidden and kept.
@@ -585,7 +599,7 @@ test.describe('§W — wave 2: the headline and the caption panels', () => {
       .locator('section')
       .filter({ has: page.getByRole('heading', { name: 'Captions', level: 2, exact: true }) })
       .last()
-    await expect(desk.getByRole('heading', { level: 3 })).toHaveText(['Headline', 'General caption'])
+    await expect(desk.getByRole('heading', { level: 3 })).toHaveText(['Headline', 'General caption', 'Curated captions'])
     await expect(page.getByText('WhatsApp')).toHaveCount(0)
     await expect(page.getByText(legacyText)).toHaveCount(0)
 

@@ -10,6 +10,8 @@ import { parseRegenerateBody } from '@/lib/captions/requests'
 import { failedCaptionFields } from '@/lib/captions/actionTargets'
 import { trackHeadlineEdited } from '@/lib/renderedText/track'
 import { claimCaptionAction, loadDraftCaptions, settleCaptionAction } from '@/lib/captions/store'
+import { admitCaptionAction } from '@/lib/captions/limits'
+import { generalHashOf } from '@/lib/captions/generalHash'
 import { releaseDraftAction, startDraftAction } from '@/lib/drafts/draftActions'
 import { resolveModel } from '@/lib/models/policy'
 import { regenerateStampTier, type ResolvedModel } from '@/lib/models/resolve'
@@ -18,7 +20,8 @@ import { newActionTrace } from '@/lib/analytics/trace'
 
 // Regenerates a caption for a draft (012 FR-11; the route name is a kept
 // contract): body { kind: 'GENERAL' } → the general caption (made on a post that
-// has none), { channel } → that curated caption, { headline: true } → the
+// has none), { channel } → curate that channel (made if it does not exist,
+// replaced after a successful settle if it does), { headline: true } → the
 // headline, each with an optional `model` pick (008 FR-17). {} is a 400: "Regenerate
 // all" is retired (039 Q2). Validation runs
 // synchronously, then the model work runs in-process fire-and-forget (the F1
@@ -40,7 +43,8 @@ export const POST = withTeamAuth<{ id: string }>(async (req, { params }, user) =
   }
   const parsed = parseRegenerateBody(raw)
   if (!parsed.ok) {
-    const body = 'code' in parsed ? { error: parsed.error, code: parsed.code } : { error: parsed.error }
+    const body =
+      'code' in parsed ? { error: parsed.error, code: parsed.code } : { error: parsed.error }
     return NextResponse.json(body, { status: 400 })
   }
   const { targets, model: requested } = parsed.value
@@ -59,7 +63,20 @@ export const POST = withTeamAuth<{ id: string }>(async (req, { params }, user) =
   // Regeneration needs existing content to replace — a draft still generating
   // (or one whose generation failed) has none.
   if (draft.status !== 'EXPORTED') {
-    return NextResponse.json({ error: 'Draft is not ready for caption regeneration' }, { status: 409 })
+    return NextResponse.json(
+      { error: 'Draft is not ready for caption regeneration' },
+      { status: 409 },
+    )
+  }
+
+  // 039 D16: a per-user limit on caption actions, before anything is claimed or
+  // any model is called.
+  const admitted = admitCaptionAction(user.userId)
+  if (!admitted.ok) {
+    return NextResponse.json(
+      { error: 'Too many caption requests. Try again shortly.', code: 'rate-limited' },
+      { status: 429, headers: { 'Retry-After': String(admitted.retryAfterSec) } },
+    )
   }
 
   // Everything fallible that needs no claim runs first, so its failure (422)
@@ -67,16 +84,22 @@ export const POST = withTeamAuth<{ id: string }>(async (req, { params }, user) =
   let provider: Awaited<ReturnType<typeof resolveCopyProvider>>
   let ctx: PostContext
   let model: ResolvedModel
+  // 039 D18: a curate writes from the post's general caption when it has a live one.
+  let general: { text: string; hash: string } | null = null
   try {
     // The rows are read BEFORE the claim marks them PENDING: they carry the
     // stamps below.
     const loaded = await loadDraftCaptions(draft.id)
-    // 039 T2: a curated caption that does not exist yet is made by T3's curate;
-    // until then only an existing row is regenerated. The general caption is the
-    // one target that is created in the claim (an old post's).
-    const curated = targets.find((t) => t !== 'HEADLINE' && t !== 'GENERAL')
-    if (curated && !loaded?.curated.some((r) => r.target === curated)) {
-      return NextResponse.json({ error: 'Caption not found', code: 'caption-not-found' }, { status: 404 })
+    // A target row that does not exist yet (a curate, or the general caption of an
+    // old post) is created in the claim.
+    const source = loaded?.general
+    if (
+      targets.some((t) => t !== 'HEADLINE' && t !== 'GENERAL') &&
+      source?.status === 'READY' &&
+      !source.deleted &&
+      source.text.trim() !== ''
+    ) {
+      general = { text: source.text, hash: generalHashOf(source.text) }
     }
 
     // 008 FR-09: the regenerate default is the stamp of what is being replaced
@@ -87,21 +110,32 @@ export const POST = withTeamAuth<{ id: string }>(async (req, { params }, user) =
     // claims nothing.
     // Spec open question 1: a caption pick needs a Claude caption provider (the
     // one this run would use: the brief's key, else the team default).
-    if (requested && !(await copyProviderIsClaude(draft.brief.teamId, draft.brief.copyProviderKey ?? undefined))) {
+    if (
+      requested &&
+      !(await copyProviderIsClaude(draft.brief.teamId, draft.brief.copyProviderKey ?? undefined))
+    ) {
       return NextResponse.json(captionProviderNotClaudeError(), { status: 400 })
     }
     const stamp = regenerateStampTier(targets, {
       captions: [...(loaded?.general ? [loaded.general] : []), ...(loaded?.curated ?? [])],
       headlineModel: draft.headlineModel ?? null,
     })
-    const resolved = await resolveModel('CAPTION', { requested, stamp, userId: user.userId, teamId: draft.teamId })
+    const resolved = await resolveModel('CAPTION', {
+      requested,
+      stamp,
+      userId: user.userId,
+      teamId: draft.teamId,
+    })
     if (!resolved.ok) {
       if (requested) return NextResponse.json(modelError(resolved), { status: 400 })
       throw new Error(resolved.message)
     }
     model = resolved.resolved
 
-    provider = await resolveCopyProvider(draft.brief.teamId, draft.brief.copyProviderKey ?? undefined)
+    provider = await resolveCopyProvider(
+      draft.brief.teamId,
+      draft.brief.copyProviderKey ?? undefined,
+    )
     // 038 D3: the kit and the briefing the post was made with (its recorded stamp),
     // not the brief's current project.
     ctx = await postContext(draft)
@@ -113,7 +147,10 @@ export const POST = withTeamAuth<{ id: string }>(async (req, { params }, user) =
   // marked PENDING in the same transaction.
   const claimed = await claimCaptionAction(draft.id, targets)
   if (!claimed) {
-    return NextResponse.json({ error: 'Another action is already running on this draft' }, { status: 409 })
+    return NextResponse.json(
+      { error: 'Another action is already running on this draft' },
+      { status: 409 },
+    )
   }
   const { claim, created } = claimed
 
@@ -126,7 +163,11 @@ export const POST = withTeamAuth<{ id: string }>(async (req, { params }, user) =
     // 008 FR-08: the reply's stamp goes on the fields that validated only; the
     // failure settles pass none, so a row keeps the stamp of the text it keeps.
     const trace = newActionTrace()
-    trace.fields.model = { model: model.key, modelId: model.arg, substitutedFrom: model.substitutedFrom }
+    trace.fields.model = {
+      model: model.key,
+      modelId: model.arg,
+      substitutedFrom: model.substitutedFrom,
+    }
     // 039 D22/D25: a caption action names its kind, its channel (curated) and
     // whether it made the row or replaced it on the settle event (startDraftAction
     // spreads trace.fields into the payload).
@@ -144,13 +185,23 @@ export const POST = withTeamAuth<{ id: string }>(async (req, { params }, user) =
       async () => {
         // 027: the brief's post style rules, if it has one (a stored key that does
         // not resolve throws here and settles the rows as failed).
-        const briefInput = buildBriefInput(draft.brief, ctx)
+        const base = buildBriefInput(draft.brief, ctx)
+        const briefInput = general ? { ...base, generalCaption: general.text } : base
         const { fields, stamp } = await writeCaptions(provider, briefInput, targets, model)
         // The copy ran under the style's current version; the settle writes it to
         // Draft.postStyle (claim-guarded) and recomputes the facts check. Only when
         // some target validated: a run that changed no text keeps the old stamp.
         const anyOk = Object.values(fields).some((f) => f?.ok)
-        const settled = await settleCaptionAction(draft.id, claim, targets, fields, stamp, undefined, anyOk ? briefPostStyleStamp(draft.brief) : undefined)
+        const settled = await settleCaptionAction(
+          draft.id,
+          claim,
+          targets,
+          fields,
+          stamp,
+          undefined,
+          anyOk ? briefPostStyleStamp(draft.brief) : undefined,
+          { generalHash: general?.hash ?? null },
+        )
         // 030 FR-15: one event when the settle wrote a headline (after the transaction).
         if (settled.headlineWritten) {
           await trackHeadlineEdited({
@@ -169,7 +220,12 @@ export const POST = withTeamAuth<{ id: string }>(async (req, { params }, user) =
         }
       },
       async (err) => {
-        await settleCaptionAction(draft.id, claim, targets, failedCaptionFields(targets, errorMessage(err)))
+        await settleCaptionAction(
+          draft.id,
+          claim,
+          targets,
+          failedCaptionFields(targets, errorMessage(err)),
+        )
       },
       trace,
     )
@@ -183,7 +239,10 @@ export const POST = withTeamAuth<{ id: string }>(async (req, { params }, user) =
       await settleCaptionAction(draft.id, claim, targets, failedCaptionFields(targets, message))
       await releaseDraftAction(draft.id, claim, message)
     } catch (e) {
-      console.error(`[draft-action] draft ${draft.id}: releasing the unstarted caption action failed:`, e)
+      console.error(
+        `[draft-action] draft ${draft.id}: releasing the unstarted caption action failed:`,
+        e,
+      )
     }
     return copyError(err)
   }

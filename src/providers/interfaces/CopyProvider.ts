@@ -20,6 +20,9 @@ export interface BriefInput {
   // 027 FR-09: the caption-scope rules of the brief's post style, already
   // rendered by checklistPromptText. Absent for a brief with no style.
   captionRules?: string
+  // 039 D18: the post's general caption, passed to a curate so the channel
+  // caption keeps its facts. Absent when the post has none (or for a generation).
+  generalCaption?: string
 }
 
 // The COPY slot keeps its name (it also drives brand-voice drafting). One call

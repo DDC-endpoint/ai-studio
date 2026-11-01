@@ -15,6 +15,9 @@ export const POST_ACTION_TIERS: Record<string, PostActionTier> = {
   'src/app/api/drafts/[id]/route.ts DELETE': 'edit',
   'src/app/api/drafts/[id]/apply-project/route.ts POST': 'edit',
   'src/app/api/drafts/[id]/apply-text/route.ts POST': 'edit',
+  // 039 D14, D15: delete and one-step undo of a caption.
+  'src/app/api/drafts/[id]/captions/route.ts DELETE': 'edit',
+  'src/app/api/drafts/[id]/captions/undo/route.ts POST': 'edit',
   'src/app/api/drafts/[id]/download/route.ts GET': 'view',
   'src/app/api/drafts/[id]/inline-edit/route.ts POST': 'edit',
   // 038 D8: any member can assign, move or unassign (the move only relabels).

@@ -8,3 +8,7 @@
 {"ev":"stop","span":"W1","at":"2026-11-01T00:39:04Z","ts":1793493544,"status":"ok"}
 {"ev":"start","span":"W2","kind":"wave","label":"wave 2","at":"2026-11-01T00:39:16Z","ts":1793493556}
 {"ev":"start","span":"T2","kind":"task","label":"general caption","parent":"W2","model":"sonnet","attempt":"1","at":"2026-11-01T00:39:16Z","ts":1793493556}
+{"ev":"stop","span":"T2","at":"2026-11-01T01:33:10Z","ts":1793496790,"status":"ok"}
+{"ev":"stop","span":"W2","at":"2026-11-01T01:33:10Z","ts":1793496790,"status":"ok"}
+{"ev":"start","span":"W3","kind":"wave","label":"wave 3","at":"2026-11-01T01:33:11Z","ts":1793496791}
+{"ev":"start","span":"T3","kind":"task","label":"curated captions","parent":"W3","model":"sonnet","attempt":"1","at":"2026-11-01T01:33:11Z","ts":1793496791}

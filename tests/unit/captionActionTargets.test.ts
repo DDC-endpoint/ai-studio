@@ -127,3 +127,45 @@ describe('failedCaptionFields', () => {
     })
   })
 })
+
+// ── 039 T3: the source hash and previous on a settle (D4, D15) ───────────────
+
+describe('settleCaptionRow — generalHash and previous (039)', () => {
+  const CURATED_ROW = { ...rowOf('old'), kind: 'CURATED' as const }
+  const GENERAL_ROW = { ...rowOf('old'), kind: 'GENERAL' as const }
+
+  it('a validated curated field stores the hash it was given, or null', () => {
+    expect(settleCaptionRow(CURATED_ROW, { ok: true, text: 'new' }, null, { generalHash: 'abcd1234abcd1234' }).generalHash).toBe(
+      'abcd1234abcd1234',
+    )
+    expect(settleCaptionRow(CURATED_ROW, { ok: true, text: 'new' }).generalHash).toBeNull()
+    expect(settleCaptionRow(CURATED_ROW, { ok: true, text: 'new' }, null, { generalHash: null }).generalHash).toBeNull()
+  })
+
+  it('a general row never carries a hash', () => {
+    expect(settleCaptionRow(GENERAL_ROW, { ok: true, text: 'new' }, null, { generalHash: 'abcd1234abcd1234' })).not.toHaveProperty(
+      'generalHash',
+    )
+  })
+
+  it('a failed field writes neither previous nor generalHash, with or without text', () => {
+    for (const row of [CURATED_ROW, { ...CURATED_ROW, text: '' }]) {
+      const out = settleCaptionRow(row, { ok: false, reason: 'missing' }, null, { generalHash: 'abcd1234abcd1234' })
+      expect(out).not.toHaveProperty('previous')
+      expect(out).not.toHaveProperty('generalHash')
+    }
+  })
+
+  it('the same text again changes nothing visible, so it writes no previous (the earlier snapshot stays)', () => {
+    expect(settleCaptionRow(CURATED_ROW, { ok: true, text: 'old' })).not.toHaveProperty('previous')
+    // ...but a deleted row brought back by the same text is a visible change.
+    expect(settleCaptionRow({ ...CURATED_ROW, deletedAt: new Date() }, { ok: true, text: 'old' })).toHaveProperty('previous')
+  })
+
+  it('previous is written only over text or over a deleted row', () => {
+    expect(settleCaptionRow(CURATED_ROW, { ok: true, text: 'new' })).toHaveProperty('previous')
+    expect(settleCaptionRow({ ...CURATED_ROW, text: '' }, { ok: true, text: 'new' })).not.toHaveProperty('previous')
+    const deleted = settleCaptionRow({ ...CURATED_ROW, text: '', deletedAt: new Date() }, { ok: true, text: 'new' })
+    expect(deleted).toMatchObject({ deletedAt: null, previous: { deleted: true } })
+  })
+})

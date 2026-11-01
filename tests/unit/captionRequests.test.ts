@@ -8,8 +8,12 @@ import {
   PATCH_SHAPE_MESSAGE,
   REGENERATE_BOTH_MESSAGE,
   REGENERATE_SHAPE_MESSAGE,
+  GENERAL_NOT_DELETABLE_MESSAGE,
+  UNDO_SHAPE_MESSAGE,
   parseCaptionPatch,
+  parseDeleteQuery,
   parseRegenerateBody,
+  parseUndoBody,
 } from '@/lib/captions/requests'
 import { modelKeyMessage } from '@/lib/models/requests'
 
@@ -165,6 +169,50 @@ describe('parseRegenerateBody (FR-11, 039 D12)', () => {
         error: modelKeyMessage(),
         code: 'MODEL_NOT_ALLOWED',
       })
+    }
+  })
+})
+
+// ── 039 T3: the undo body and the delete query (D14, D15) ────────────────────
+
+describe('parseUndoBody (039 D15)', () => {
+  it('takes { kind: "GENERAL" } or { channel }', () => {
+    expect(parseUndoBody({ kind: 'GENERAL' })).toEqual({ ok: true, value: { kind: 'GENERAL' } })
+    expect(parseUndoBody({ channel: 'LINKEDIN' })).toEqual({ ok: true, value: { kind: 'CURATED', channel: 'LINKEDIN' } })
+  })
+
+  it.each([
+    ['empty', {}],
+    ['both', { kind: 'GENERAL', channel: 'INSTAGRAM' }],
+    ['a wrong kind', { kind: 'CURATED' }],
+    ['WhatsApp', { channel: 'WHATSAPP' }],
+    ['an extra key', { channel: 'INSTAGRAM', text: 'x' }],
+    ['null', null],
+    ['a string', 'x'],
+  ])('%s is the shape error', (_n, raw) => {
+    const r = parseUndoBody(raw)
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect([UNDO_SHAPE_MESSAGE, CHANNEL_MESSAGE, "kind must be 'GENERAL'"]).toContain(r.error)
+  })
+})
+
+describe('parseDeleteQuery (039 D14)', () => {
+  const q = (s: string) => parseDeleteQuery(new URLSearchParams(s))
+
+  it('takes a curatable channel', () => {
+    expect(q('channel=INSTAGRAM')).toEqual({ ok: true, channel: 'INSTAGRAM' })
+    expect(q('channel=LINKEDIN')).toEqual({ ok: true, channel: 'LINKEDIN' })
+  })
+
+  it('refuses the general caption with its own code', () => {
+    for (const s of ['channel=GENERAL', 'kind=GENERAL', 'kind=GENERAL&channel=INSTAGRAM']) {
+      expect(q(s)).toEqual({ ok: false, error: GENERAL_NOT_DELETABLE_MESSAGE, code: 'general-not-deletable' })
+    }
+  })
+
+  it('anything else is the channel message', () => {
+    for (const s of ['', 'channel=', 'channel=WHATSAPP', 'channel=instagram', 'kind=CURATED']) {
+      expect(q(s)).toEqual({ ok: false, error: CHANNEL_MESSAGE })
     }
   })
 })

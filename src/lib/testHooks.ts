@@ -48,6 +48,7 @@ const FACT_VALUE_SENTINELS: ReadonlyArray<readonly [sentinel: string, value: str
 const FACT_HEADLINE_SENTINEL = '__MOCK_FACT_HEADLINE__'
 const FACT_HEADLINE_VALUE = '$49'
 const FACT_ERROR_SENTINEL = '__MOCK_FACT_ERROR__'
+const FAIL_CURATED_SENTINEL = '__FAIL_CURATED__'
 
 /**
  * Whether the facts check must fail for this topic (MOCK_AI only): the check's
@@ -72,11 +73,18 @@ export function shouldMockFactError(topic: string): boolean {
  * headline and the general caption). So a later regenerate of the dropped
  * caption succeeds, with no stored state. Deterministic: same input, same bytes.
  *
+ * 039 FR-21: `hasGeneral` (the prompt carried a general caption) adds "[from general]"
+ * to each curated caption; "__FAIL_CURATED__" in the topic omits every curated key.
+ *
  * 027: a fact sentinel in the topic (__MOCK_FACT_PRICE__ and the other three)
  * appends its invented value to the headline and to every caption;
  * __MOCK_FACT_HEADLINE__ appends one to the headline only.
  */
-export function buildMockCaptionReply(topic: string, targets: readonly CaptionTarget[]): string {
+export function buildMockCaptionReply(
+  topic: string,
+  targets: readonly CaptionTarget[],
+  { hasGeneral = false }: { hasGeneral?: boolean } = {},
+): string {
   const generation = targets.includes('HEADLINE') && targets.includes('GENERAL')
   const dropped = (target: CaptionTarget) => {
     const sentinel = DROP_CAPTION_SENTINELS[target]
@@ -96,7 +104,11 @@ export function buildMockCaptionReply(topic: string, targets: readonly CaptionTa
   }
   for (const s of CAPTION_REGISTRY) {
     if (!targets.includes(s.target) || dropped(s.target)) continue
-    reply[s.jsonKey] = withValues(`Mock ${s.label} caption [${topic}]`, values)
+    // 039 FR-21: __FAIL_CURATED__ omits every curated key, in any reply.
+    if (s.kind === 'CURATED' && topic.includes(FAIL_CURATED_SENTINEL)) continue
+    // A curate that was given the general caption says so.
+    const fromGeneral = s.kind === 'CURATED' && hasGeneral ? ' [from general]' : ''
+    reply[s.jsonKey] = withValues(`Mock ${s.label} caption [${topic}]${fromGeneral}`, values)
   }
 
   return [

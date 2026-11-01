@@ -92,3 +92,16 @@ describe('read boundary (FR-04)', () => {
     expect(hits).toEqual([])
   })
 })
+
+// 039 T3 (FR-10): the new caption routes query drafts, so each imports the module.
+describe('the caption delete and undo routes (039)', () => {
+  it.each(['src/app/api/drafts/[id]/captions/route.ts', 'src/app/api/drafts/[id]/captions/undo/route.ts'])(
+    '%s queries drafts and imports @/lib/authz/visibility',
+    (p) => {
+      const text = readFileSync(join(root, p), 'utf8')
+      expect(text).toMatch(/from '@\/lib\/authz\/visibility'/)
+      expect(text).toMatch(/prisma\.draft\./)
+      expect(breaksReadBoundary(text)).toBe(false)
+    },
+  )
+})

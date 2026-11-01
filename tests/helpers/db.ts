@@ -51,10 +51,11 @@ export const NO_DB_MSG =
   'Test DB not reachable from the runner (set DATABASE_URL or run with .env.test loaded)'
 
 /**
- * Seeds a CURATED caption row on a draft (039 T2): a post made before 039 has
- * Instagram and LinkedIn rows, and a curated caption is what the cases that
- * exercise a curated card edit, regenerate or hide. T3 makes them through the
- * route (curate); until then the test DB is the way. Returns the stored row.
+ * Seeds a CURATED caption row on a draft: a post made before 039 has Instagram
+ * and LinkedIn rows, and a legacy WhatsApp row or a PENDING or FAILED row is
+ * a state the route never leaves on its own. A case that only needs a live
+ * curated caption makes it through the route (`curate` in helpers/api.ts, 039
+ * T3). Returns the stored row.
  */
 export async function seedCuratedCaption(
   draftId: string,
@@ -66,4 +67,10 @@ export async function seedCuratedCaption(
   return prisma.draftCaption.create({
     data: { draftId, kind: 'CURATED', channel, text, status, failureReason: status === 'FAILED' ? 'missing' : null },
   })
+}
+
+/** Sets a brief's topic (039 T3): the mock sentinels (`__FAIL_CURATED__`, the fact values) live in it. */
+export async function setBriefTopic(briefId: string, topic: string) {
+  if (!prisma) throw new Error(NO_DB_MSG)
+  return prisma.brief.update({ where: { id: briefId }, data: { topic } })
 }

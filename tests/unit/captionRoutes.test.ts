@@ -21,6 +21,7 @@ const h = vi.hoisted(() => ({
   resolveModel: vi.fn(),
   writeCaptions: vi.fn(),
   trackHeadlineEdited: vi.fn(),
+  admit: vi.fn(),
 }))
 
 vi.mock('@/lib/prisma', () => ({ prisma: { draft: { findUnique: h.draftFindUnique } } }))
@@ -41,6 +42,8 @@ vi.mock('@/lib/storage/minio', () => ({ resolveExportUrl: async () => null }))
 vi.mock('@/lib/drafts/revisions', () => ({ COMMITTED_REVISION: {}, resolveNotAppliedOutcome: async () => null }))
 vi.mock('@/lib/renderedText/track', () => ({ trackHeadlineEdited: h.trackHeadlineEdited }))
 vi.mock('@/lib/captions/generate', () => ({ writeCaptions: h.writeCaptions }))
+// 039 D16: the per-user caption limit (its own unit suite is captionRateLimit).
+vi.mock('@/lib/captions/limits', () => ({ admitCaptionAction: h.admit }))
 // 008: the route resolves the CAPTION model before its claim. The I/O wrapper
 // is a spy; by default it runs the REAL pure decideModel on a policy the test
 // sets (API mode, so the credential is 'n/a'), so FR-09's tiers are exercised.
@@ -60,6 +63,7 @@ vi.mock('@/lib/drafts/draftActions', () => ({
   releaseDraftAction: h.releaseDraftAction,
 }))
 
+const { generalHashOf } = await import('@/lib/captions/generalHash')
 const { POST: regenerate } = await import('@/app/api/drafts/[id]/regenerate-copy/route')
 const { PATCH: patch } = await import('@/app/api/drafts/[id]/route')
 
@@ -107,6 +111,7 @@ beforeEach(() => {
   h.resolveModel.mockImplementation(async (surface: never, opts: { stamp?: string | null }) =>
     decideModel(surface, { stamp: opts.stamp, policy: policy as never, credential: 'n/a', mode: 'api' }),
   )
+  h.admit.mockReturnValue({ ok: true })
   h.draftFindUnique.mockResolvedValue(exportedDraft())
   h.resolveCopyProvider.mockResolvedValue({})
   h.loadDraftCaptions.mockResolvedValue(rows(null, null, 'g'))
@@ -140,12 +145,22 @@ describe('regenerate-copy — the body', () => {
     expect(h.claimCaptionAction).toHaveBeenCalledWith('d1', ['GENERAL'])
   })
 
-  it('a curated caption with no row is 404 caption-not-found until curate (T3), and claims nothing', async () => {
+  it('a curate with no row claims it (the claim creates the row) and runs (039 D12)', async () => {
     h.loadDraftCaptions.mockResolvedValue({ general: null, curated: [] })
     const res = await post(JSON.stringify({ channel: 'LINKEDIN' }))
-    expect(res.status).toBe(404)
-    expect(await res.json()).toEqual({ error: 'Caption not found', code: 'caption-not-found' })
+    expect(res.status).toBe(202)
+    expect(h.claimCaptionAction).toHaveBeenCalledWith('d1', ['LINKEDIN'])
+  })
+
+  it('is refused 429 with Retry-After over the limit, before anything is read for the claim (039 D16)', async () => {
+    h.admit.mockReturnValue({ ok: false, retryAfterSec: 42 })
+    const res = await post(JSON.stringify({ channel: 'LINKEDIN' }))
+    expect(res.status).toBe(429)
+    expect(res.headers.get('Retry-After')).toBe('42')
+    expect((await res.json()).code).toBe('rate-limited')
     expect(h.claimCaptionAction).not.toHaveBeenCalled()
+    expect(h.resolveModel).not.toHaveBeenCalled()
+    expect(h.startDraftAction).not.toHaveBeenCalled()
   })
 
   it('the settle event names the caption kind, channel and whether the row was created or replaced (039 D22, D25)', async () => {
@@ -333,6 +348,8 @@ describe('regenerate-copy — 008 FR-09 stamp tier, resolved before the claim', 
       // 027: the db default, then the post-style stamp (null: the brief has no style).
       undefined,
       null,
+      // 039 D4: no general caption on this post, so no source hash.
+      { generalHash: null },
     )
   })
 
@@ -393,5 +410,54 @@ describe('regenerate-copy — draft.headline_edited (030 FR-15)', () => {
   it('emits nothing when the settle wrote no headline', async () => {
     await post(JSON.stringify({ channel: 'LINKEDIN' }))
     expect(h.trackHeadlineEdited).not.toHaveBeenCalled()
+  })
+})
+
+// ── 039 T3 (D4, D12, D18): a curate writes from the post's general caption ──
+
+describe('regenerate-copy — a curate passes the general caption and stores its hash', () => {
+  beforeEach(() => {
+    h.startDraftAction.mockImplementation(async (_d: string, _u: string, _t: string, _a: unknown, work: () => Promise<unknown>) => {
+      await work()
+    })
+    h.writeCaptions.mockImplementation(async (_p: unknown, _b: unknown, targets: string[]) => ({
+      fields: Object.fromEntries(targets.map((t) => [t, { ok: true, text: `new ${t}` }])),
+      stamp: { model: 'm', substitutedFrom: null },
+    }))
+  })
+
+  const withGeneral = (over: Record<string, unknown> = {}) => {
+    const loaded = rows(null, null, 'g')
+    return { ...loaded, general: { ...loaded.general, text: 'The general caption', ...over } }
+  }
+  const briefPassed = () => h.writeCaptions.mock.calls[0][1] as { generalCaption?: string }
+  const extraPassed = () => h.settleCaptionAction.mock.calls[0][7]
+
+  it('hands the live READY general caption to the brief input and its hash to the settle', async () => {
+    h.loadDraftCaptions.mockResolvedValue(withGeneral())
+    await post(JSON.stringify({ channel: 'LINKEDIN' }))
+    expect(briefPassed().generalCaption).toBe('The general caption')
+    expect(extraPassed()).toEqual({ generalHash: generalHashOf('The general caption') })
+  })
+
+  it.each([
+    ['no general caption', { general: null, curated: [] }],
+    ['a deleted one', withGeneral({ deleted: true })],
+    ['a FAILED one', withGeneral({ status: 'FAILED' })],
+    ['an empty one', withGeneral({ text: '  ' })],
+  ])('passes nothing and stores a null hash with %s (D11)', async (_n, loaded) => {
+    h.loadDraftCaptions.mockResolvedValue(loaded)
+    await post(JSON.stringify({ channel: 'LINKEDIN' }))
+    expect(briefPassed()).not.toHaveProperty('generalCaption')
+    expect(extraPassed()).toEqual({ generalHash: null })
+  })
+
+  it('a general or headline regenerate passes no general caption', async () => {
+    h.loadDraftCaptions.mockResolvedValue(withGeneral())
+    await post(JSON.stringify({ kind: 'GENERAL' }))
+    expect(briefPassed()).not.toHaveProperty('generalCaption')
+    h.writeCaptions.mockClear()
+    await post(JSON.stringify({ headline: true }))
+    expect(briefPassed()).not.toHaveProperty('generalCaption')
   })
 })

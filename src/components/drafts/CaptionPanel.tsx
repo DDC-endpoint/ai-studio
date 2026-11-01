@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useId, useRef, useState } from 'react'
 import { toast } from 'sonner'
-import { Loader2, Check, AlertTriangle, Copy, Sparkles } from 'lucide-react'
+import { Loader2, Check, AlertTriangle, Copy, Sparkles, Trash2, Undo2 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { SectionHead } from '@/components/ui/SectionHead'
 import { Notice } from '@/components/ui/Notice'
@@ -10,6 +10,7 @@ import { ModelPicker } from '@/components/ui/ModelPicker'
 import { ICON } from '@/components/ui/atoms'
 import { apiFetch } from '@/lib/apiFetch'
 import { captionLength, captionSpec } from '@/lib/channels'
+import { checkCaptionRules, ruleMissText } from '@/lib/captions/rules'
 import type { DraftCaptionDetail } from '@/lib/api-types'
 import type { ModelKey } from '@/lib/models/catalogue'
 import { GeneratedWith } from './GeneratedWith'
@@ -66,6 +67,12 @@ export interface CaptionPanelProps {
   onRegenerate: (model?: ModelKey) => Promise<RegenerateResult>
   /** Called after an edit is saved, so the parent refetches the draft. */
   onSaved: () => void
+  /** 039 D15: one step of undo, on the server. Resolves once the refetch has landed. */
+  onUndo?: () => Promise<void>
+  /** 039 D14: delete this curated caption (it can be undone). Curated panels only. */
+  onDelete?: () => Promise<void>
+  /** The brand kit's website, for the Facebook link rule (039 D17). */
+  website?: string | null
   /** 038 D11: false for a member who is not the author or a team admin. The
    *  edit controls are not rendered and the text is read-only; Copy stays. */
   canEdit?: boolean
@@ -85,6 +92,9 @@ export function CaptionPanel({
   captionProviderIsClaude,
   onRegenerate,
   onSaved,
+  onUndo,
+  onDelete,
+  website = null,
   canEdit = true,
 }: CaptionPanelProps) {
   const spec = captionSpec(caption.target)
@@ -96,10 +106,13 @@ export function CaptionPanel({
   // A5) and a refused pick's 400 message.
   const [model, setModel] = useState<ModelKey | undefined>(undefined)
   const [modelError, setModelError] = useState<string | undefined>(undefined)
-  const pickModel = useCallback((next: ModelKey | undefined) => {
-    setModel(next)
-    setModelError(undefined)
-  }, [setModel, setModelError])
+  const pickModel = useCallback(
+    (next: ModelKey | undefined) => {
+      setModel(next)
+      setModelError(undefined)
+    },
+    [setModel, setModelError],
+  )
   const headingId = useId()
   const failureId = useId()
   const counterId = useId()
@@ -141,6 +154,14 @@ export function CaptionPanel({
     .filter(Boolean)
     .join(' ')
   const verb = value === '' ? 'Generate' : 'Regenerate'
+  // 039 FR-16: the rules this text misses, from the same pure check the server
+  // uses, so an edit clears a miss at once; and the values the facts check flagged
+  // in this caption.
+  const ruleMisses =
+    pending || value === '' ? [] : checkCaptionRules(spec, value, { website }).unmet
+  const flaggedValues =
+    caption.facts?.status === 'flagged' ? caption.facts.flagged.map((f) => f.value) : []
+  const [moving, setMoving] = useState(false)
 
   async function save() {
     if (saved || value === caption.text) {
@@ -170,6 +191,19 @@ export function CaptionPanel({
     if (!result.ok && result.modelError) setModelError(result.modelError)
   }
 
+  // Undo and Delete wait for a blur-save in flight, then run on the server (the
+  // answer is a refetch, so the new text arrives through the parent).
+  async function move(action: (() => Promise<void>) | undefined) {
+    if (!action) return
+    await flushSave()
+    setMoving(true)
+    try {
+      await action()
+    } finally {
+      setMoving(false)
+    }
+  }
+
   async function copy() {
     try {
       await navigator.clipboard.writeText(value)
@@ -180,10 +214,45 @@ export function CaptionPanel({
     }
   }
 
+  // 039 D14: a deleted caption shows only its name, "Deleted" and Undo.
+  if (caption.deleted) {
+    return (
+      <div>
+        <SectionHead level={3} title={title} id={headingId} className="mb-3">
+          {canEdit && onUndo && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => move(onUndo)}
+              disabled={locked || moving}
+              aria-label={`Undo ${noun}`}
+              title="Bring this caption back"
+            >
+              {moving ? <Loader2 {...ICON} className="animate-spin" /> : <Undo2 {...ICON} />} Undo
+            </Button>
+          )}
+        </SectionHead>
+        <p className="text-ui-sm text-fg-muted">Deleted</p>
+      </div>
+    )
+  }
+
   return (
     <div>
       <SectionHead level={3} title={title} id={headingId} className="mb-3">
         {canEdit && !pending && <SaveState saving={saving} saved={saved} />}
+        {canEdit && onUndo && caption.canUndo && !pending && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => move(onUndo)}
+            disabled={locked || moving}
+            aria-label={`Undo ${noun}`}
+            title="Restore the previous version of this caption"
+          >
+            {moving ? <Loader2 {...ICON} className="animate-spin" /> : <Undo2 {...ICON} />} Undo
+          </Button>
+        )}
         <Button
           variant="ghost"
           size="sm"
@@ -202,7 +271,20 @@ export function CaptionPanel({
             disabled={!ready || locked}
             aria-label={`${verb} ${noun}`}
           >
-            {pending ? <Loader2 {...ICON} className="animate-spin" /> : <Sparkles {...ICON} />} {verb}
+            {pending ? <Loader2 {...ICON} className="animate-spin" /> : <Sparkles {...ICON} />}{' '}
+            {verb}
+          </Button>
+        )}
+        {canEdit && onDelete && !pending && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => move(onDelete)}
+            disabled={locked || moving}
+            aria-label={`Delete ${noun}`}
+            title="Delete this caption (you can undo it)"
+          >
+            <Trash2 {...ICON} /> Delete
           </Button>
         )}
       </SectionHead>
@@ -267,7 +349,7 @@ export function CaptionPanel({
               {counter}
             </span>
           </div>
-          {/* Never blocks the save: a hard limit is enforced at publish (FR-14). */}
+          {/* Never blocks the save: a hard limit is only a warning here. */}
           {warning && (
             <p
               id={warningId}
@@ -275,6 +357,22 @@ export function CaptionPanel({
             >
               {warning}
             </p>
+          )}
+          {/* 039 FR-16: the rules this text misses and the values it states that the
+              sources don't; muted, never blocking, and gone once the text is fixed. */}
+          {ruleMisses.map((miss) => (
+            <Notice key={miss} tone="neutral" className="mt-2" data-testid="caption-rule">
+              {ruleMissText(spec, miss, value, website)}
+            </Notice>
+          ))}
+          {flaggedValues.length > 0 && (
+            <Notice tone="warning" className="mt-2" data-testid="caption-facts">
+              Not in your sources:{' '}
+              <span className="font-semibold tabular-nums break-all">
+                {flaggedValues.join(', ')}
+              </span>
+              .
+            </Notice>
           )}
         </>
       )}
@@ -284,7 +382,11 @@ export function CaptionPanel({
           belong to text since cleared), then this channel's regenerate model,
           pre-selected from that stamp (FR-09). */}
       {!pending && caption.status !== 'FAILED' && (
-        <GeneratedWith stamp={caption.model} substitutedFrom={caption.modelSubstitutedFrom} className="mt-2" />
+        <GeneratedWith
+          stamp={caption.model}
+          substitutedFrom={caption.modelSubstitutedFrom}
+          className="mt-2"
+        />
       )}
       {canEdit && ready && (
         <ModelPicker

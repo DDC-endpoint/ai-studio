@@ -551,3 +551,45 @@ describe('027 fact sentinels in buildMockCaptionReply', () => {
     expect(off.shouldMockFactError('x __MOCK_FACT_ERROR__')).toBe(false)
   })
 })
+
+// ── 039 T3 (FR-21): the curate seams ─────────────────────────────────────────
+
+describe('buildMockCaptionReply — curate (039 FR-21)', () => {
+  it('"[from general]" appears in a curated caption only when the prompt carried the general caption', async () => {
+    const hooks = await loadHooks()
+    const { extractCaptionReply } = await import('@/lib/captions/extract')
+    const text = (opts?: { hasGeneral?: boolean }) => {
+      const r = extractCaptionReply(hooks.buildMockCaptionReply('Launch', ['INSTAGRAM'], opts), ['INSTAGRAM'])
+      return r.ok && r.fields.INSTAGRAM?.ok ? r.fields.INSTAGRAM.text : null
+    }
+    expect(text({ hasGeneral: true })).toBe('Mock Instagram caption [Launch] [from general]')
+    expect(text({ hasGeneral: false })).toBe('Mock Instagram caption [Launch]')
+    expect(text()).toBe('Mock Instagram caption [Launch]')
+  })
+
+  it('the general caption never carries the marker, whatever hasGeneral says', async () => {
+    const hooks = await loadHooks()
+    expect(hooks.buildMockCaptionReply('Launch', ['GENERAL'], { hasGeneral: true })).not.toContain('[from general]')
+  })
+
+  it('each curated key it is asked for is answered', async () => {
+    const hooks = await loadHooks()
+    const { extractCaptionReply } = await import('@/lib/captions/extract')
+    const both = extractCaptionReply(hooks.buildMockCaptionReply('t', ['INSTAGRAM', 'LINKEDIN'], { hasGeneral: true }), [
+      'INSTAGRAM',
+      'LINKEDIN',
+    ])
+    expect(both.ok && both.fields.INSTAGRAM?.ok && both.fields.LINKEDIN?.ok).toBe(true)
+  })
+
+  it('__FAIL_CURATED__ omits every curated key in any reply and leaves the general caption and headline', async () => {
+    const hooks = await loadHooks()
+    const { extractCaptionReply } = await import('@/lib/captions/extract')
+    const targets = ['HEADLINE', 'GENERAL', 'INSTAGRAM', 'LINKEDIN'] as const
+    const r = extractCaptionReply(hooks.buildMockCaptionReply('t __FAIL_CURATED__', targets, { hasGeneral: true }), targets)
+    expect(r.ok && r.fields.INSTAGRAM).toEqual({ ok: false, reason: 'missing' })
+    expect(r.ok && r.fields.LINKEDIN).toEqual({ ok: false, reason: 'missing' })
+    expect(r.ok && r.fields.GENERAL?.ok).toBe(true)
+    expect(r.ok && r.fields.HEADLINE?.ok).toBe(true)
+  })
+})
