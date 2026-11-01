@@ -4,7 +4,7 @@ import type { CaptionTarget } from "@/lib/channels"
 import type { ResolvedModel } from "@/lib/models/resolve"
 import type { CaptionRoute } from "@/lib/models/route"
 import { createMessage, textOf } from "@/lib/models/anthropicCall"
-import { buildCaptionPrompt, CAPTION_MAX_TOKENS } from "@/lib/agent/prompts/caption"
+import { buildCaptionPrompt, captionMaxTokens } from "@/lib/agent/prompts/caption"
 
 export class AnthropicCopyProvider implements CopyProvider {
   private client: Anthropic
@@ -27,7 +27,7 @@ export class AnthropicCopyProvider implements CopyProvider {
     const response = await createMessage(
       this.client,
       {
-        max_tokens: CAPTION_MAX_TOKENS,
+        max_tokens: captionMaxTokens(targets),
         system: prompt.system,
         messages: [{ role: "user", content: prompt.user }],
       },

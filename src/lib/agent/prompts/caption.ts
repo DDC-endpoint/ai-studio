@@ -9,7 +9,7 @@
 // is why the prompt asks for one JSON object with exactly these keys.
 
 import type { BriefInput } from '@/providers/interfaces/CopyProvider'
-import { CAPTION_CHANNELS, type CaptionTarget } from '@/lib/channels'
+import { CAPTION_CHANNELS, captionSpec, type CaptionTarget } from '@/lib/channels'
 import { captionReplyKeys } from '@/lib/captions/extract'
 import { HEADLINE_MAX } from '@/lib/captions/headline'
 import { derivedPromptVersion } from '@/lib/postStyles'
@@ -21,9 +21,15 @@ import { derivedPromptVersion } from '@/lib/postStyles'
 export const CAPTION_PROMPT_VERSION_BASE = '2026-11-01.1'
 export const CAPTION_PROMPT_VERSION = derivedPromptVersion(CAPTION_PROMPT_VERSION_BASE)
 
-// Room for two captions plus a headline, including non-Latin scripts at about
-// one token per character.
-export const CAPTION_MAX_TOKENS = 8192
+// Room for the requested targets, including non-Latin scripts at about one
+// token per character: 512 of overhead, plus the headline's cap and each
+// caption's hard limit (039 D18, so the budget follows the registry).
+export function captionMaxTokens(targets: readonly CaptionTarget[]): number {
+  return targets.reduce(
+    (sum, t) => sum + (t === 'HEADLINE' ? HEADLINE_MAX : captionSpec(t).hardLimit),
+    512,
+  )
+}
 
 export interface CaptionPrompt {
   system: string
@@ -53,8 +59,7 @@ export function buildCaptionPrompt(brief: BriefInput, targets: readonly CaptionT
     )
   }
   for (const s of channels) {
-    const length = s.hardLimit !== null ? `At most ${count(s.hardLimit)} characters.` : ''
-    bullets.push(`- "${s.jsonKey}" (${s.label}): ${s.brief}${length ? ` ${length}` : ''}`)
+    bullets.push(`- "${s.jsonKey}" (${s.label}): ${s.brief} At most ${count(s.hardLimit)} characters.`)
   }
 
   // 027 FR-09: the post style's caption rules, after Tone and before the task.

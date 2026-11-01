@@ -83,6 +83,7 @@ function fake(state: FakeState): RefreshDeps {
       ({
         captions: state.captions.map((c) => ({
           ...c,
+          target: c.channel,
           failureReason: null,
           updatedAt: new Date(),
           model: null,

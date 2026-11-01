@@ -135,6 +135,7 @@ vi.mock('@/lib/captions/store', () => ({
   loadDraftCaptions: async () => ({
     captions: ['INSTAGRAM', 'LINKEDIN'].map((channel) => ({
       channel,
+      target: channel,
       model: 'claude-sonnet-5-5',
     })),
   }),

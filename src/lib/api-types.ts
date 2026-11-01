@@ -11,6 +11,7 @@ import type { BackgroundSkipped } from '@/lib/drafts/backgroundNotice'
 import type { ImageSourceNotice } from '@/lib/drafts/imageSourceNotice'
 import type { FontNotice } from '@/lib/drafts/fontNotice'
 import type { CompositionNotice } from '@/lib/drafts/compositionNotice'
+import type { CaptionTarget } from '@/lib/channels'
 import type { FactsCheck } from '@/lib/factsCheck/types'
 import type { CompositionStamp } from '@/lib/designData'
 import type { ModelKey, ModelSpeed, ModelTier, UserSurface } from '@/lib/models/catalogue'
@@ -271,7 +272,13 @@ export interface DraftNotApplied {
 // One channel's caption (012 FR-13). `failureReason` is set when the last write
 // failed, including a failed regenerate that kept good text READY (A7).
 export interface DraftCaptionDetail {
-  channel: Channel
+  // 039 D1: the general caption has no channel; `target` is its registry key.
+  kind: 'GENERAL' | 'CURATED'
+  channel: Channel | null
+  target: Exclude<CaptionTarget, 'HEADLINE'>
+  // 039 D14, D15: a soft-deleted curated caption, and a readable undo snapshot.
+  deleted: boolean
+  canUndo: boolean
   text: string
   status: 'PENDING' | 'READY' | 'FAILED'
   failureReason: string | null

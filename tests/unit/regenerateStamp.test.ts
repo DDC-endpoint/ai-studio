@@ -20,7 +20,7 @@ const targets = (body: unknown) => {
   return parsed.value.targets
 }
 const draft = (stamps: (string | null)[], headlineModel: string | null = null) => ({
-  captions: ALL_CHANNELS.map((channel, i) => ({ channel, model: stamps[i] ?? null })),
+  captions: ALL_CHANNELS.map((target, i) => ({ target, model: stamps[i] ?? null })),
   headlineModel,
 })
 
@@ -66,8 +66,8 @@ describe('regenerateStampTier — AC-06', () => {
     const d = {
       ...draft([]),
       captions: [
-        { channel: 'INSTAGRAM' as Channel, model: H },
-        { channel: 'LINKEDIN' as Channel, model: O },
+        { target: 'INSTAGRAM' as Channel, model: H },
+        { target: 'LINKEDIN' as Channel, model: O },
       ],
     }
     expect(regenerateStampTier(targets({ channel: 'LINKEDIN' }), d)).toBe(O)

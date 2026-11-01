@@ -11,7 +11,7 @@ import { checkFacts, factsCheckError } from './compare'
 import { postContext, type PostContext } from '@/lib/projects/context'
 import { loadFactsSources, type FactsBrief } from './sources'
 import { shouldMockFactError } from '@/lib/testHooks'
-import { MAX_REASON_CHARS, type CheckText, type FactWhere, type FactsCheck } from './types'
+import { MAX_REASON_CHARS, type CheckText, type FactsCheck } from './types'
 
 export interface RefreshDeps {
   db: PrismaClient
@@ -96,7 +96,7 @@ export async function refreshFactsCheck(
     if (draft.headline) texts.push({ where: 'headline', text: draft.headline })
     for (const row of loaded?.captions ?? [])
       if (row.status === 'READY' && row.text)
-        texts.push({ where: row.channel as FactWhere, text: row.text })
+        texts.push({ where: row.target, text: row.text })
     throwIfMockFactError(draft.brief.topic)
     const ctx = await deps.loadContext(draft)
     const sources = await deps.loadSources(draft.brief, ctx)

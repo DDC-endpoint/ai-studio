@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest'
 import type { ResolvedBrandKit } from '@/lib/brandkit/resolve'
 import { buildPathBSystemPrompt, buildPathBUserMessage } from '@/lib/agent/prompts/pathB'
 import { buildPathASystemPrompt, buildPathAUserMessage } from '@/lib/agent/prompts/pathA'
-import { buildCaptionPrompt, CAPTION_MAX_TOKENS, CAPTION_PROMPT_VERSION } from '@/lib/agent/prompts/caption'
+import { buildCaptionPrompt, captionMaxTokens, CAPTION_PROMPT_VERSION } from '@/lib/agent/prompts/caption'
 import { buildBackgroundDecisionPrompt } from '@/lib/agent/prompts/background'
 import { onImageHeadline, placeholderNote, SCRIPT_SUPPORT_NOTE, PROMPT_VERSION } from '@/lib/agent/prompts/shared'
 import { UNTRUSTED_CONTENT_GUARD } from '@/lib/agent/untrusted'
@@ -338,7 +338,9 @@ describe('buildCaptionPrompt (012 FR-07)', () => {
     expect(CAPTION_PROMPT_VERSION).toMatch(/^\d{4}-\d{2}-\d{2}\.\d+\+ps\d+$/)
     // 2026-10-25.1: post styles (027): derived from the post-style dataset.
     expect(CAPTION_PROMPT_VERSION).toBe(`2026-11-01.1+ps${POST_STYLES_REVISION}`)
-    expect(CAPTION_MAX_TOKENS).toBe(8192)
+    // 039 D18: 512 + the headline cap + each caption's hard limit, from the registry
+    expect(captionMaxTokens(['HEADLINE', 'INSTAGRAM', 'LINKEDIN'])).toBe(512 + 100 + 2200 + 3000)
+    expect(captionMaxTokens(['HEADLINE', 'GENERAL'])).toBe(2812)
   })
 
   it('a test registry with a changed limit changes the prompt text (AC-01)', async () => {

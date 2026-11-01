@@ -190,7 +190,7 @@ async function ensureTeamFixtures(teamId, teamLabel, ownerId, { kitIsDefault = f
           briefId: brief.id,
           // A native (post-012) draft: a headline and one READY caption per
           // channel, so nothing here is legacy and the loader never migrates
-          // it. The labels mirror src/lib/channels.ts CAPTION_CHANNELS.
+          // it. The labels mirror src/lib/channels.ts CAPTION_REGISTRY.
           headline: topic,
           captions: {
             create: [
@@ -198,6 +198,7 @@ async function ensureTeamFixtures(teamId, teamLabel, ownerId, { kitIsDefault = f
               ["LINKEDIN", "LinkedIn"],
               ["WHATSAPP", "WhatsApp"],
             ].map(([channel, label]) => ({
+              kind: "CURATED",
               channel,
               text: `${topic} — seeded fixture ${label} caption.`,
               status: "READY",

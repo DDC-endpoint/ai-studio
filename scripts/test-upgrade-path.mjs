@@ -50,6 +50,10 @@ const REMOVE_PUBLISHING = '20261031120000_remove_scheduling_publishing' // 037
 const GUARD_038_PREFIX = '038 drop_campaigns refused:'
 const PRE_038 = '20261101120000_project_inputs' // the migration before 038's drop
 const DROP_CAMPAIGNS = '20261101130000_drop_campaigns' // 038
+const GUARD_039_PREFIX = '039 rollback refused:'
+const PRE_039 = '20261101130000_drop_campaigns' // the migration before 039
+const CAPTION_KIND = '20261102120000_caption_kind' // 039
+const DOWN_039 = 'prisma/rollback/039-general-and-curated-captions.down.sql'
 const PERSONAL_KEY_MIGRATION = '20261028120000_personal_image_key_provider' // 031 C
 
 // Scenario 3's sabotage: one exact replacement in the carry-over's INSERT, so
@@ -117,7 +121,7 @@ const ALL_MIGRATIONS = readdirSync(MIGRATIONS_DIR, { withFileTypes: true })
   .map((d) => d.name)
   .sort()
 
-for (const name of [MAIN_HEAD, PRE_CARRYOVER, CARRYOVER, DROP_LEGACY, DROP_TEAM, PERSONAL_KEY_MIGRATION, PRE_037, REMOVE_PUBLISHING, PRE_038, DROP_CAMPAIGNS]) {
+for (const name of [MAIN_HEAD, PRE_CARRYOVER, CARRYOVER, DROP_LEGACY, DROP_TEAM, PERSONAL_KEY_MIGRATION, PRE_037, REMOVE_PUBLISHING, PRE_038, DROP_CAMPAIGNS, PRE_039, CAPTION_KIND]) {
   if (!ALL_MIGRATIONS.includes(name)) {
     console.error(`FAIL setup: migration ${name} not found in prisma/migrations`)
     process.exit(1)
@@ -187,6 +191,9 @@ function runClearCampaigns(args) {
   })
   return { status: res.status, output: `${res.stdout ?? ''}${res.stderr ?? ''}` }
 }
+
+// A SQL file run against the scratch database only (the URL is explicit).
+const runDbExecute = (file) => runPrisma(['db', 'execute', '--file', file, '--url', SCRATCH_URL])
 
 const deployFull = () => runPrisma(['migrate', 'deploy', '--schema', SCHEMA])
 
@@ -653,6 +660,156 @@ async function scenario5() {
   }
 }
 
+// SQLSTATE of a failed raw statement: Prisma carries it in meta.code (P2010), or
+// in the message text.
+function sqlState(err) {
+  return String(err?.meta?.code ?? err?.message?.match(/\b(2[0-9]{4})\b/)?.[1] ?? '')
+}
+
+// Runs one raw statement that must fail, and returns its SQLSTATE ('' = it did not fail).
+async function failingState(sql, ...params) {
+  try {
+    await db.$executeRawUnsafe(sql, ...params)
+    return ''
+  } catch (err) {
+    return sqlState(err)
+  }
+}
+
+async function scenario6() {
+  const failures = []
+  const check = (ok, msg) => {
+    if (!ok) failures.push(msg)
+  }
+
+  await freshScratch()
+  mustDeploy('to the migration before 039', deployFromTemp(upTo(PRE_039)))
+  await seedMainBase()
+  await db.$executeRaw`
+    INSERT INTO "Brief" ("id", "teamId", "userId", "topic", "goal", "tone", "channels", "designMode", "copyProviderKey")
+    VALUES ('upg_cap_brief', ${TEAM}, ${USER}, 'Caption post', 'awareness', 'friendly',
+            ARRAY['INSTAGRAM']::"Channel"[], 'GENERATE'::"DesignMode", 'cli')`
+  await db.$executeRaw`
+    INSERT INTO "Draft" ("id", "teamId", "briefId", "headline", "status", "htmlContent", "exportUrl", "currentRevisionNumber")
+    VALUES ('upg_cap_draft', ${TEAM}, 'upg_cap_brief', 'Caption post', 'EXPORTED'::"DraftStatus",
+            '<!doctype html><html><body>x</body></html>', 'exports/upg_cap_draft.png', 1)`
+  const seedRows = [
+    ['upg_cap_ig', 'INSTAGRAM', 'IG text', 'READY'],
+    ['upg_cap_li', 'LINKEDIN', '', 'FAILED'],
+    ['upg_cap_wa', 'WHATSAPP', 'WA text', 'READY'],
+  ]
+  for (const [id, channel, text, status] of seedRows) {
+    await db.$executeRawUnsafe(
+      `INSERT INTO "DraftCaption" ("id", "draftId", "channel", "text", "status", "updatedAt")
+       VALUES ($1, 'upg_cap_draft', $2::"Channel", $3, $4::"CaptionStatus", now())`,
+      id,
+      channel,
+      text,
+      status,
+    )
+  }
+  const before = await db.$queryRawUnsafe(
+    `SELECT "id", "channel"::text AS channel, "text", "status"::text AS status FROM "DraftCaption" ORDER BY "id"`,
+  )
+
+  // 039 AC-01: head deploys over the old rows.
+  mustDeploy('full deploy to head', deployFull())
+  const rows = await db.$queryRawUnsafe(
+    `SELECT "id", "kind"::text AS kind, "channel"::text AS channel, "text", "status"::text AS status,
+            "deletedAt", "previous", "generalHash" FROM "DraftCaption" ORDER BY "id"`,
+  )
+  check(rows.length === 3, `expected 3 caption rows at head, got ${rows.length}`)
+  check(rows.every((r) => r.kind === 'CURATED'), 'a migrated row is not CURATED')
+  check(
+    json(rows.map(({ id, channel, text, status }) => ({ id, channel, text, status }))) === json(before),
+    'a migrated row changed its channel, text or status',
+  )
+  check(
+    rows.every((r) => r.deletedAt === null && r.previous === null && r.generalHash === null),
+    'a migrated row has deletedAt, previous or generalHash set',
+  )
+  check(rows.filter((r) => r.kind === 'GENERAL').length === 0, 'a GENERAL row exists for an old post')
+  check(
+    (await failingState(
+      `INSERT INTO "DraftCaption" ("id", "draftId", "kind", "channel", "text", "status", "updatedAt")
+       VALUES ('upg_cap_ig2', 'upg_cap_draft', 'CURATED'::"CaptionKind", 'INSTAGRAM'::"Channel", '', 'READY'::"CaptionStatus", now())`,
+    )) === '23505',
+    'a second CURATED Instagram row did not fail with 23505',
+  )
+  const general = `INSERT INTO "DraftCaption" ("id", "draftId", "kind", "channel", "text", "status", "deletedAt", "updatedAt")
+       VALUES ($1, 'upg_cap_draft', 'GENERAL'::"CaptionKind", $2::"Channel", 'General text', 'READY'::"CaptionStatus", $3::timestamp, now())`
+  check((await failingState(general, 'upg_cap_g_ch', 'INSTAGRAM', null)) === '23514', 'a GENERAL row with a channel did not fail with 23514')
+  check(
+    (await failingState(general, 'upg_cap_g_del', null, '2026-11-02T00:00:00Z')) === '23514',
+    'a GENERAL row with deletedAt did not fail with 23514',
+  )
+  check((await failingState(general, 'upg_cap_g1', null, null)) === '', 'the first GENERAL row failed')
+  check((await failingState(general, 'upg_cap_g2', null, null)) === '23505', 'a second GENERAL row did not fail with 23505')
+  try {
+    const read = await db.draftCaption.findMany({ where: { draftId: 'upg_cap_draft' } })
+    check(read.length === 4, `head client: expected 4 caption rows, read ${read.length}`)
+  } catch (err) {
+    failures.push(`head client read failed: ${err.message}`)
+  }
+  const diff1 = runPrisma(['migrate', 'diff', '--from-url', SCRATCH_URL, '--to-schema-datamodel', SCHEMA, '--exit-code'])
+  check(diff1.status === 0, `prisma migrate diff (head) exited ${diff1.status}:\n${diff1.output}`)
+
+  // 039 AC-25: the down script fails closed, then runs with the flag.
+  const snapshot = async () =>
+    json(await db.$queryRawUnsafe(`SELECT * FROM "DraftCaption" ORDER BY "id"`)) +
+    json(await db.$queryRawUnsafe(`SELECT column_name FROM information_schema.columns WHERE table_name = 'DraftCaption' ORDER BY column_name`))
+  const beforeRefusal = await snapshot()
+  const refused = runDbExecute(DOWN_039)
+  check(refused.status !== 0, 'the down script ran while a general caption existed')
+  check(refused.output.includes(GUARD_039_PREFIX), `the 039 message is missing:\n${refused.output}`)
+  check(
+    /1 general captions, 0 Facebook captions, 0 deleted captions, 0 brand kits with a website/.test(refused.output),
+    `the 039 message does not carry the counts:\n${refused.output}`,
+  )
+  check((await snapshot()) === beforeRefusal, 'the refused down script changed a row or a column')
+
+  const tmp = mkdtempSync(join(tmpdir(), 'bistec-down039-'))
+  tempDirs.add(tmp)
+  let flagged
+  try {
+    const file = join(tmp, 'down.sql')
+    writeFileSync(file, `SET app.allow_caption_loss = 'on';\n${readFileSync(join(ROOT, DOWN_039), 'utf8')}`)
+    flagged = runDbExecute(file)
+  } finally {
+    rmSync(tmp, { recursive: true, force: true })
+    tempDirs.delete(tmp)
+  }
+  check(flagged.status === 0, `the flagged down script exited ${flagged.status}:\n${flagged.output}`)
+  const after = await db.$queryRawUnsafe(
+    `SELECT "id", "channel"::text AS channel, "text", "status"::text AS status FROM "DraftCaption" ORDER BY "id"`,
+  )
+  check(json(after) === json(before), 'after the down script the rows are not the three originals')
+  for (const c of ['kind', 'previous', 'deletedAt', 'generalHash']) {
+    check(!(await columnExists('DraftCaption', c)), `DraftCaption.${c} still exists after the down script`)
+  }
+  const [{ nullable }] = await db.$queryRawUnsafe(
+    `SELECT is_nullable AS nullable FROM information_schema.columns WHERE table_name = 'DraftCaption' AND column_name = 'channel'`,
+  )
+  check(nullable === 'NO', 'DraftCaption.channel is nullable after the down script')
+  const [{ idx }] = await db.$queryRawUnsafe(
+    `SELECT count(*)::int AS idx FROM pg_indexes WHERE indexname = 'DraftCaption_draftId_channel_key'`,
+  )
+  check(idx === 1, 'DraftCaption_draftId_channel_key is missing after the down script')
+  const migrations = await migrationRows()
+  check(!migrations.has(CAPTION_KIND), 'the caption_kind migration row survived the down script')
+
+  // 039 AC-25 step 4: head deploys again, and the schema still matches.
+  mustDeploy('redeploy of head after the down script', deployFull())
+  check(await columnExists('DraftCaption', 'kind'), 'DraftCaption.kind is missing after the redeploy')
+  const diff2 = runPrisma(['migrate', 'diff', '--from-url', SCRATCH_URL, '--to-schema-datamodel', SCHEMA, '--exit-code'])
+  check(diff2.status === 0, `prisma migrate diff (redeploy) exited ${diff2.status}:\n${diff2.output}`)
+
+  return {
+    failures,
+    detail: `039: old rows became CURATED unchanged, the partial indexes and both CHECKs bit (23505, 23514), the head client read OK, migrate diff exit ${diff1.status}; the down script refused with the counts and changed nothing, ran with the flag (exit ${flagged?.status}), head redeployed, migrate diff exit ${diff2.status}`,
+  }
+}
+
 // ── Main ─────────────────────────────────────────────────────────────────────
 
 async function main() {
@@ -667,6 +824,7 @@ async function main() {
       ['scenario 3 (content guard bites, atomically)', scenario3],
       ['scenario 4 (031: a pre-existing personal image key resolves as openai)', scenario4],
       ['scenario 5 (038: the campaign drop fails closed, then recovers)', scenario5],
+      ['scenario 6 (039: the caption kind, its constraints, and the fail-closed down script)', scenario6],
     ]) {
       const t0 = Date.now()
       let result

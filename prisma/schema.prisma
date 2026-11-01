@@ -53,6 +53,13 @@ enum Channel {
 // writing it now; READY = validated model output or the user's own text (may
 // be empty); FAILED = the last attempt produced no usable text AND the row has
 // none — the DraftCaption_failed_has_no_text CHECK constraint enforces that.
+// 039 D1: a caption is the one general caption of a post, or a curated caption
+// for one channel. GENERAL has no channel (CHECK DraftCaption_kind_channel).
+enum CaptionKind {
+  GENERAL
+  CURATED
+}
+
 enum CaptionStatus {
   PENDING
   READY
@@ -727,7 +734,9 @@ model DraftCaption {
   id            String        @id @default(cuid())
   draftId       String
   draft         Draft         @relation(fields: [draftId], references: [id], onDelete: Cascade)
-  channel       Channel
+  // 039 D1: GENERAL has no channel; CURATED has one (CHECK DraftCaption_kind_channel).
+  kind          CaptionKind
+  channel       Channel?
   text          String        @default("") @db.Text
   status        CaptionStatus @default(PENDING)
   // Why the last write attempt for this channel failed — also set on a failed
@@ -744,10 +753,20 @@ model DraftCaption {
   // OTHER), as TEXT, beside model. Written only with validated text. Null =
   // before 024, or no text.
   route                String?
+  // 039 D14: soft delete (CURATED only; CHECK DraftCaption_general_not_deleted).
+  deletedAt     DateTime?
+  // 039 D4/D15: the one-step undo snapshot (src/lib/captions/undo.ts).
+  previous      Json?
+  // 039 D4: hash of the general caption a CURATED row was written from; null = none.
+  generalHash   String?
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @default(now()) @updatedAt
 
-  @@unique([draftId, channel])
+  // Uniqueness is two PARTIAL unique indexes, which Prisma does not model
+  // (migration 20261102120000_caption_kind; precedent: Team_name_active_key):
+  //   DraftCaption_draftId_general_key         ("draftId")            WHERE kind = 'GENERAL'
+  //   DraftCaption_draftId_channel_curated_key ("draftId","channel")  WHERE kind = 'CURATED'
+  // Lookups use findFirst({ draftId, kind, channel }), never findUnique.
   @@index([draftId])
 }
 

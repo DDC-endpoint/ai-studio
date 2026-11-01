@@ -209,8 +209,8 @@ describe('regenerate-copy — 008 FR-09 stamp tier, resolved before the claim', 
   function rows(ig: string | null, li: string | null) {
     return {
       captions: [
-        { channel: 'INSTAGRAM', text: 'ig', status: 'READY', model: ig, modelSubstitutedFrom: null },
-        { channel: 'LINKEDIN', text: 'li', status: 'READY', model: li, modelSubstitutedFrom: null },
+        { channel: 'INSTAGRAM', target: 'INSTAGRAM', text: 'ig', status: 'READY', model: ig, modelSubstitutedFrom: null },
+        { channel: 'LINKEDIN', target: 'LINKEDIN', text: 'li', status: 'READY', model: li, modelSubstitutedFrom: null },
       ],
     }
   }

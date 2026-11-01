@@ -86,10 +86,16 @@ const LI_TEXT = 'LinkedIn caption, longer and more formal.'
 // A legacy row (026): the loader must hide it.
 const WA_TEXT = 'WhatsApp *caption*'
 
-type Row = { channel: Channel; text: string; status: 'PENDING' | 'READY' | 'FAILED'; failureReason: string | null }
+type Row = {
+  kind: 'CURATED'
+  channel: Channel
+  text: string
+  status: 'PENDING' | 'READY' | 'FAILED'
+  failureReason: string | null
+}
 
 function row(channel: Channel, text: string, over: Partial<Row> = {}): Row {
-  return { channel, text, status: 'READY', failureReason: null, ...over }
+  return { kind: 'CURATED', channel, text, status: 'READY', failureReason: null, ...over }
 }
 
 let rows: Row[]

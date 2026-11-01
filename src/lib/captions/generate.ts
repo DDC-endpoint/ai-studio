@@ -8,7 +8,7 @@
 // network) is not a reply and propagates to the caller unchanged.
 
 import type { BriefInput, CopyProvider } from '@/providers/interfaces/CopyProvider'
-import { CAPTION_CHANNELS, type CaptionTarget } from '@/lib/channels'
+import type { CaptionTarget } from '@/lib/channels'
 import { extractCaptionReply, type FieldResult } from '@/lib/captions/extract'
 import { CAPTION_PROMPT_VERSION } from '@/lib/agent/prompts/caption'
 import type { ResolvedModel } from '@/lib/models/resolve'
@@ -16,11 +16,9 @@ import type { CaptionStamp } from '@/lib/captions/store'
 
 export type CaptionFields = Partial<Record<CaptionTarget, FieldResult>>
 
-// What a generation asks for: the headline and every registry channel (A5).
-export const GENERATION_TARGETS: readonly CaptionTarget[] = [
-  'HEADLINE',
-  ...CAPTION_CHANNELS.map((s) => s.channel),
-]
+// What a generation asks for. Written out: 039 T2 switches this to the
+// headline and the general caption.
+export const GENERATION_TARGETS: readonly CaptionTarget[] = ['HEADLINE', 'INSTAGRAM', 'LINKEDIN']
 
 // How much discarded model text a log line carries.
 const DISCARDED_LOG_MAX = 500

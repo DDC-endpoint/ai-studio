@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { factsNoticeFor, ERROR_MESSAGE } from '@/lib/drafts/factsCheckNotice'
-import type { FactsCheck } from '@/lib/factsCheck/types'
+import { FACT_WHERE, type FactsCheck } from '@/lib/factsCheck/types'
 
 const at = '2026-10-24T00:00:00.000Z'
 
@@ -31,5 +31,28 @@ describe('factsNoticeFor', () => {
     expect(factsNoticeFor({ v: 1, status: 'flagged', checkedAt: at, flagged: [] })).toBeNull()
     expect(factsNoticeFor(null)).toBeNull()
     expect(factsNoticeFor(undefined)).toBeNull()
+  })
+})
+
+describe('factsNoticeFor labels (039 AC-03)', () => {
+  it('every FACT_WHERE value has a label, and the general caption is named', () => {
+    for (const where of FACT_WHERE) {
+      const n = factsNoticeFor({
+        v: 1,
+        status: 'flagged',
+        checkedAt: at,
+        flagged: [{ kind: 'num', value: '7', where }],
+      })
+      const label = n?.status === 'flagged' ? n.items[0].where : undefined
+      expect(label, where).toBeTruthy()
+      if (where !== 'headline') expect(label, where).toMatch(/ caption$/)
+    }
+    const general = factsNoticeFor({
+      v: 1,
+      status: 'flagged',
+      checkedAt: at,
+      flagged: [{ kind: 'cur', value: '$49', where: 'GENERAL' }],
+    })
+    expect(general?.message).toContain('$49 (general caption)')
   })
 })

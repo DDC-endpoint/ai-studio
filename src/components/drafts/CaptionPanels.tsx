@@ -61,7 +61,10 @@ export function CaptionPanels({ draft, onSaved, onActionStarted, canEdit = true 
   const [firing, setFiring] = useState(false)
   // One undo handle per caption panel, so "Regenerate all" can capture every channel.
   const [undoRefs] = useState(
-    () => new Map(CAPTION_CHANNELS.map((s) => [s.channel, createRef<CaptionUndoHandle>()]))
+    () =>
+      new Map<string, ReturnType<typeof createRef<CaptionUndoHandle>>>(
+        CAPTION_CHANNELS.map((s) => [s.channel, createRef<CaptionUndoHandle>()] as const),
+      ),
   )
   // 008 FR-20: "Regenerate all"'s model pick (undefined = the pre-selection,
   // A5) and a refused pick's 400 message.
@@ -174,7 +177,7 @@ export function CaptionPanels({ draft, onSaved, onActionStarted, canEdit = true 
         />
         {draft.captions.map((caption) => (
           <CaptionPanel
-            key={caption.channel}
+            key={caption.target}
             draftId={draft.id}
             caption={caption}
             ready={ready}
@@ -182,9 +185,9 @@ export function CaptionPanels({ draft, onSaved, onActionStarted, canEdit = true 
             actionPending={draft.pendingAction !== null}
             captionProviderIsClaude={draft.captionProviderIsClaude}
             onRegenerate={(model) =>
-              regenerate({ channel: caption.channel, model }, 'Failed to regenerate the caption')
+              regenerate({ channel: caption.channel ?? undefined, model }, 'Failed to regenerate the caption')
             }
-            undoRef={undoRefs.get(caption.channel)}
+            undoRef={undoRefs.get(caption.target)}
             onSaved={onSaved}
             canEdit={canEdit}
           />

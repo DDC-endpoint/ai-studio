@@ -1,7 +1,12 @@
 import { describe, it, expect } from 'vitest'
 import { Channel } from '@prisma/client'
+import { captionMaxTokens } from '@/lib/agent/prompts/caption'
+import { FACT_WHERE, parseFactsCheck } from '@/lib/factsCheck/types'
 import {
   CAPTION_CHANNELS,
+  CAPTION_REGISTRY,
+  GENERAL_CAPTION,
+  targetOf,
   CHANNEL_CAPTION_LIMITS,
   CHANNEL_LABELS,
   CHANNEL_VALUES,
@@ -45,7 +50,7 @@ describe('CAPTION_CHANNELS registry', () => {
   })
 
   it('has no WhatsApp entry, so a lookup throws', () => {
-    expect(() => captionSpec('WHATSAPP')).toThrow(/No caption registry entry/)
+    expect(() => captionSpec('WHATSAPP' as never)).toThrow(/No caption registry entry/)
   })
 
   it('IG hard limit 2200, LI 3000', () => {
@@ -86,5 +91,52 @@ describe('isPublishableChannel', () => {
     expect(isPublishableChannel('facebook')).toBe(false)
     expect(isPublishableChannel(null)).toBe(false)
     expect(isPublishableChannel(42)).toBe(false)
+  })
+})
+
+// --- 039 AC-03: the vocabulary is derived from the one registry ---
+describe('CAPTION_REGISTRY (039)', () => {
+  // T4 adds Facebook last (the spec's order is General, Instagram, LinkedIn, Facebook).
+  it('is ordered General, Instagram, LinkedIn, with unique JSON keys', () => {
+    expect(CAPTION_REGISTRY.map((s) => s.target)).toEqual(['GENERAL', 'INSTAGRAM', 'LINKEDIN'])
+    const keys = CAPTION_REGISTRY.map((s) => s.jsonKey)
+    expect(keys).toEqual(['general', 'instagram', 'linkedin'])
+    expect(new Set(keys).size).toBe(keys.length)
+  })
+
+  it('the general entry has no channel; the curated ones are CAPTION_CHANNELS', () => {
+    expect(GENERAL_CAPTION).toMatchObject({ kind: 'GENERAL', channel: null, hardLimit: 2200 })
+    expect(CAPTION_CHANNELS.every((s) => s.kind === 'CURATED' && s.channel !== null)).toBe(true)
+    expect(CAPTION_CHANNELS.map((s) => s.target)).toEqual(['INSTAGRAM', 'LINKEDIN'])
+  })
+
+  it('FACT_WHERE deep-equals [headline, ...registry targets], so it cannot drift', () => {
+    expect([...FACT_WHERE]).toEqual(['headline', ...CAPTION_REGISTRY.map((e) => e.target)])
+  })
+
+  it('a stored flag with where INSTAGRAM still parses', () => {
+    const stored = {
+      v: 1,
+      status: 'flagged',
+      checkedAt: '2026-10-24T00:00:00.000Z',
+      flagged: [{ kind: 'cur', value: '$49', where: 'INSTAGRAM' }],
+    }
+    expect(parseFactsCheck(stored)).toEqual(stored)
+  })
+
+  it('captionMaxTokens is 512 plus the headline cap and each hard limit', () => {
+    expect(captionMaxTokens(['HEADLINE', 'GENERAL'])).toBe(2812)
+    expect(captionMaxTokens(['LINKEDIN'])).toBe(512 + 3000)
+    expect(captionMaxTokens([])).toBe(512)
+  })
+
+  it('targetOf maps a stored row to its target, and a retired channel to null', () => {
+    expect(targetOf({ kind: 'GENERAL', channel: null })).toBe('GENERAL')
+    expect(targetOf({ kind: 'CURATED', channel: 'LINKEDIN' })).toBe('LINKEDIN')
+    expect(targetOf({ kind: 'CURATED', channel: 'WHATSAPP' })).toBeNull()
+  })
+
+  it('the general caption normalises like the others (no **)', () => {
+    expect(GENERAL_CAPTION.normalise('**Big** news')).toBe('Big news')
   })
 })

@@ -224,7 +224,7 @@ test.describe('§AB — the caption credential route', () => {
     expect(draft.status, String(draft.failureReason)).toBe('EXPORTED')
     const rows = await prisma!.draftCaption.findMany({ where: { draftId: draft.id as string } })
     expect(rows.length).toBeGreaterThan(0)
-    for (const r of rows) expect(r.route, r.channel).toBe('API_KEY')
+    for (const r of rows) expect(r.route, String(r.channel)).toBe('API_KEY')
     const row = await prisma!.draft.findUniqueOrThrow({
       where: { id: draft.id as string },
       select: { headlineRoute: true },

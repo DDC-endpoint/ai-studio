@@ -103,7 +103,7 @@ export function CaptionPanel({
   onSaved,
   canEdit = true,
 }: CaptionPanelProps) {
-  const spec = captionSpec(caption.channel)
+  const spec = captionSpec(caption.target)
   // 008 FR-20: this channel's model pick (undefined = the stamp's pre-selection,
   // A5) and a refused pick's 400 message.
   const [model, setModel] = useState<ModelKey | undefined>(undefined)
@@ -357,7 +357,7 @@ export function CaptionPanel({
       )}
       {canEdit && ready && (
         <ModelPicker
-          id={`draft-caption-model-${caption.channel.toLowerCase()}`}
+          id={`draft-caption-model-${caption.target.toLowerCase()}`}
           surface="CAPTION"
           context={{ stamp: caption.model }}
           value={model}

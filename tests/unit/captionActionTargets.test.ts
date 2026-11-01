@@ -11,6 +11,18 @@ import {
   type CaptionRowStatus,
 } from '@/lib/captions/actionTargets'
 
+// A stored caption row as the settle rule reads it (039: kind, deletedAt, the
+// stamp and the source hash come with the text).
+const rowOf = (text: string) => ({
+  kind: 'CURATED' as const,
+  text,
+  deletedAt: null,
+  model: null,
+  modelSubstitutedFrom: null,
+  route: null,
+  generalHash: null,
+})
+
 function draft(
   rows: Partial<Record<Channel, CaptionRowStatus>> = {},
   over: Partial<CaptionActionDraft> = {},
@@ -69,16 +81,22 @@ describe('captionActionTargets', () => {
 
 describe('settleCaptionRow (design §5 table, A7)', () => {
   it('ok → READY with the new text and the reason cleared, whatever was there', () => {
-    expect(settleCaptionRow({ text: 'old' }, { ok: true, text: 'new' })).toEqual({
+    expect(settleCaptionRow(rowOf('old'), { ok: true, text: 'new' })).toEqual({
       status: 'READY',
       text: 'new',
       failureReason: null,
+      // 039 D15: the text it replaced, for one-step Undo
+      previous: { v: 1, text: 'old', deleted: false, model: null, modelSubstitutedFrom: null, route: null, generalHash: null },
+      deletedAt: null,
+      generalHash: null,
     })
-    expect(settleCaptionRow({ text: '' }, { ok: true, text: 'new' }).status).toBe('READY')
+    // an empty live row has nothing to go back to
+    expect(settleCaptionRow(rowOf(''), { ok: true, text: 'new' })).not.toHaveProperty('previous')
+    expect(settleCaptionRow(rowOf(''), { ok: true, text: 'new' }).status).toBe('READY')
   })
 
   it('AC-07: failed on a row with text → READY, text unchanged, "Regenerate failed: <reason>"', () => {
-    expect(settleCaptionRow({ text: 'good text' }, { ok: false, reason: 'missing' })).toEqual({
+    expect(settleCaptionRow(rowOf('good text'), { ok: false, reason: 'missing' })).toEqual({
       status: 'READY',
       text: 'good text',
       failureReason: 'Regenerate failed: missing',
@@ -86,7 +104,7 @@ describe('settleCaptionRow (design §5 table, A7)', () => {
   })
 
   it('AC-07: failed on an empty row → FAILED with no text (the CHECK FAILED ⇒ text = "")', () => {
-    expect(settleCaptionRow({ text: '' }, { ok: false, reason: 'over-limit (2,201 / 2,200)' })).toEqual({
+    expect(settleCaptionRow(rowOf(''), { ok: false, reason: 'over-limit (2,201 / 2,200)' })).toEqual({
       status: 'FAILED',
       text: '',
       failureReason: 'over-limit (2,201 / 2,200)',
@@ -94,7 +112,7 @@ describe('settleCaptionRow (design §5 table, A7)', () => {
   })
 
   it('whitespace-only is not usable text → FAILED', () => {
-    expect(settleCaptionRow({ text: ' \n ' }, { ok: false, reason: 'empty' })).toMatchObject({
+    expect(settleCaptionRow(rowOf(' \n '), { ok: false, reason: 'empty' })).toMatchObject({
       status: 'FAILED',
       text: '',
     })

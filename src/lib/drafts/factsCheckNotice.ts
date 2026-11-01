@@ -1,3 +1,4 @@
+import { CAPTION_REGISTRY } from '@/lib/channels'
 import type { FactsCheck, FactWhere } from '@/lib/factsCheck/types'
 
 // 027 FR-13: the draft page's facts-check notice, as a pure function of the
@@ -8,10 +9,13 @@ export type FactsNotice =
   | { status: 'flagged'; items: { value: string; where: string }[]; message: string }
   | { status: 'error'; items: []; message: string }
 
+// Built from the registry, so a new caption gets its label with its entry; the
+// Record type makes the table total over FactWhere.
 const WHERE_LABEL: Record<FactWhere, string> = {
   headline: 'headline',
-  INSTAGRAM: 'Instagram caption',
-  LINKEDIN: 'LinkedIn caption',
+  ...(Object.fromEntries(
+    CAPTION_REGISTRY.map((s) => [s.target, s.kind === 'GENERAL' ? 'general caption' : `${s.label} caption`]),
+  ) as Record<Exclude<FactWhere, 'headline'>, string>),
 }
 
 export const FLAGGED_ADVICE = 'These are not in your brief, project or brand voice. Check them before you download it.'

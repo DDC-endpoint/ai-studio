@@ -1,4 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 
 // 012 T5: the caption writers (FR-07/FR-09/FR-10). writeCaptions' logging and
 // whole-reply failure mapping; the required headline (A6) on the async and
@@ -274,8 +276,8 @@ describe('createPendingDraft', () => {
       status: 'IN_PROGRESS',
       captions: {
         create: [
-          { channel: 'INSTAGRAM', status: 'PENDING' },
-          { channel: 'LINKEDIN', status: 'PENDING' },
+          { kind: 'CURATED', channel: 'INSTAGRAM', status: 'PENDING' },
+          { kind: 'CURATED', channel: 'LINKEDIN', status: 'PENDING' },
         ],
       },
     })
@@ -291,8 +293,8 @@ describe('runGenerationForDraft (async)', () => {
   it('writes every row and the headline, then designs from the headline — never a caption', async () => {
     await runGenerationForDraft('d1', actor)
     expect(db.captionUpdateManys.map((u) => [u.where, u.data.status, u.data.text])).toEqual([
-      [{ draftId: 'd1', channel: 'INSTAGRAM', status: 'PENDING' }, 'READY', 'IG text'],
-      [{ draftId: 'd1', channel: 'LINKEDIN', status: 'PENDING' }, 'READY', 'LI text'],
+      [{ draftId: 'd1', kind: 'CURATED', channel: 'INSTAGRAM', status: 'PENDING' }, 'READY', 'IG text'],
+      [{ draftId: 'd1', kind: 'CURATED', channel: 'LINKEDIN', status: 'PENDING' }, 'READY', 'LI text'],
     ])
     expect(db.draftUpdateManys).toEqual([
       {
@@ -322,7 +324,7 @@ describe('runGenerationForDraft (async)', () => {
     // hidden WhatsApp row (026 FR-05), are untouched.
     expect(failed.captions).toEqual({
       updateMany: {
-        where: { status: 'PENDING', channel: { in: ['INSTAGRAM', 'LINKEDIN'] } },
+        where: { status: 'PENDING', kind: 'CURATED', channel: { in: ['INSTAGRAM', 'LINKEDIN'] } },
         data: { status: 'FAILED', text: '', failureReason: 'generation failed' },
       },
     })
@@ -496,13 +498,13 @@ describe('retry route (FR-10)', () => {
       headlineModelSubstitutedFrom: null,
       captions: {
         updateMany: {
-          where: { channel: { in: ['INSTAGRAM', 'LINKEDIN'] } },
+          where: { kind: 'CURATED', channel: { in: ['INSTAGRAM', 'LINKEDIN'] } },
           data: { status: 'PENDING', failureReason: null },
         },
         createMany: {
           data: [
-            { channel: 'INSTAGRAM', status: 'PENDING' },
-            { channel: 'LINKEDIN', status: 'PENDING' },
+            { kind: 'CURATED', channel: 'INSTAGRAM', status: 'PENDING' },
+            { kind: 'CURATED', channel: 'LINKEDIN', status: 'PENDING' },
           ],
           skipDuplicates: true,
         },
@@ -560,5 +562,62 @@ describe('regenerate-design uses designHeadline (FR-09)', () => {
     await regenerateDesign(req, ctx)
     expect(h.pathB.mock.calls[0][2]).toBe('The brief topic')
     expect(logged(info)).toContain('[captions] draft d1 has no headline — design uses the brief topic')
+  })
+})
+
+// ── 039 AC-15: one recompute path ────────────────────────────────────────────
+// Every exported store function whose body writes a DraftCaption row must call
+// refreshAfterWrite( (the facts check recompute), so a new writer cannot skip it.
+// Comments are stripped first, and the source is split at top-level
+// declarations, so a helper's body is never read as its neighbour's.
+
+const EXEMPT: Record<string, string> = {
+  claimCaptionAction: 'writes only PENDING, which the facts check skips',
+  loadDraftCaptions: 'T1 only: the fill creates empty READY rows (no text); 039 T2 removes the fill and this entry',
+}
+
+export function unrefreshedWriters(source: string, exempt: Record<string, string>): string[] {
+  const code = source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+  const chunks = code.split(/^(?=(?:export )?(?:async )?function |export (?:interface|type|const) )/m)
+  const bad: string[] = []
+  for (const chunk of chunks) {
+    const m = chunk.match(/^export async function (\w+)/)
+    if (!m || m[1] in exempt) continue
+    if (/draftCaption\.(?:update|updateMany|create|createMany|delete|deleteMany|upsert)\b/.test(chunk) && !chunk.includes('refreshAfterWrite(')) {
+      bad.push(m[1])
+    }
+  }
+  return bad
+}
+
+describe('039 AC-15: every caption writer in store.ts recomputes the facts check', () => {
+  const store = readFileSync(join(process.cwd(), 'src/lib/captions/store.ts'), 'utf8')
+
+  it('the real store has no writer without refreshAfterWrite(', () => {
+    expect(unrefreshedWriters(store, EXEMPT)).toEqual([])
+  })
+
+  it('the guard sees the writers it is meant to see', () => {
+    // saveCaptionEdit and saveGenerationCaptions write rows and refresh; dropping the exemptions must flag the two
+    expect(unrefreshedWriters(store, {})).toEqual(['loadDraftCaptions', 'claimCaptionAction'])
+  })
+
+  it('a fixture writer without the call fails the check', () => {
+    // top-level declarations start in column 0, as in store.ts
+    const fixture = [
+      "export async function saveGenerationCaptions(db) { await db.draftCaption.updateMany({}); await refreshAfterWrite('d', db) }",
+      'export async function deleteCaption(db) {',
+      '  await db.draftCaption.update({ data: { deletedAt: new Date() } })',
+      '}',
+    ].join('\n')
+    expect(unrefreshedWriters(fixture, {})).toEqual(['deleteCaption'])
+  })
+
+  it('a comment that mentions a write is not a write', () => {
+    const fixture = [
+      '// draftCaption.update here is only prose',
+      'export async function readOnly(db) { return db.draftCaption.findMany({}) }',
+    ].join('\n')
+    expect(unrefreshedWriters(fixture, {})).toEqual([])
   })
 })

@@ -11,7 +11,7 @@
 // Pure — no I/O. The text around the object is returned as `discarded` for the
 // caller to log; this module never logs.
 
-import { CAPTION_CHANNELS, captionLength, captionSpec, type CaptionTarget } from '@/lib/channels'
+import { CAPTION_REGISTRY, captionLength, captionSpec, type CaptionTarget } from '@/lib/channels'
 import { validateHeadline } from '@/lib/captions/headline'
 
 export type FieldResult = { ok: true; text: string } | { ok: false; reason: string }
@@ -24,14 +24,14 @@ const HEADLINE_KEY = 'headline'
 
 // Every key a caption object can carry. A parsed object with none of them is
 // not a caption candidate (e.g. a `{"note": 1}` in the preamble) and is ignored.
-const CAPTION_KEYS = new Set<string>([HEADLINE_KEY, ...CAPTION_CHANNELS.map((s) => s.jsonKey)])
+const CAPTION_KEYS = new Set<string>([HEADLINE_KEY, ...CAPTION_REGISTRY.map((s) => s.jsonKey)])
 
 // The JSON keys a set of targets asks for, in reply order: the headline first,
-// then the channels in registry order. The prompt lists exactly these.
+// then the registry entries in registry order. The prompt lists exactly these.
 export function captionReplyKeys(targets: readonly CaptionTarget[]): string[] {
   const keys = targets.includes('HEADLINE') ? [HEADLINE_KEY] : []
-  for (const spec of CAPTION_CHANNELS) {
-    if (targets.includes(spec.channel)) keys.push(spec.jsonKey)
+  for (const spec of CAPTION_REGISTRY) {
+    if (targets.includes(spec.target)) keys.push(spec.jsonKey)
   }
   return keys
 }
@@ -109,7 +109,7 @@ function captionField(target: Exclude<CaptionTarget, 'HEADLINE'>, value: unknown
   const text = spec.normalise(value.replaceAll('\r\n', '\n')).trim()
   if (!text) return { ok: false, reason: 'empty' }
   const length = captionLength(text)
-  if (spec.hardLimit !== null && length > spec.hardLimit) {
+  if (length > spec.hardLimit) {
     return { ok: false, reason: `over-limit (${count(length)} / ${count(spec.hardLimit)})` }
   }
   return { ok: true, text }

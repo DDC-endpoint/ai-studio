@@ -5,7 +5,7 @@
 
 import { z } from 'zod'
 import type { Channel } from '@prisma/client'
-import { CAPTION_CHANNELS, type CaptionTarget } from '@/lib/channels'
+import { CAPTION_CHANNELS, type CaptionTarget, type CuratedChannel } from '@/lib/channels'
 import type { ModelKey } from '@/lib/models/catalogue'
 import { MODEL_NOT_ALLOWED, modelKeySchema } from '@/lib/models/requests'
 
@@ -13,7 +13,7 @@ import { MODEL_NOT_ALLOWED, modelKeySchema } from '@/lib/models/requests'
 // channel's hard limit is allowed (the counter shows it; publish refuses it).
 export const CAPTION_TEXT_MAX = 10_000
 
-const CHANNELS = CAPTION_CHANNELS.map((s) => s.channel) as [Channel, ...Channel[]]
+const CHANNELS = CAPTION_CHANNELS.map((s) => s.channel) as [CuratedChannel, ...CuratedChannel[]]
 
 const orList = (values: readonly string[]) =>
   values.length > 1 ? `${values.slice(0, -1).join(', ')} or ${values[values.length - 1]}` : values[0]

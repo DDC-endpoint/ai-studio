@@ -346,8 +346,8 @@ test.describe('§Y — model selection: stamps, policy and the recorder', () => 
     const draft = await generate(api, 'B', `Models Removal ${Date.now()}`)
     const id = draft.id as string
     await prisma!.draft.update({ where: { id }, data: { designModel: OPUS } })
-    await prisma!.draftCaption.update({
-      where: { draftId_channel: { draftId: id, channel: 'LINKEDIN' } },
+    await prisma!.draftCaption.updateMany({
+      where: { draftId: id, kind: 'CURATED', channel: 'LINKEDIN' },
       data: { model: OPUS },
     })
     const seeded = await read(api, id)
@@ -385,8 +385,8 @@ test.describe('§Y — model selection: stamps, policy and the recorder', () => 
     const setStamps = async (models: [string | null, string | null]) => {
       const channels = ['INSTAGRAM', 'LINKEDIN'] as const
       for (const [i, channel] of channels.entries()) {
-        await prisma!.draftCaption.update({
-          where: { draftId_channel: { draftId: id, channel } },
+        await prisma!.draftCaption.updateMany({
+          where: { draftId: id, kind: 'CURATED', channel },
           data: { model: models[i], modelSubstitutedFrom: null },
         })
       }
@@ -1045,8 +1045,8 @@ test.describe('§Y — the pickers (wave 2)', () => {
     const id = draft.id as string
     // A Sonnet stamp on LinkedIn only: its picker pre-selects from the stamp,
     // and "Regenerate all" sees mixed stamps (so no stamp tier).
-    await prisma!.draftCaption.update({
-      where: { draftId_channel: { draftId: id, channel: 'LINKEDIN' } },
+    await prisma!.draftCaption.updateMany({
+      where: { draftId: id, kind: 'CURATED', channel: 'LINKEDIN' },
       data: { model: SONNET },
     })
     const seeded = await read(api, id)
@@ -1145,13 +1145,13 @@ test.describe('§Y — the pickers (wave 2)', () => {
     const draft = await generate(api, 'B', `Models Substituted ${Date.now()}`)
     const id = draft.id as string
     await prisma!.draft.update({ where: { id }, data: { designModel: OPUS } })
-    await prisma!.draftCaption.update({
-      where: { draftId_channel: { draftId: id, channel: 'LINKEDIN' } },
+    await prisma!.draftCaption.updateMany({
+      where: { draftId: id, kind: 'CURATED', channel: 'LINKEDIN' },
       data: { model: HAIKU, modelSubstitutedFrom: OPUS },
     })
     // A FAILED row may keep the stamp of text since cleared (reviews/T7.md).
-    await prisma!.draftCaption.update({
-      where: { draftId_channel: { draftId: id, channel: 'INSTAGRAM' } },
+    await prisma!.draftCaption.updateMany({
+      where: { draftId: id, kind: 'CURATED', channel: 'INSTAGRAM' },
       data: { status: 'FAILED', text: '', failureReason: 'Seeded failure (008 T18)' },
     })
     await putPolicy(api, policy({ allowed: ['HAIKU', 'SONNET'] }))

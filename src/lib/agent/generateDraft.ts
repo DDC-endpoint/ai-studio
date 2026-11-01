@@ -15,14 +15,14 @@ import { generationImageSource, type ImageSourceWrite } from '@/lib/drafts/image
 import type { GenerationActor, GenerationRunActor } from '@/lib/agent/types'
 import { track } from '@/lib/analytics/track'
 import { newUsage, usageFields, withUsage, type UsageStore } from '@/lib/analytics/trace'
-import { CAPTION_CHANNELS } from '@/lib/channels'
+import { CAPTION_CHANNELS, CAPTION_REGISTRY } from '@/lib/channels'
 import { GENERATION_TARGETS, requireHeadline, writeCaptions } from '@/lib/captions/generate'
 import { captionRowsFromFields, headlineStampFields, saveGenerationCaptions, type CaptionStamp } from '@/lib/captions/store'
 import { resolveModel } from '@/lib/models/policy'
 import type { ResolvedModel } from '@/lib/models/resolve'
 import { touchGeneration } from '@/lib/drafts/draftActions'
 import { computeFactsCheck } from '@/lib/factsCheck/refresh'
-import { parseFactsCheck, type CheckText, type FactWhere, type FactsCheck } from '@/lib/factsCheck'
+import { parseFactsCheck, type CheckText, type FactsCheck } from '@/lib/factsCheck'
 import { isStyleKey } from '@/lib/postStyles'
 import type { Prisma } from '@prisma/client'
 
@@ -310,9 +310,9 @@ async function emitGenerationFinished(
 // reply is not stored, so it is not checked.
 function checkTexts(headline: string, fields: Awaited<ReturnType<typeof writeCaptions>>['fields']): CheckText[] {
   const texts: CheckText[] = [{ where: 'headline', text: headline }]
-  for (const { channel } of CAPTION_CHANNELS) {
-    const field = fields[channel]
-    if (field?.ok && field.text) texts.push({ where: channel as FactWhere, text: field.text })
+  for (const { target } of CAPTION_REGISTRY) {
+    const field = fields[target]
+    if (field?.ok && field.text) texts.push({ where: target, text: field.text })
   }
   return texts
 }
@@ -451,7 +451,9 @@ export async function createPendingDraft(
       // 038 D3: written once, here; retry reuses it and never re-resolves.
       generationInputs: ctx.inputs,
       status: 'IN_PROGRESS',
-      captions: { create: CAPTION_CHANNELS.map(({ channel }) => ({ channel, status: 'PENDING' as const })) },
+      captions: {
+        create: CAPTION_CHANNELS.map(({ channel }) => ({ kind: 'CURATED' as const, channel, status: 'PENDING' as const })),
+      },
     },
   })
 }
@@ -521,7 +523,7 @@ async function runGenerationForDraftInner(draftId: string, actor: GenerationRunA
           // for a channel outside the registry (a hidden WhatsApp row, 026).
           captions: {
             updateMany: {
-              where: { status: 'PENDING', channel: { in: CAPTION_CHANNELS.map((s) => s.channel) } },
+              where: { status: 'PENDING', kind: 'CURATED', channel: { in: CAPTION_CHANNELS.map((s) => s.channel) } },
               data: { status: 'FAILED', text: '', failureReason: 'generation failed' },
             },
           },

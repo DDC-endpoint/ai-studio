@@ -179,8 +179,8 @@ test.describe('§W — per-channel captions', () => {
 
     // A caption action in flight: the claim, and its LinkedIn row being written.
     await prisma!.draft.update({ where: { id }, data: { pendingAction: 'REGENERATE_COPY' } })
-    await prisma!.draftCaption.update({
-      where: { draftId_channel: { draftId: id, channel: 'LINKEDIN' } },
+    await prisma!.draftCaption.updateMany({
+      where: { draftId: id, kind: 'CURATED', channel: 'LINKEDIN' },
       data: { status: 'PENDING' },
     })
 
@@ -205,8 +205,8 @@ test.describe('§W — per-channel captions', () => {
     expect(captionOf(await readyEdit.json(), 'INSTAGRAM').text).toBe('Typed while LinkedIn runs')
 
     // Release the slot so nothing else meets it.
-    await prisma!.draftCaption.update({
-      where: { draftId_channel: { draftId: id, channel: 'LINKEDIN' } },
+    await prisma!.draftCaption.updateMany({
+      where: { draftId: id, kind: 'CURATED', channel: 'LINKEDIN' },
       data: { status: 'READY' },
     })
     await prisma!.draft.update({ where: { id }, data: { pendingAction: null } })
@@ -495,10 +495,10 @@ test.describe('§W — wave 2: Regenerate all, the headline and the caption pane
     const id = draft.id as string
     const legacyText = 'A legacy WhatsApp caption that must stay hidden.'
     await prisma!.draftCaption.create({
-      data: { draftId: id, channel: 'WHATSAPP', text: legacyText, status: 'READY' },
+      data: { draftId: id, kind: 'CURATED', channel: 'WHATSAPP', text: legacyText, status: 'READY' },
     })
-    const rowBefore = await prisma!.draftCaption.findUniqueOrThrow({
-      where: { draftId_channel: { draftId: id, channel: 'WHATSAPP' } },
+    const rowBefore = await prisma!.draftCaption.findFirstOrThrow({
+      where: { draftId: id, kind: 'CURATED', channel: 'WHATSAPP' },
     })
 
     const listed = await read(id)
@@ -518,8 +518,8 @@ test.describe('§W — wave 2: Regenerate all, the headline and the caption pane
     expect((await api.patch(`/api/drafts/${id}`, { channel: 'WHATSAPP', text: 'x' })).status()).toBe(400)
     expect((await api.post(`/api/drafts/${id}/regenerate-copy`, { channel: 'WHATSAPP' })).status()).toBe(400)
 
-    const rowAfter = await prisma!.draftCaption.findUniqueOrThrow({
-      where: { draftId_channel: { draftId: id, channel: 'WHATSAPP' } },
+    const rowAfter = await prisma!.draftCaption.findFirstOrThrow({
+      where: { draftId: id, kind: 'CURATED', channel: 'WHATSAPP' },
     })
     expect(rowAfter.text).toBe(legacyText)
     expect(rowAfter.status).toBe('READY')

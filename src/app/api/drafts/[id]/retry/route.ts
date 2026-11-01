@@ -48,11 +48,11 @@ export const POST = withTeamAuth<Params>(async (_req, { params }, user) => {
       captions: {
         updateMany: {
           // Registry channels only: a legacy WhatsApp row is left as it is (026 FR-05).
-          where: { channel: { in: CAPTION_CHANNELS.map((s) => s.channel) } },
+          where: { kind: 'CURATED', channel: { in: CAPTION_CHANNELS.map((s) => s.channel) } },
           data: { status: 'PENDING', failureReason: null },
         },
         createMany: {
-          data: CAPTION_CHANNELS.map(({ channel }) => ({ channel, status: 'PENDING' as const })),
+          data: CAPTION_CHANNELS.map(({ channel }) => ({ kind: 'CURATED' as const, channel, status: 'PENDING' as const })),
           skipDuplicates: true,
         },
       },

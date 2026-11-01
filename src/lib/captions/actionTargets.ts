@@ -4,9 +4,10 @@
 //
 // Client-safe: imports the registry and types only.
 
-import type { Channel } from '@prisma/client'
+import type { CaptionKind, Channel } from '@prisma/client'
 import type { CaptionTarget } from '@/lib/channels'
 import type { FieldResult } from '@/lib/captions/extract'
+import { snapshotOf, type CaptionSnapshot } from '@/lib/captions/undo'
 
 export type CaptionRowStatus = 'PENDING' | 'READY' | 'FAILED'
 
@@ -14,7 +15,7 @@ export interface CaptionActionDraft {
   status: string
   pendingAction: string | null
   headline: string | null
-  captions: ReadonlyArray<{ channel: Channel; status: CaptionRowStatus }>
+  captions: ReadonlyArray<{ kind?: CaptionKind; channel: Channel | null; status: CaptionRowStatus }>
 }
 
 // The panels a draft is busy writing, for the skeletons. Caption actions share
@@ -24,7 +25,9 @@ export interface CaptionActionDraft {
 // generation (IN_PROGRESS) writes the PENDING rows and, while it has none yet,
 // the headline.
 export function captionActionTargets(draft: CaptionActionDraft): CaptionTarget[] {
-  const pending = draft.captions.filter((c) => c.status === 'PENDING').map((c) => c.channel)
+  const pending = draft.captions
+    .filter((c) => c.status === 'PENDING')
+    .map((c) => (c.channel === null ? 'GENERAL' : c.channel) as CaptionTarget)
   if (draft.pendingAction === 'REGENERATE_COPY') {
     return pending.length > 0 ? pending : ['HEADLINE']
   }
@@ -46,6 +49,12 @@ export interface CaptionRowSettle {
   modelSubstitutedFrom?: string | null
   /** 024 FR-04: the credential route that wrote the new text, beside `model`. */
   route?: string | null
+  /** 039 D15: the row as it was, written with a validated field over text or a deletion. */
+  previous?: CaptionSnapshot
+  /** 039 D14: a validated write brings a deleted caption back. */
+  deletedAt?: null
+  /** 039 D4: a curated row's source general caption (T3 supplies it); null = none. */
+  generalHash?: null
 }
 
 // The model that wrote a caption reply (008 FR-08): the arg that crossed the
@@ -70,7 +79,15 @@ export interface CaptionStamp {
 // stamp of the text it keeps (A7) — and the stale sweep and an unstarted run's
 // settle, which pass no stamp, never touch one.
 export function settleCaptionRow(
-  row: { text: string },
+  row: {
+    kind: CaptionKind
+    text: string
+    deletedAt: Date | null
+    model: string | null
+    modelSubstitutedFrom: string | null
+    route: string | null
+    generalHash: string | null
+  },
   field: FieldResult,
   stamp?: CaptionStamp | null,
 ): CaptionRowSettle {
@@ -79,6 +96,10 @@ export function settleCaptionRow(
       status: 'READY',
       text: field.text,
       failureReason: null,
+      // 039 D15: one-step undo. An empty, live row has nothing to go back to.
+      ...(row.text !== '' || row.deletedAt !== null ? { previous: snapshotOf(row) } : {}),
+      deletedAt: null,
+      ...(row.kind === 'CURATED' ? { generalHash: null } : {}),
       ...(stamp
         ? { model: stamp.model, modelSubstitutedFrom: stamp.substitutedFrom, route: stamp.route }
         : {}),
