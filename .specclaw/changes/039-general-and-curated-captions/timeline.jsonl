@@ -12,3 +12,7 @@
 {"ev":"stop","span":"W2","at":"2026-11-01T01:33:10Z","ts":1793496790,"status":"ok"}
 {"ev":"start","span":"W3","kind":"wave","label":"wave 3","at":"2026-11-01T01:33:11Z","ts":1793496791}
 {"ev":"start","span":"T3","kind":"task","label":"curated captions","parent":"W3","model":"sonnet","attempt":"1","at":"2026-11-01T01:33:11Z","ts":1793496791}
+{"ev":"stop","span":"T3","at":"2026-11-01T02:05:57Z","ts":1793498757,"status":"ok"}
+{"ev":"stop","span":"W3","at":"2026-11-01T02:05:57Z","ts":1793498757,"status":"ok"}
+{"ev":"start","span":"W4","kind":"wave","label":"wave 4","at":"2026-11-01T02:05:57Z","ts":1793498757}
+{"ev":"start","span":"T4","kind":"task","label":"facebook and kit website","parent":"W4","model":"sonnet","attempt":"1","at":"2026-11-01T02:05:58Z","ts":1793498757}

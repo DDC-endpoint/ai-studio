@@ -7,6 +7,7 @@
 import type { CaptionKind, Channel } from '@prisma/client'
 import type { CaptionTarget } from '@/lib/channels'
 import type { FieldResult } from '@/lib/captions/extract'
+import { composeFacebookCaption } from '@/lib/captions/rules'
 import { snapshotOf, type CaptionSnapshot } from '@/lib/captions/undo'
 
 export type CaptionRowStatus = 'PENDING' | 'READY' | 'FAILED'
@@ -81,6 +82,7 @@ export interface CaptionStamp {
 export function settleCaptionRow(
   row: {
     kind: CaptionKind
+    channel?: Channel | null
     text: string
     deletedAt: Date | null
     model: string | null
@@ -91,19 +93,21 @@ export function settleCaptionRow(
   field: FieldResult,
   stamp?: CaptionStamp | null,
   // 039 D4: the hash of the general caption a curate was written from (null or
-  // absent = none).
-  extra?: { generalHash?: string | null },
+  // absent = none), and the kit website a Facebook caption gets (039 D17: code
+  // inserts it, never the model).
+  extra?: { generalHash?: string | null; website?: string | null },
 ): CaptionRowSettle {
   if (field.ok) {
+    const text = row.channel === 'FACEBOOK' ? composeFacebookCaption(field.text, extra?.website ?? null) : field.text
     return {
       status: 'READY',
-      text: field.text,
+      text,
       failureReason: null,
       // 039 D15: one-step undo, for a write that changes what the row shows: new
       // text over text, or a caption that was deleted. An empty, live row has
       // nothing to go back to, and the same text again changes nothing, so it
       // keeps the earlier snapshot (as change 015's Undo dropped it).
-      ...((row.text !== '' && row.text !== field.text) || row.deletedAt !== null ? { previous: snapshotOf(row) } : {}),
+      ...((row.text !== '' && row.text !== text) || row.deletedAt !== null ? { previous: snapshotOf(row) } : {}),
       deletedAt: null,
       ...(row.kind === 'CURATED' ? { generalHash: extra?.generalHash ?? null } : {}),
       ...(stamp

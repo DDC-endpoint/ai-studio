@@ -7,6 +7,7 @@ import { loadDraftCaptions } from '@/lib/captions/store'
 import { externalCaptions } from '@/lib/captions/external'
 import { resolvePostStyle, styleSummary } from '@/lib/postStyles'
 import { parseFactsCheck } from '@/lib/factsCheck/types'
+import { postContext } from '@/lib/projects/context'
 
 interface GeneratePostArgs {
   topic: string
@@ -137,7 +138,7 @@ export async function generatePost(args: GeneratePostArgs, surface: 'mcp' | 'acp
       exportUrl: await resolveExportUrl(draft.exportUrl),
       htmlContent: draft.htmlContent,
       headline: draft.headline,
-      captions: await captionList(draft.id, draft.factsCheck),
+      captions: await captionList(draft.id, draft.factsCheck, await kitWebsiteOf(draft, brief)),
       postStyle: resolved.key,
       factsCheck: factsCheckResult(draft.factsCheck),
     }
@@ -160,11 +161,20 @@ function factsCheckResult(raw: unknown) {
 
 // The external caption list (039 D20): the general caption, then any curated
 // captions, each with its facts and rules (externalCaptions). Read through the
-// loader. The kit website that a Facebook caption's rules check against joins in
-// 039 T4 (the second argument's null until then).
-async function captionList(draftId: string, factsCheck: unknown) {
+// loader. `website` is the post's recorded kit's, which a Facebook caption's
+// link rule checks against.
+async function captionList(draftId: string, factsCheck: unknown, website: string | null) {
   const loaded = await loadDraftCaptions(draftId)
-  return externalCaptions(loaded, parseFactsCheck(factsCheck), null)
+  return externalCaptions(loaded, parseFactsCheck(factsCheck), website)
+}
+
+// The website of the kit the post was generated with (039 D17), from its recorded
+// inputs, as every caption writer reads it.
+async function kitWebsiteOf(
+  draft: { generationInputs?: unknown },
+  brief: { teamId: string; brandKitId?: string | null },
+): Promise<string | null> {
+  return (await postContext({ generationInputs: draft.generationInputs, brief })).kit?.website ?? null
 }
 
 export async function getDraft(args: { id: string; teamId: string }) {
@@ -178,15 +188,17 @@ export async function getDraft(args: { id: string; teamId: string }) {
       teamId: true,
       postStyle: true,
       factsCheck: true,
+      generationInputs: true,
+      brief: { select: { teamId: true, brandKitId: true } },
     },
   })
   // Task 13 (reviewer follow-up): same team-bound guard as the other tools: a
   // draft belonging to a different team (or the pre-tenancy null) reads as
   // "not found" rather than leaking its existence/content across tenants.
   if (!draft || draft.teamId !== args.teamId) throw new Error(`Draft ${args.id} not found`)
-  const captions = await captionList(args.id, draft.factsCheck)
+  const captions = await captionList(args.id, draft.factsCheck, await kitWebsiteOf(draft, draft.brief))
   // exportUrl is stored as an EXPORTS object key — sign it for the caller.
-  const { teamId: _teamId, postStyle, factsCheck, ...rest } = draft
+  const { teamId: _teamId, postStyle, factsCheck, generationInputs: _inputs, brief: _brief, ...rest } = draft
   return {
     ...rest,
     postStyle: styleSummary(postStyle)?.key ?? null,

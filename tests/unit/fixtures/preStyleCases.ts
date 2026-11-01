@@ -16,7 +16,6 @@ import { buildPathBSystemPrompt, buildPathBUserMessage } from '@/lib/agent/promp
 import { buildBackgroundDecisionPrompt } from '@/lib/agent/prompts/background'
 import { buildRefineSystemPrompt } from '@/lib/agent/prompts/refine'
 import { buildBriefInput } from '@/lib/agent/briefInput'
-import { CAPTION_CHANNELS } from '@/lib/channels'
 import { ctxFor } from '../../helpers/postContext'
 
 const kit: ResolvedBrandKit = {
@@ -27,6 +26,7 @@ const kit: ResolvedBrandKit = {
   logoUrl: 'https://cdn.example/logo.png',
   logos: [{ label: 'Primary mark', url: 'https://cdn.example/logo.png', primary: true }],
   voicePrompt: 'Warm and direct. Keep clear space of 1.5 wordmark letters.',
+  website: null,
   source: 'explicit',
 }
 const BRIEFING = 'Industry Readiness Programme: name the programme in the headline.'
@@ -42,7 +42,8 @@ const brief = {
 } as unknown as Parameters<typeof buildBriefInput>[0]
 
 const input = buildBriefInput(brief, ctxFor(kit, BRIEFING))
-const targets = ['HEADLINE', ...CAPTION_CHANNELS.map((s) => s.channel)] as const
+// Pinned: a channel added to the registry later (Facebook, 039 T4) does not move this golden.
+const targets = ['HEADLINE', 'INSTAGRAM', 'LINKEDIN'] as const
 
 export const PRE_STYLE_CASES: Record<string, () => string> = {
   briefInput: () => JSON.stringify(buildBriefInput(brief, ctxFor(kit, BRIEFING))),

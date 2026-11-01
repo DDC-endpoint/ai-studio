@@ -20,6 +20,7 @@ const kit: ResolvedBrandKit = {
   logoUrl: null,
   logos: [],
   voicePrompt: 'Warm, confident, human.',
+  website: null,
   source: 'team',
 }
 

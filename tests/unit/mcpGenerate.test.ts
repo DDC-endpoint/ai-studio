@@ -25,6 +25,8 @@ vi.mock('@/lib/agent/generateDraft', () => ({
 }))
 vi.mock('@/lib/captions/store', () => ({ loadDraftCaptions: async () => ({ general: null, curated: [] }) }))
 vi.mock('@/lib/storage/minio', () => ({ resolveExportUrl: async (k: string | null) => k }))
+// 039 D17: the kit website for the caption rules (none here).
+vi.mock('@/lib/brandkit/resolve', () => ({ resolveBrandKit: async () => null }))
 
 const { generatePost, CampaignRetiredError, ProjectNotFoundError, refusalText } = await import('@/mcp/tools/generate')
 

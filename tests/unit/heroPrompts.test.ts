@@ -35,6 +35,7 @@ const kit: ResolvedBrandKit = {
   logos: [{ label: 'Primary logo', url: 'https://cdn.example.com/logo.svg', primary: true }],
   voicePrompt:
     'Warm, confident, human. LAYOUT: logo top-left, headline in the left half, the photo fills the right half, footer band at the bottom.',
+  website: null,
   source: 'team',
 }
 const briefing =

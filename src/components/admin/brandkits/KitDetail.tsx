@@ -51,6 +51,7 @@ export function KitDetail({ kit, onRefresh }: KitDetailProps) {
   const [colors, setColors] = useState<string[]>(kit.colors)
   const [fonts, setFonts] = useState<Array<{ name: string; url: string }>>(kit.fonts)
   const [sinhalaFont, setSinhalaFont] = useState<string | null>(kit.scriptFonts?.sinhala ?? null)
+  const [website, setWebsite] = useState(kit.website ?? '')
   const [saving, setSaving] = useState(false)
   const [templateName, setTemplateName] = useState('')
   const [templateHtml, setTemplateHtml] = useState('')
@@ -70,6 +71,7 @@ export function KitDetail({ kit, onRefresh }: KitDetailProps) {
     setColors(kit.colors)
     setFonts(kit.fonts)
     setSinhalaFont(kit.scriptFonts?.sinhala ?? null)
+    setWebsite(kit.website ?? '')
   }, [kit])
 
   async function saveEdit() {
@@ -78,7 +80,7 @@ export function KitDetail({ kit, onRefresh }: KitDetailProps) {
       await apiFetch(`/api/admin/brandkits/${kit.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, colors, fonts, scriptFonts: sinhalaFont ? { sinhala: sinhalaFont } : null }),
+        body: JSON.stringify({ name, colors, fonts, scriptFonts: sinhalaFont ? { sinhala: sinhalaFont } : null, website: website.trim() === '' ? null : website.trim() }),
       })
       setEditing(false)
       onRefresh()
@@ -259,6 +261,22 @@ export function KitDetail({ kit, onRefresh }: KitDetailProps) {
               )}
             </h2>
           )}
+          {/* 039 D6: the website code inserts into a Facebook caption (an https URL). */}
+          {editing ? (
+            <div className="mt-3 max-w-md">
+              <Input
+                label="Website"
+                value={website}
+                onChange={e => setWebsite(e.target.value)}
+                placeholder="https://example.com"
+                inputMode="url"
+              />
+            </div>
+          ) : (
+            <p className="mt-2 text-ui-sm text-fg-muted" data-testid="kit-website">
+              Website: <span className="break-all text-fg">{kit.website ?? 'Not set'}</span>
+            </p>
+          )}
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Button variant="ghost" size="sm" onClick={() => setAssistantOpen(true)}>
@@ -272,7 +290,7 @@ export function KitDetail({ kit, onRefresh }: KitDetailProps) {
           {editing ? (
             <>
               <Button size="sm" onClick={saveEdit} disabled={saving}>{saving ? 'Saving…' : 'Save'}</Button>
-              <Button variant="ghost" size="sm" onClick={() => { setEditing(false); setName(kit.name); setColors(kit.colors); setFonts(kit.fonts); setSinhalaFont(kit.scriptFonts?.sinhala ?? null) }}>Cancel</Button>
+              <Button variant="ghost" size="sm" onClick={() => { setEditing(false); setName(kit.name); setColors(kit.colors); setFonts(kit.fonts); setSinhalaFont(kit.scriptFonts?.sinhala ?? null); setWebsite(kit.website ?? '') }}>Cancel</Button>
             </>
           ) : (
             <Button variant="secondary" size="sm" onClick={() => setEditing(true)}>

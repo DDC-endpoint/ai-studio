@@ -69,6 +69,17 @@ describe('resolveBrandKit — team scoping (final review C1)', () => {
     })
   })
 
+  describe('website (039 D6)', () => {
+    it('carries the kit website, and null when it has none', async () => {
+      mocks.brandKitFindFirst.mockResolvedValue({ ...kitA, website: 'https://acme.example' })
+      expect((await resolveBrandKit(TEAM_A))?.website).toBe('https://acme.example')
+      mocks.brandKitFindFirst.mockResolvedValue({ ...kitA, website: null })
+      expect((await resolveBrandKit(TEAM_A))?.website).toBeNull()
+      mocks.brandKitFindFirst.mockResolvedValue(kitA)
+      expect((await resolveBrandKit(TEAM_A))?.website).toBeNull()
+    })
+  })
+
   describe('explicit brief-kit tier', () => {
     it('scopes the explicit brandKitId lookup by teamId (defense-in-depth)', async () => {
       mocks.brandKitFindFirst.mockImplementation(async ({ where }: { where: { id: string; teamId: string } }) => {

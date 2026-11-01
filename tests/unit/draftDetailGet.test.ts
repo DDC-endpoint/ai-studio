@@ -546,12 +546,25 @@ describe('GET /api/drafts/[id] — captions (039 FR-15)', () => {
     expect(items[0]).toMatchObject({ kind: 'CURATED', rules: { met: true, unmet: [] }, facts: null })
   })
 
-  it('kitWebsite is null until the kit has one (T4), and brief.channels is gone', async () => {
+  it('kitWebsite is null when the post has no kit, and brief.channels is gone', async () => {
     h.draftFindUnique.mockResolvedValue(exportedDraft(null))
     h.copyProviderIsClaude.mockResolvedValue(true)
     const { body } = await get()
     expect(body.kitWebsite).toBeNull()
     expect(body.brief).not.toHaveProperty('channels')
+  })
+
+  it("kitWebsite comes from the post's context kit, and the Facebook link rule reads it (039 D17)", async () => {
+    h.draftFindUnique.mockResolvedValue(exportedDraft(null))
+    h.copyProviderIsClaude.mockResolvedValue(true)
+    const fifty = Array.from({ length: 50 }, (_, i) => `w${i}`).join(' ')
+    h.resolveBrandKit.mockResolvedValue({ id: 'kit1', name: 'Kit', source: 'team', website: 'https://acme.example' })
+    h.loaded.mockReturnValue({ general: null, curated: [capRow('FACEBOOK', fifty)] })
+    const { body } = await get()
+    expect(body.kitWebsite).toBe('https://acme.example')
+    expect((body.captions as Array<{ rules: { unmet: string[] } }>)[0].rules.unmet).toEqual(['link-missing'])
+    h.loaded.mockReturnValue({ general: null, curated: [capRow('FACEBOOK', `${fifty}\nhttps://acme.example`)] })
+    expect(((await get()).body.captions as Array<{ rules: { met: boolean } }>)[0].rules.met).toBe(true)
   })
 
   it('issues the queries it issued before 039 and no more (NFR-06): one draft read, one provider list', async () => {

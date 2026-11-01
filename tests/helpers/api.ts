@@ -71,7 +71,7 @@ export async function waitForAction(
 export async function curate(
   api: ApiClient,
   draftId: string,
-  channel: 'INSTAGRAM' | 'LINKEDIN',
+  channel: 'INSTAGRAM' | 'LINKEDIN' | 'FACEBOOK',
 ): Promise<Record<string, unknown>> {
   const res = await api.post(`/api/drafts/${draftId}/regenerate-copy`, { channel })
   if (res.status() !== 202) throw new Error(`curate ${channel}: expected 202, got ${res.status()}`)

@@ -22,7 +22,8 @@ import { fenceUntrusted, UNTRUSTED_CONTENT_GUARD } from '@/lib/agent/untrusted'
 // PROMPT_VERSION, and the user prompt carries the style's caption rules.
 // 2026-11-02.1: the general caption and each target's rules rendered from the registry (039).
 // 2026-11-02.2: a curate carries the general caption, fenced as untrusted (039 T3).
-export const CAPTION_PROMPT_VERSION_BASE = '2026-11-02.2'
+// 2026-11-02.3: Facebook's rules; the kit website line says the app adds the link (039 T4).
+export const CAPTION_PROMPT_VERSION_BASE = '2026-11-02.3'
 export const CAPTION_PROMPT_VERSION = derivedPromptVersion(CAPTION_PROMPT_VERSION_BASE)
 
 // Room for the requested targets, including non-Latin scripts at about one
@@ -64,7 +65,7 @@ export function buildCaptionPrompt(brief: BriefInput, targets: readonly CaptionT
   }
   // 039 D18: each entry's brief, its hard limit and its rules (rulesPromptText).
   for (const s of specs) {
-    const rules = rulesPromptText(s, { hasWebsite: false })
+    const rules = rulesPromptText(s, { hasWebsite: !!brief.kitWebsite })
     bullets.push(
       `- "${s.jsonKey}" (${s.label}): ${s.brief} At most ${count(s.hardLimit)} characters.${rules ? ` ${rules}` : ''}`,
     )

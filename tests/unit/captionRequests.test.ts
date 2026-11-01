@@ -83,7 +83,7 @@ describe('parseCaptionPatch (FR-12)', () => {
 
   it('an unknown channel names the registry channels', () => {
     expect(parseCaptionPatch({ channel: 'TIKTOK', text: 'x' })).toEqual({ ok: false, error: CHANNEL_MESSAGE })
-    expect(CHANNEL_MESSAGE).toBe('channel must be INSTAGRAM or LINKEDIN')
+    expect(CHANNEL_MESSAGE).toBe('channel must be INSTAGRAM, LINKEDIN or FACEBOOK')
   })
 
   it('WHATSAPP is refused on PATCH (026 AC-03) and on regenerate (039 AC-27: the shape message)', () => {

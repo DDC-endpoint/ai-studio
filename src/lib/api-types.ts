@@ -362,7 +362,7 @@ export interface DraftDetail {
   revisionCount: number
   currentRevisionNumber: number | null
   brandKitName: string | null
-  // 039 FR-15: the brand kit's website, for the Facebook link (null until 039 T4).
+  // 039 FR-15: the brand kit's website, for the Facebook link (null when the kit has none).
   kitWebsite: string | null
   // 038 FR-12: the post's current project (null = none).
   project: { id: string; name: string } | null
@@ -520,6 +520,8 @@ export interface AdminBrandKitDetail {
   fontCatalogueDate?: string
   typographyFindings?: Array<{ code: string; detail: string }>
   logoUrl: string | null
+  // 039 D6: the kit's https website, inserted into a Facebook caption; null = none.
+  website?: string | null
   isDefault: boolean
   prompts: BrandKitPrompt[]
   templates: BrandKitTemplateFull[]

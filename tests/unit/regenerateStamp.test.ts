@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest'
 import type { Channel } from '@prisma/client'
-import { CAPTION_CHANNELS } from '@/lib/channels'
 import { parseRegenerateBody } from '@/lib/captions/requests'
 import { decideModel, regenerateStampTier } from '@/lib/models/resolve'
 
@@ -13,7 +12,8 @@ const S = 'claude-sonnet-5-5'
 const O = 'claude-opus-5-5'
 const H = 'claude-haiku-4-5'
 
-const ALL_CHANNELS: Channel[] = CAPTION_CHANNELS.map((s) => s.channel)
+// Two caption targets, whatever the registry holds: the rule is "every target's stamp agrees".
+const ALL_CHANNELS: Channel[] = ['INSTAGRAM', 'LINKEDIN']
 
 // The real request parser, so the rule is tested on the targets a route will pass.
 const targets = (body: unknown) => {
@@ -27,7 +27,7 @@ const draft = (stamps: (string | null)[], headlineModel: string | null = null) =
 })
 
 describe('regenerateStampTier — AC-06', () => {
-  it('there are two caption channels (the rule is “both rows”)', () => {
+  it('the fixture has two caption channels (the rule is “both rows”)', () => {
     expect(ALL_CHANNELS).toHaveLength(2)
   })
 

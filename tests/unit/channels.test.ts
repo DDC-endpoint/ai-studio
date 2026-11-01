@@ -41,23 +41,29 @@ describe('CAPTION_CHANNELS registry', () => {
     expect(new Set(registered).size).toBe(registered.length)
   })
 
-  it('is ordered Instagram, LinkedIn with unique JSON keys (026 AC-01)', () => {
-    expect(CAPTION_CHANNELS.map((s) => s.channel)).toEqual(['INSTAGRAM', 'LINKEDIN'])
-    expect(CAPTION_CHANNELS.map((s) => s.jsonKey)).toEqual(['instagram', 'linkedin'])
+  it('is ordered Instagram, LinkedIn, Facebook with unique JSON keys (026 AC-01, 039 T4)', () => {
+    expect(CAPTION_CHANNELS.map((s) => s.channel)).toEqual(['INSTAGRAM', 'LINKEDIN', 'FACEBOOK'])
+    expect(CAPTION_CHANNELS.map((s) => s.jsonKey)).toEqual(['instagram', 'linkedin', 'facebook'])
   })
 
   it('has no WhatsApp entry, so a lookup throws', () => {
     expect(() => captionSpec('WHATSAPP' as never)).toThrow(/No caption registry entry/)
   })
 
-  it('IG hard limit 2200, LI 3000', () => {
+  it('IG hard limit 2200, LI 3000, Facebook 2000', () => {
     expect(captionSpec('INSTAGRAM')).toMatchObject({ hardLimit: 2200 })
     expect(captionSpec('LINKEDIN')).toMatchObject({ hardLimit: 3000 })
-    expect(CHANNEL_CAPTION_LIMITS).toEqual({ INSTAGRAM: 2200, LINKEDIN: 3000 })
+    expect(captionSpec('FACEBOOK')).toMatchObject({ hardLimit: 2000 })
+    expect(CHANNEL_CAPTION_LIMITS).toEqual({ INSTAGRAM: 2200, LINKEDIN: 3000, FACEBOOK: 2000 })
   })
 
   it('derives the labels, and keeps WhatsApp for old Post rows (026 AC-01)', () => {
-    expect(CHANNEL_LABELS).toEqual({ INSTAGRAM: 'Instagram', LINKEDIN: 'LinkedIn', WHATSAPP: 'WhatsApp' })
+    expect(CHANNEL_LABELS).toEqual({
+      INSTAGRAM: 'Instagram',
+      LINKEDIN: 'LinkedIn',
+      FACEBOOK: 'Facebook',
+      WHATSAPP: 'WhatsApp',
+    })
     expect(channelLabel('whatsapp')).toBe('WhatsApp')
   })
 
@@ -81,22 +87,31 @@ describe('CAPTION_CHANNELS registry', () => {
 
 // --- 039 AC-03: the vocabulary is derived from the one registry ---
 describe('CAPTION_REGISTRY (039)', () => {
-  // T4 adds Facebook last (the spec's order is General, Instagram, LinkedIn, Facebook).
-  it('is ordered General, Instagram, LinkedIn, with unique JSON keys', () => {
-    expect(CAPTION_REGISTRY.map((s) => s.target)).toEqual(['GENERAL', 'INSTAGRAM', 'LINKEDIN'])
+  it('is ordered General, Instagram, LinkedIn, Facebook, with unique JSON keys', () => {
+    expect(CAPTION_REGISTRY.map((s) => s.target)).toEqual(['GENERAL', 'INSTAGRAM', 'LINKEDIN', 'FACEBOOK'])
     const keys = CAPTION_REGISTRY.map((s) => s.jsonKey)
-    expect(keys).toEqual(['general', 'instagram', 'linkedin'])
+    expect(keys).toEqual(['general', 'instagram', 'linkedin', 'facebook'])
     expect(new Set(keys).size).toBe(keys.length)
   })
 
   it('the general entry has no channel; the curated ones are CAPTION_CHANNELS', () => {
     expect(GENERAL_CAPTION).toMatchObject({ kind: 'GENERAL', channel: null, hardLimit: 2200 })
     expect(CAPTION_CHANNELS.every((s) => s.kind === 'CURATED' && s.channel !== null)).toBe(true)
-    expect(CAPTION_CHANNELS.map((s) => s.target)).toEqual(['INSTAGRAM', 'LINKEDIN'])
+    expect(CAPTION_CHANNELS.map((s) => s.target)).toEqual(['INSTAGRAM', 'LINKEDIN', 'FACEBOOK'])
   })
 
   it('FACT_WHERE deep-equals [headline, ...registry targets], so it cannot drift', () => {
     expect([...FACT_WHERE]).toEqual(['headline', ...CAPTION_REGISTRY.map((e) => e.target)])
+  })
+
+  it('a stored flag with where FACEBOOK parses (039 T4)', () => {
+    const stored = {
+      v: 1,
+      status: 'flagged',
+      checkedAt: '2026-11-02T00:00:00.000Z',
+      flagged: [{ kind: 'cur', value: '$49', where: 'FACEBOOK' }],
+    }
+    expect(parseFactsCheck(stored)).toEqual(stored)
   })
 
   it('a stored flag with where INSTAGRAM still parses', () => {
@@ -118,6 +133,7 @@ describe('CAPTION_REGISTRY (039)', () => {
   it('targetOf maps a stored row to its target, and a retired channel to null', () => {
     expect(targetOf({ kind: 'GENERAL', channel: null })).toBe('GENERAL')
     expect(targetOf({ kind: 'CURATED', channel: 'LINKEDIN' })).toBe('LINKEDIN')
+    expect(targetOf({ kind: 'CURATED', channel: 'FACEBOOK' })).toBe('FACEBOOK')
     expect(targetOf({ kind: 'CURATED', channel: 'WHATSAPP' })).toBeNull()
   })
 

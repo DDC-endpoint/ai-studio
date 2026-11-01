@@ -77,7 +77,9 @@ vi.mock('@/lib/authz/visibility', () => ({ canView: () => true, canEditPost: () 
 vi.mock('@/providers/registry', () => ({
   resolveCopyProvider: async () => ({ generateCaptions: h.generateCaptions }),
 }))
-vi.mock('@/lib/brandkit/resolve', () => ({ resolveBrandKit: async () => null }))
+// The post's kit (null: none); a test gives it a website (039 D17).
+let kitForTest: { website: string | null } | null = null
+vi.mock('@/lib/brandkit/resolve', () => ({ resolveBrandKit: async () => kitForTest }))
 
 const { getDraft, generatePost } = await import('@/mcp/tools/generate')
 const { AGENT_MANIFEST } = await import('@/acp/agent')
@@ -123,6 +125,8 @@ function draftRow() {
     exportUrl: 'exports/d1.png',
     htmlContent: '<html></html>',
     status: 'EXPORTED',
+    generationInputs: null,
+    brief: { teamId, brandKitId: null },
     captions: rows.map((r) => ({ ...r, updatedAt: new Date() })),
   }
 }
@@ -137,6 +141,7 @@ function selected(args?: { select?: Record<string, unknown> }) {
 beforeEach(() => {
   for (const fn of Object.values(h)) fn.mockReset()
   teamId = 'team1'
+  kitForTest = null
   rows = [general(GEN_TEXT), row('INSTAGRAM', IG_TEXT), row('LINKEDIN', LI_TEXT), row('WHATSAPP', WA_TEXT)]
   h.draftFindUnique.mockImplementation(async (args) => selected(args))
   h.draftFindUniqueOrThrow.mockImplementation(async (args) => selected(args))
@@ -220,6 +225,20 @@ describe('getDraft', () => {
     }
   })
 
+  it("a Facebook caption's link rule uses the post's kit website (039 D17)", async () => {
+    const FB = 'Mock Facebook caption.\nhttps://acme.example\n\n#a'
+    rows = [general(GEN_TEXT), row('FACEBOOK', FB)]
+    kitForTest = { website: 'https://acme.example' }
+    const met = await getDraft({ id: 'd1', teamId: 'team1' })
+    expect(met.captions[1].rules.unmet).not.toContain('link-missing')
+    rows = [general(GEN_TEXT), row('FACEBOOK', 'Mock Facebook caption.')]
+    const missing = await getDraft({ id: 'd1', teamId: 'team1' })
+    expect(missing.captions[1].rules.unmet).toContain('link-missing')
+    kitForTest = null
+    const none = await getDraft({ id: 'd1', teamId: 'team1' })
+    expect(none.captions[1].rules.unmet).not.toContain('link-missing')
+  })
+
   it('a cross-team draft is still "not found", and its captions are never read', async () => {
     teamId = 'other-team'
     await expect(getDraft({ id: 'd1', teamId: 'team1' })).rejects.toThrow('Draft d1 not found')
@@ -291,7 +310,7 @@ describe('generatePost', () => {
       expect(Object.keys(caption).sort()).toEqual(Object.keys(item.properties).sort())
     }
     // 039 D20: the curatable channels, plus null for the general caption.
-    expect(item.properties.channel.enum).toEqual(['INSTAGRAM', 'LINKEDIN', null])
+    expect(item.properties.channel.enum).toEqual(['INSTAGRAM', 'LINKEDIN', 'FACEBOOK', null])
     expect(item.properties.kind.enum).toEqual(['GENERAL', 'CURATED'])
     expect(item.properties.status.enum).toEqual(['PENDING', 'READY', 'FAILED'])
   })

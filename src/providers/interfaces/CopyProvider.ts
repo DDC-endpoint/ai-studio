@@ -23,6 +23,9 @@ export interface BriefInput {
   // 039 D18: the post's general caption, passed to a curate so the channel
   // caption keeps its facts. Absent when the post has none (or for a generation).
   generalCaption?: string
+  // 039 D17: set when the post's brand kit has a website, so the prompt says that the
+  // app adds the link (the model never writes one).
+  kitWebsite?: string
 }
 
 // The COPY slot keeps its name (it also drives brand-voice drafting). One call

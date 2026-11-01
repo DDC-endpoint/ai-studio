@@ -53,6 +53,8 @@ const DROP_CAMPAIGNS = '20261101130000_drop_campaigns' // 038
 const GUARD_039_PREFIX = '039 rollback refused:'
 const PRE_039 = '20261101130000_drop_campaigns' // the migration before 039
 const CAPTION_KIND = '20261102120000_caption_kind' // 039
+const CHANNEL_FACEBOOK = '20261102130000_channel_facebook' // 039
+const KIT_WEBSITE = '20261102140000_kit_website' // 039
 const DOWN_039 = 'prisma/rollback/039-general-and-curated-captions.down.sql'
 const PERSONAL_KEY_MIGRATION = '20261028120000_personal_image_key_provider' // 031 C
 
@@ -121,7 +123,7 @@ const ALL_MIGRATIONS = readdirSync(MIGRATIONS_DIR, { withFileTypes: true })
   .map((d) => d.name)
   .sort()
 
-for (const name of [MAIN_HEAD, PRE_CARRYOVER, CARRYOVER, DROP_LEGACY, DROP_TEAM, PERSONAL_KEY_MIGRATION, PRE_037, REMOVE_PUBLISHING, PRE_038, DROP_CAMPAIGNS, PRE_039, CAPTION_KIND]) {
+for (const name of [MAIN_HEAD, PRE_CARRYOVER, CARRYOVER, DROP_LEGACY, DROP_TEAM, PERSONAL_KEY_MIGRATION, PRE_037, REMOVE_PUBLISHING, PRE_038, DROP_CAMPAIGNS, PRE_039, CAPTION_KIND, CHANNEL_FACEBOOK, KIT_WEBSITE]) {
   if (!ALL_MIGRATIONS.includes(name)) {
     console.error(`FAIL setup: migration ${name} not found in prisma/migrations`)
     process.exit(1)
@@ -754,6 +756,25 @@ async function scenario6() {
   const diff1 = runPrisma(['migrate', 'diff', '--from-url', SCRATCH_URL, '--to-schema-datamodel', SCHEMA, '--exit-code'])
   check(diff1.status === 0, `prisma migrate diff (head) exited ${diff1.status}:\n${diff1.output}`)
 
+  // 039 T4: a Facebook row and a kit website (the head client takes both).
+  check(
+    (await failingState(
+      `INSERT INTO "DraftCaption" ("id", "draftId", "kind", "channel", "text", "status", "updatedAt")
+       VALUES ('upg_cap_fb', 'upg_cap_draft', 'CURATED'::"CaptionKind", 'FACEBOOK'::"Channel", 'FB text', 'READY'::"CaptionStatus", now())`,
+    )) === '',
+    'the Facebook row failed to insert at head',
+  )
+  await db.$executeRaw`
+    INSERT INTO "BrandKit" ("id", "teamId", "name", "website") VALUES ('upg_cap_kit', ${TEAM}, 'Upgrade kit', 'https://acme.example')`
+  try {
+    const kit = await db.brandKit.findUnique({ where: { id: 'upg_cap_kit' } })
+    check(kit?.website === 'https://acme.example', 'head client: the kit website did not read back')
+    const fb = await db.draftCaption.findMany({ where: { draftId: 'upg_cap_draft', channel: 'FACEBOOK' } })
+    check(fb.length === 1, 'head client: the Facebook row did not read back')
+  } catch (err) {
+    failures.push(`head client read of Facebook or website failed: ${err.message}`)
+  }
+
   // 039 AC-25: the down script fails closed, then runs with the flag.
   const snapshot = async () =>
     json(await db.$queryRawUnsafe(`SELECT * FROM "DraftCaption" ORDER BY "id"`)) +
@@ -763,7 +784,7 @@ async function scenario6() {
   check(refused.status !== 0, 'the down script ran while a general caption existed')
   check(refused.output.includes(GUARD_039_PREFIX), `the 039 message is missing:\n${refused.output}`)
   check(
-    /1 general captions, 0 Facebook captions, 0 deleted captions, 0 brand kits with a website/.test(refused.output),
+    /1 general captions, 1 Facebook captions, 0 deleted captions, 1 brand kits with a website/.test(refused.output),
     `the 039 message does not carry the counts:\n${refused.output}`,
   )
   check((await snapshot()) === beforeRefusal, 'the refused down script changed a row or a column')
@@ -787,6 +808,7 @@ async function scenario6() {
   for (const c of ['kind', 'previous', 'deletedAt', 'generalHash']) {
     check(!(await columnExists('DraftCaption', c)), `DraftCaption.${c} still exists after the down script`)
   }
+  check(!(await columnExists('BrandKit', 'website')), 'BrandKit.website still exists after the down script')
   const [{ nullable }] = await db.$queryRawUnsafe(
     `SELECT is_nullable AS nullable FROM information_schema.columns WHERE table_name = 'DraftCaption' AND column_name = 'channel'`,
   )
@@ -797,16 +819,19 @@ async function scenario6() {
   check(idx === 1, 'DraftCaption_draftId_channel_key is missing after the down script')
   const migrations = await migrationRows()
   check(!migrations.has(CAPTION_KIND), 'the caption_kind migration row survived the down script')
+  check(!migrations.has(CHANNEL_FACEBOOK), 'the channel_facebook migration row survived the down script')
+  check(!migrations.has(KIT_WEBSITE), 'the kit_website migration row survived the down script')
 
   // 039 AC-25 step 4: head deploys again, and the schema still matches.
   mustDeploy('redeploy of head after the down script', deployFull())
   check(await columnExists('DraftCaption', 'kind'), 'DraftCaption.kind is missing after the redeploy')
+  check(await columnExists('BrandKit', 'website'), 'BrandKit.website is missing after the redeploy')
   const diff2 = runPrisma(['migrate', 'diff', '--from-url', SCRATCH_URL, '--to-schema-datamodel', SCHEMA, '--exit-code'])
   check(diff2.status === 0, `prisma migrate diff (redeploy) exited ${diff2.status}:\n${diff2.output}`)
 
   return {
     failures,
-    detail: `039: old rows became CURATED unchanged, the partial indexes and both CHECKs bit (23505, 23514), the head client read OK, migrate diff exit ${diff1.status}; the down script refused with the counts and changed nothing, ran with the flag (exit ${flagged?.status}), head redeployed, migrate diff exit ${diff2.status}`,
+    detail: `039: old rows became CURATED unchanged, the partial indexes and both CHECKs bit (23505, 23514), the head client read OK (Facebook row, kit website), migrate diff exit ${diff1.status}; the down script refused with the counts and changed nothing, ran with the flag (exit ${flagged?.status}), head redeployed, migrate diff exit ${diff2.status}`,
   }
 }
 

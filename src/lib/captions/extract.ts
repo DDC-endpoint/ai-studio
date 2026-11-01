@@ -12,6 +12,7 @@
 // caller to log; this module never logs.
 
 import { CAPTION_REGISTRY, captionLength, captionSpec, type CaptionTarget } from '@/lib/channels'
+import { findLinks } from '@/lib/captions/rules'
 import { validateHeadline } from '@/lib/captions/headline'
 
 export type FieldResult = { ok: true; text: string } | { ok: false; reason: string }
@@ -111,6 +112,11 @@ function captionField(target: Exclude<CaptionTarget, 'HEADLINE'>, value: unknown
   const length = captionLength(text)
   if (length > spec.hardLimit) {
     return { ok: false, reason: `over-limit (${count(length)} / ${count(spec.hardLimit)})` }
+  }
+  // 039 D17: a channel whose link is the kit website never takes one from the
+  // model; code inserts it after the reply is validated.
+  if (spec.rules.link === 'kit-website' && findLinks(text).length > 0) {
+    return { ok: false, reason: 'link-in-reply' }
   }
   return { ok: true, text }
 }

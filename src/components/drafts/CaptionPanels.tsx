@@ -11,6 +11,7 @@ import { ICON } from '@/components/ui/atoms'
 import { ApiError, apiFetch } from '@/lib/apiFetch'
 import { captionActionTargets } from '@/lib/captions/actionTargets'
 import { CAPTION_CHANNELS } from '@/lib/channels'
+import { NO_WEBSITE_NOTICE } from '@/lib/captions/rules'
 import type { DraftDetail } from '@/lib/api-types'
 import type { ModelKey } from '@/lib/models/catalogue'
 import { CaptionPanel, type RegenerateResult } from './CaptionPanel'
@@ -232,6 +233,12 @@ export function CaptionPanels({
                     </Button>
                   ))}
                 </div>
+                {/* 039 D17: a Facebook caption gets its link from the kit's website. */}
+                {!draft.kitWebsite && curatable.some((s) => s.rules.link === 'kit-website') && (
+                  <Notice tone="neutral" data-testid="curate-no-website">
+                    {NO_WEBSITE_NOTICE}
+                  </Notice>
+                )}
               </div>
             )}
             {curated.map((caption) => (

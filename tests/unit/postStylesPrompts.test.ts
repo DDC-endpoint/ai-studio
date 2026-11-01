@@ -91,6 +91,7 @@ const kitFixture = {
   logoUrl: null,
   logos: [],
   voicePrompt: 'Warm and direct.',
+  website: null,
   source: 'explicit' as const,
 }
 const GOLDEN: Record<string, string> = goldenJson

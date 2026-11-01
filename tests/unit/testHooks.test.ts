@@ -125,6 +125,51 @@ describe('buildMockCaptionReply', () => {
     expect(captionsOnly).toContain('"instagram"')
   })
 
+  // 039 FR-21: the Facebook body and its sentinels.
+  it('the default Facebook body has 50 words and 2 hashtags and no link, so it meets every rule', async () => {
+    const hooks = await loadHooks()
+    const { extractCaptionReply } = await import('@/lib/captions/extract')
+    const { checkCaptionRules, countWords, countHashtags, findLinks } = await import('@/lib/captions/rules')
+    const { captionSpec } = await import('@/lib/channels')
+    for (const topic of ['Launch day', 'a much longer topic '.repeat(30)]) {
+      const r = extractCaptionReply(hooks.buildMockCaptionReply(topic, ['FACEBOOK'], { hasGeneral: true }), ['FACEBOOK'])
+      const text = r.ok && r.fields.FACEBOOK?.ok ? r.fields.FACEBOOK.text : ''
+      expect(countWords(text)).toBe(50)
+      expect(countHashtags(text)).toBe(2)
+      expect(findLinks(text)).toEqual([])
+      expect(text).toContain('[from general]')
+      expect(checkCaptionRules(captionSpec('FACEBOOK'), text, { website: null })).toEqual({ met: true, unmet: [] })
+    }
+  })
+
+  it('__MOCK_CURATE_SHORT__ gives 12 words, __MOCK_CURATE_HASHTAGS__ gives 5 hashtags, __MOCK_CURATE_LINK__ puts a link in', async () => {
+    const hooks = await loadHooks()
+    const { extractCaptionReply } = await import('@/lib/captions/extract')
+    const { checkCaptionRules, countWords, countHashtags } = await import('@/lib/captions/rules')
+    const { captionSpec } = await import('@/lib/channels')
+    const fb = (topic: string) => {
+      const r = extractCaptionReply(hooks.buildMockCaptionReply(topic, ['FACEBOOK'], { hasGeneral: true }), ['FACEBOOK'])
+      return r.ok ? r.fields.FACEBOOK : undefined
+    }
+    const short = fb('t __MOCK_CURATE_SHORT__')
+    expect(short?.ok && countWords(short.text)).toBe(12)
+    expect(short?.ok && checkCaptionRules(captionSpec('FACEBOOK'), short.text, { website: null }).unmet).toEqual(['words-under'])
+    const tags = fb('t __MOCK_CURATE_HASHTAGS__')
+    expect(tags?.ok && countHashtags(tags.text)).toBe(5)
+    expect(tags?.ok && checkCaptionRules(captionSpec('FACEBOOK'), tags.text, { website: null }).unmet).toEqual(['hashtags-over'])
+    // The link is a model-written one, so the real extractor refuses it (D17).
+    expect(fb('t __MOCK_CURATE_LINK__')).toEqual({ ok: false, reason: 'link-in-reply' })
+  })
+
+  it('fact values go before the Facebook hashtag line', async () => {
+    const hooks = await loadHooks()
+    const { extractCaptionReply } = await import('@/lib/captions/extract')
+    const r = extractCaptionReply(hooks.buildMockCaptionReply('t __MOCK_FACT_PRICE__', ['FACEBOOK']), ['FACEBOOK'])
+    const text = r.ok && r.fields.FACEBOOK?.ok ? r.fields.FACEBOOK.text : ''
+    expect(text).toContain('$49')
+    expect(text.split('\n').at(-1)).toBe('#mock #facebook')
+  })
+
   it('clips the headline to 100 characters', async () => {
     const hooks = await loadHooks()
     const { extractCaptionReply } = await import('@/lib/captions/extract')

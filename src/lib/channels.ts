@@ -79,9 +79,20 @@ const LINKEDIN = {
   normalise: stripDoubleAsterisks,
 } as const satisfies CaptionSpec
 
-// General first, then the curated channels. Facebook joins in 039 T4, together
-// with its `Channel` value.
-export const CAPTION_REGISTRY = [GENERAL, INSTAGRAM, LINKEDIN] as const satisfies readonly CaptionSpec[]
+const FACEBOOK = {
+  target: 'FACEBOOK',
+  kind: 'CURATED',
+  channel: 'FACEBOOK',
+  label: 'Facebook',
+  jsonKey: 'facebook',
+  hardLimit: 2000,
+  brief: 'A short post for a Facebook page. Plain text, no Markdown.',
+  rules: { words: { min: 40, max: 120 }, hashtags: { min: 0, max: 3 }, link: 'kit-website' },
+  normalise: stripDoubleAsterisks,
+} as const satisfies CaptionSpec
+
+// General first, then the curated channels.
+export const CAPTION_REGISTRY = [GENERAL, INSTAGRAM, LINKEDIN, FACEBOOK] as const satisfies readonly CaptionSpec[]
 export const GENERAL_CAPTION = CAPTION_REGISTRY[0]
 
 type CuratedSpec = Exclude<(typeof CAPTION_REGISTRY)[number], { kind: 'GENERAL' }>

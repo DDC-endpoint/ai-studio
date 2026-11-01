@@ -22,6 +22,7 @@ const kit: ResolvedBrandKit = {
     { label: 'Reversed', url: 'https://cdn.example/logo-w.png', primary: false },
   ],
   voicePrompt: 'Warm and direct. Keep clear space of 1.5 wordmark letters.',
+  website: null,
   source: 'explicit',
 }
 
@@ -44,7 +45,7 @@ describe('generation is untouched by 007', () => {
     // 2026-11-02.1: the Path B user message lost its "Channels:" line (039 D21).
     expect(PROMPT_VERSION).toBe(`2026-11-02.1+ps${POST_STYLES_REVISION}`)
   })
-  it('CAPTION_PROMPT_VERSION is pinned (039 T3: a curate carries the general caption; T4 takes .3)', () => {
-    expect(CAPTION_PROMPT_VERSION).toBe(`2026-11-02.2+ps${POST_STYLES_REVISION}`)
+  it('CAPTION_PROMPT_VERSION is pinned (039 T4: the Facebook rules and the website line)', () => {
+    expect(CAPTION_PROMPT_VERSION).toBe(`2026-11-02.3+ps${POST_STYLES_REVISION}`)
   })
 })

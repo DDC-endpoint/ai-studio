@@ -10,7 +10,7 @@ import { ModelPicker } from '@/components/ui/ModelPicker'
 import { ICON } from '@/components/ui/atoms'
 import { apiFetch } from '@/lib/apiFetch'
 import { captionLength, captionSpec } from '@/lib/channels'
-import { checkCaptionRules, ruleMissText } from '@/lib/captions/rules'
+import { NO_WEBSITE_NOTICE, checkCaptionRules, ruleMissText } from '@/lib/captions/rules'
 import type { DraftCaptionDetail } from '@/lib/api-types'
 import type { ModelKey } from '@/lib/models/catalogue'
 import { GeneratedWith } from './GeneratedWith'
@@ -365,6 +365,11 @@ export function CaptionPanel({
               {ruleMissText(spec, miss, value, website)}
             </Notice>
           ))}
+          {spec.rules.link === 'kit-website' && !website && (
+            <Notice tone="neutral" className="mt-2" data-testid="caption-no-website">
+              {NO_WEBSITE_NOTICE}
+            </Notice>
+          )}
           {flaggedValues.length > 0 && (
             <Notice tone="warning" className="mt-2" data-testid="caption-facts">
               Not in your sources:{' '}

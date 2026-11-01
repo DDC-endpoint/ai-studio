@@ -12,13 +12,8 @@ import {
   rulesPromptText,
 } from '@/lib/captions/rules'
 
-// T4 adds the real Facebook entry; T1 proves the check against a spec with the
-// same rules (40 to 120 words, 0 to 3 hashtags, the kit website).
-const FACEBOOK: CaptionSpec = {
-  ...captionSpec('LINKEDIN'),
-  label: 'Facebook',
-  rules: { words: { min: 40, max: 120 }, hashtags: { min: 0, max: 3 }, link: 'kit-website' },
-}
+// The real Facebook entry (039 T4): 40 to 120 words, 0 to 3 hashtags, the kit website.
+const FACEBOOK: CaptionSpec = captionSpec('FACEBOOK')
 const words = (n: number) => Array.from({ length: n }, (_, i) => `word${i}`).join(' ')
 const NO_SITE = { website: null }
 
@@ -71,6 +66,11 @@ describe('checkCaptionRules', () => {
     expect(checkCaptionRules(FACEBOOK, words(121), NO_SITE).unmet).toEqual(['words-over'])
   })
 
+  it('Facebook: more than 3 hashtags is hashtags-over (039 AC-18)', () => {
+    expect(checkCaptionRules(FACEBOOK, `${words(50)} #a #b #c`, NO_SITE).met).toBe(true)
+    expect(checkCaptionRules(FACEBOOK, `${words(50)} #a #b #c #d`, NO_SITE).unmet).toEqual(['hashtags-over'])
+  })
+
   it('link-missing only when a website is set and the text lacks it', () => {
     const site = 'https://acme.example'
     expect(checkCaptionRules(FACEBOOK, words(50), { website: site }).unmet).toEqual(['link-missing'])
@@ -118,6 +118,7 @@ describe('the prompt text and the notices read the same rules', () => {
     expect(ruleMissText(captionSpec('LINKEDIN'), 'hashtags-over', '#a #b #c #d', null)).toBe(
       'LinkedIn allows at most 3 hashtags. This has 4.',
     )
-    expect(ruleMissText(FACEBOOK, 'link-missing', '', 'https://acme.example')).toMatch(/website/)
+    expect(ruleMissText(FACEBOOK, 'link-missing', '', 'https://acme.example')).toContain('https://acme.example')
+    expect(ruleMissText(FACEBOOK, 'link-missing', '', null)).toMatch(/website/)
   })
 })

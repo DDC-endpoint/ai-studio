@@ -26,6 +26,7 @@ describe('captionReplyKeys', () => {
   it('orders the headline first, then channels in registry order', () => {
     expect(captionReplyKeys(['LINKEDIN', 'HEADLINE', 'INSTAGRAM'])).toEqual(['headline', 'instagram', 'linkedin'])
     expect(captionReplyKeys(ALL)).toEqual(['headline', 'instagram', 'linkedin'])
+    expect(captionReplyKeys(['FACEBOOK', 'LINKEDIN'])).toEqual(['linkedin', 'facebook'])
   })
 })
 
@@ -167,6 +168,20 @@ describe('extractCaptionReply — per field', () => {
     // 3,000 characters plus `**` markers that normalisation removes → ok.
     const marked = okFields(reply({ ...CLEAN, linkedin: `**${'b'.repeat(3000)}**` }))
     expect(marked.fields.LINKEDIN?.ok).toBe(true)
+  })
+
+  it('a Facebook field with a link fails link-in-reply; Instagram with one passes (039 D17, AC-17)', () => {
+    const FB: CaptionTarget[] = ['FACEBOOK']
+    for (const link of ['https://x.y', 'www.x.y', 'http://x.y/a?b=1']) {
+      const r = okFields(reply({ facebook: `Come along. ${link}` }), FB)
+      expect(r.fields.FACEBOOK).toEqual({ ok: false, reason: 'link-in-reply' })
+    }
+    expect(okFields(reply({ facebook: 'Come along, no link. #a' }), FB).fields.FACEBOOK).toEqual({
+      ok: true,
+      text: 'Come along, no link. #a',
+    })
+    const ig = okFields(reply({ instagram: 'See https://x.y today' }), ['INSTAGRAM'])
+    expect(ig.fields.INSTAGRAM).toEqual({ ok: true, text: 'See https://x.y today' })
   })
 
   it('a whatsapp key is an unknown key: no WhatsApp caption is requested (026 AC-04)', () => {

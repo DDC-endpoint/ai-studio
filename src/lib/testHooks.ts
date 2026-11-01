@@ -49,6 +49,26 @@ const FACT_HEADLINE_SENTINEL = '__MOCK_FACT_HEADLINE__'
 const FACT_HEADLINE_VALUE = '$49'
 const FACT_ERROR_SENTINEL = '__MOCK_FACT_ERROR__'
 const FAIL_CURATED_SENTINEL = '__FAIL_CURATED__'
+// 039 FR-21: the Facebook body sentinels (the default body meets every Facebook rule).
+const CURATE_LINK_SENTINEL = '__MOCK_CURATE_LINK__'
+const CURATE_SHORT_SENTINEL = '__MOCK_CURATE_SHORT__'
+const CURATE_HASHTAGS_SENTINEL = '__MOCK_CURATE_HASHTAGS__'
+const MOCK_LINK = 'https://example.invalid/x'
+const FILLER = 'Come and see what we have been working on and tell us what you think of it'.split(' ')
+
+// The mock Facebook caption: an exact word count (hashtags and links do not count)
+// whatever the topic, so a test can state it. The default is 50 words and 2
+// hashtags with no link; a sentinel in the topic makes it short (12 words), put a
+// link in it or give it 5 hashtags. Fact values go before the hashtag line.
+function mockFacebookBody(topic: string, fromGeneral: boolean, values: string[]): string {
+  const words = topic.includes(CURATE_SHORT_SENTINEL) ? 12 : 50
+  const lead = ['Mock', 'Facebook', 'caption', ...(fromGeneral ? ['[from', 'general]'] : [])]
+  const filler = Array.from({ length: words - lead.length }, (_, i) => FILLER[i % FILLER.length])
+  const body = [...lead, ...filler]
+  if (topic.includes(CURATE_LINK_SENTINEL)) body.splice(lead.length, 0, MOCK_LINK)
+  const hashtags = topic.includes(CURATE_HASHTAGS_SENTINEL) ? '#one #two #three #four #five' : '#mock #facebook'
+  return `${body.join(' ')}${values.length > 0 ? ` ${values.join(' ')}` : ''}\n\n${hashtags}`
+}
 
 /**
  * Whether the facts check must fail for this topic (MOCK_AI only): the check's
@@ -108,7 +128,10 @@ export function buildMockCaptionReply(
     if (s.kind === 'CURATED' && topic.includes(FAIL_CURATED_SENTINEL)) continue
     // A curate that was given the general caption says so.
     const fromGeneral = s.kind === 'CURATED' && hasGeneral ? ' [from general]' : ''
-    reply[s.jsonKey] = withValues(`Mock ${s.label} caption [${topic}]${fromGeneral}`, values)
+    reply[s.jsonKey] =
+      s.target === 'FACEBOOK'
+        ? mockFacebookBody(topic, fromGeneral !== '', values)
+        : withValues(`Mock ${s.label} caption [${topic}]${fromGeneral}`, values)
   }
 
   return [

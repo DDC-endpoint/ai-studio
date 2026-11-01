@@ -304,7 +304,7 @@ async function settlePendingRows(
   targets: readonly Exclude<CaptionTarget, 'HEADLINE'>[] | null,
   fieldFor: (target: string) => FieldResult,
   stamp: CaptionStamp | null = null,
-  extra?: { generalHash?: string | null },
+  extra?: { generalHash?: string | null; website?: string | null },
 ): Promise<void> {
   const rows = await tx.draftCaption.findMany({
     where: {
@@ -365,7 +365,7 @@ export async function settleCaptionAction(
   db: PrismaClient = prisma,
   postStyle?: PostStyleStamp | null,
   // 039 D4: the hash of the general caption a curate was written from.
-  extra?: { generalHash?: string | null },
+  extra?: { generalHash?: string | null; website?: string | null },
 ): Promise<SettleResult> {
   const headline = targets.includes('HEADLINE') ? fields.HEADLINE : undefined
   let settled = false

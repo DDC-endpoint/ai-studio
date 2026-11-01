@@ -47,6 +47,7 @@ enum Channel {
   INSTAGRAM
   LINKEDIN
   WHATSAPP
+  FACEBOOK
 }
 
 // One caption row's state (012 FR-02). PENDING = a generation or regenerate is
@@ -552,6 +553,8 @@ model BrandKit {
   colors    Json?
   fonts     Json?
   logoUrl   String?
+  // 039 D6: the brand's https website; code inserts it into the Facebook call to action.
+  website   String?
   // 031 FR-21: the font per script, { [script]: family }, keyed by the catalogue's
   // script id (only `sinhala` is offered). Null = none (the default).
   scriptFonts Json?

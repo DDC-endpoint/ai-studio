@@ -194,9 +194,9 @@ export async function loadDraft(id: string) {
   const stamp = parseGenerationInputs(draft.generationInputs)
 
   // 039 FR-15: each item carries its rules (checked when read, never stored; an
-  // edit clears a miss at once) and its own facts. The brand kit's website joins
-  // the context in 039 T4; until then no caption has a link rule.
-  const kitWebsite: string | null = null
+  // edit clears a miss at once) and its own facts. The kit's website is the
+  // post's context kit's, already read above (no new query).
+  const kitWebsite: string | null = ctx.kit?.website ?? null
   const factsCheck = parseFactsCheck(draft.factsCheck)
   const captionItems = [...(captions?.general ? [captions.general] : []), ...(captions?.curated ?? [])].map((row) => ({
     kind: row.kind,

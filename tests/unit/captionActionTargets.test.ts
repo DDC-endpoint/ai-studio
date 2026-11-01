@@ -95,6 +95,20 @@ describe('settleCaptionRow (design §5 table, A7)', () => {
     expect(settleCaptionRow(rowOf(''), { ok: true, text: 'new' }).status).toBe('READY')
   })
 
+  it('a Facebook caption gets the kit website from code, after the body and before the hashtag line (039 D17)', () => {
+    const fb = { ...rowOf(''), channel: 'FACEBOOK' as const }
+    const settled = settleCaptionRow(fb, { ok: true, text: 'Body.'+String.fromCharCode(10)+'#a #b' }, null, { website: 'https://acme.example' })
+    expect(settled).toMatchObject({ status: 'READY', text: 'Body.'+String.fromCharCode(10)+'https://acme.example'+String.fromCharCode(10,10)+'#a #b' })
+    // no website: the body as validated; other channels never get one
+    expect(settleCaptionRow(fb, { ok: true, text: 'Body.' }, null, {})).toMatchObject({ text: 'Body.' })
+    expect(settleCaptionRow({ ...rowOf(''), channel: 'LINKEDIN' as const }, { ok: true, text: 'Body.' }, null, { website: 'https://acme.example' })).toMatchObject({ text: 'Body.' })
+  })
+
+  it('a regenerate that composes the same text as before records no previous (039 D15)', () => {
+    const fb = { ...rowOf('Body.'+String.fromCharCode(10)+'https://acme.example'), channel: 'FACEBOOK' as const }
+    expect(settleCaptionRow(fb, { ok: true, text: 'Body.' }, null, { website: 'https://acme.example' })).not.toHaveProperty('previous')
+  })
+
   it('AC-07: failed on a row with text → READY, text unchanged, "Regenerate failed: <reason>"', () => {
     expect(settleCaptionRow(rowOf('good text'), { ok: false, reason: 'missing' })).toEqual({
       status: 'READY',

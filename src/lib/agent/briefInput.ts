@@ -112,5 +112,6 @@ export function buildBriefInput(brief: Brief, ctx: PostContext): BriefInput {
     brandVoice: kit?.voicePrompt ?? undefined,
     projectBriefing: ctx.briefing?.content ?? undefined,
     ...(captionRules ? { captionRules } : {}),
+    ...(kit?.website ? { kitWebsite: kit.website } : {}),
   }
 }

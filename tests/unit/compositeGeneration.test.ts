@@ -66,6 +66,7 @@ const kit: ResolvedBrandKit = {
   logoUrl: null,
   logos: [],
   voicePrompt: null,
+  website: null,
   source: 'team',
 }
 const actor = { userId: 'user-actor', teamId: 'team-1' }

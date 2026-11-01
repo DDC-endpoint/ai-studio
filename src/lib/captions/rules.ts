@@ -7,6 +7,11 @@ import { captionSpec, type CaptionSpec, type CaptionTarget } from '@/lib/channel
 
 export type RuleMiss = 'words-under' | 'words-over' | 'hashtags-over' | 'hashtags-not-at-end' | 'link-missing'
 
+// 039 D17: shown under "Curate for Facebook" and on the Facebook card when the
+// post's brand kit has no website.
+export const NO_WEBSITE_NOTICE =
+  'This brand kit has no website, so the call to action has no link. A team admin can add one in Brand kits.'
+
 // A hashtag is # then letters, digits or _, at the start or after whitespace.
 export const HASHTAG = /(^|\s)#[\p{L}\p{N}_]+/gu
 // A link is http(s):// or www. up to whitespace.
@@ -101,7 +106,6 @@ export function composeFacebookCaption(body: string, website: string | null): st
 // The one-line notice for an unmet rule, e.g. "Facebook asks for 40 to 120 words. This has 131."
 export function ruleMissText(spec: CaptionSpec, miss: RuleMiss, text: string, website: string | null): string {
   const { rules } = spec
-  void website
   switch (miss) {
     case 'words-under':
     case 'words-over':
@@ -113,6 +117,8 @@ export function ruleMissText(spec: CaptionSpec, miss: RuleMiss, text: string, we
     case 'hashtags-not-at-end':
       return `${spec.label} wants every hashtag on the last line.`
     case 'link-missing':
-      return "The call to action does not carry the brand kit's website."
+      return website
+        ? `The call to action does not carry the brand kit's website, ${website}.`
+        : "The call to action does not carry the brand kit's website."
   }
 }

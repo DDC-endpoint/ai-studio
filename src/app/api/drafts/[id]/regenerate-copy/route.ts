@@ -200,7 +200,7 @@ export const POST = withTeamAuth<{ id: string }>(async (req, { params }, user) =
           stamp,
           undefined,
           anyOk ? briefPostStyleStamp(draft.brief) : undefined,
-          { generalHash: general?.hash ?? null },
+          { generalHash: general?.hash ?? null, website: ctx.kit?.website ?? null },
         )
         // 030 FR-15: one event when the settle wrote a headline (after the transaction).
         if (settled.headlineWritten) {

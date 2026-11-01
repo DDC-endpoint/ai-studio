@@ -37,7 +37,9 @@ vi.mock('@/lib/api/handler', () => {
 })
 vi.mock('@/lib/authz/visibility', () => ({ canView: () => true, canEditPost: () => true, NOT_AUTHOR: { code: 'not-author' } }))
 vi.mock('@/providers/registry', () => ({ resolveCopyProvider: h.resolveCopyProvider }))
-vi.mock('@/lib/brandkit/resolve', () => ({ resolveBrandKit: async () => null }))
+// The post's kit (null: none). A test sets it to give the post a website (039 D17).
+let kitForTest: unknown = null
+vi.mock('@/lib/brandkit/resolve', () => ({ resolveBrandKit: async () => kitForTest }))
 vi.mock('@/lib/storage/minio', () => ({ resolveExportUrl: async () => null }))
 vi.mock('@/lib/drafts/revisions', () => ({ COMMITTED_REVISION: {}, resolveNotAppliedOutcome: async () => null }))
 vi.mock('@/lib/renderedText/track', () => ({ trackHeadlineEdited: h.trackHeadlineEdited }))
@@ -349,7 +351,7 @@ describe('regenerate-copy — 008 FR-09 stamp tier, resolved before the claim', 
       undefined,
       null,
       // 039 D4: no general caption on this post, so no source hash.
-      { generalHash: null },
+      { generalHash: null, website: null },
     )
   })
 
@@ -437,7 +439,7 @@ describe('regenerate-copy — a curate passes the general caption and stores its
     h.loadDraftCaptions.mockResolvedValue(withGeneral())
     await post(JSON.stringify({ channel: 'LINKEDIN' }))
     expect(briefPassed().generalCaption).toBe('The general caption')
-    expect(extraPassed()).toEqual({ generalHash: generalHashOf('The general caption') })
+    expect(extraPassed()).toEqual({ generalHash: generalHashOf('The general caption'), website: null })
   })
 
   it.each([
@@ -449,7 +451,19 @@ describe('regenerate-copy — a curate passes the general caption and stores its
     h.loadDraftCaptions.mockResolvedValue(loaded)
     await post(JSON.stringify({ channel: 'LINKEDIN' }))
     expect(briefPassed()).not.toHaveProperty('generalCaption')
-    expect(extraPassed()).toEqual({ generalHash: null })
+    expect(extraPassed()).toEqual({ generalHash: null, website: null })
+  })
+
+  it("passes the post's kit website to the settle and to the brief input (039 D17)", async () => {
+    kitForTest = { id: 'k1', name: 'Kit', voicePrompt: null, website: 'https://acme.example' }
+    try {
+      h.loadDraftCaptions.mockResolvedValue(withGeneral())
+      await post(JSON.stringify({ channel: 'FACEBOOK' }))
+      expect(extraPassed()).toMatchObject({ website: 'https://acme.example' })
+      expect(briefPassed()).toMatchObject({ kitWebsite: 'https://acme.example' })
+    } finally {
+      kitForTest = null
+    }
   })
 
   it('a general or headline regenerate passes no general caption', async () => {

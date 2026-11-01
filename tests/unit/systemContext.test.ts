@@ -13,6 +13,7 @@ const base: ResolvedBrandKit = {
     { label: 'Reversed white', url: 'https://cdn.example.com/white.svg', primary: false },
   ],
   voicePrompt: 'Warm, confident, human.',
+  website: null,
   source: 'team',
 }
 

@@ -5,6 +5,7 @@ import { prisma } from '@/lib/prisma'
 import { withTeamAdmin, parseBody } from '@/lib/api/handler'
 import { CATALOGUE_DATE, findFamily } from '@/lib/fonts/catalogue'
 import { checkKitTypography } from '@/lib/designData/authoring/typography'
+import { parseKitWebsite } from '@/lib/brandkit/website'
 import { validateKitFonts, validateScriptFonts } from '@/lib/fonts/validateKitFonts'
 
 type Params = { id: string }
@@ -41,6 +42,8 @@ const patchSchema = z.object({
   scriptFonts: z.record(z.string()).nullable().optional(),
   logoUrl: z.string().regex(/^https?:\/\//, 'logoUrl must be an http(s) URL').nullable().optional(),
   isDefault: z.boolean().optional(),
+  // 039 D6: an https URL, or null to clear. Checked by parseKitWebsite.
+  website: z.string().nullable().optional(),
 })
 
 export const PATCH = withTeamAdmin<Params>(async (req, { params }, user) => {
@@ -51,7 +54,19 @@ export const PATCH = withTeamAdmin<Params>(async (req, { params }, user) => {
 
   const body = await parseBody(req, patchSchema)
   if (body.response) return body.response
-  const { name, colors, fonts, scriptFonts, logoUrl, isDefault } = body.data
+  const { name, colors, fonts, scriptFonts, logoUrl, isDefault, website } = body.data
+
+  // 039 D6: the website is inserted into a caption by code, so only an https URL
+  // is stored. Nothing is written on a refusal.
+  let nextWebsite: string | null | undefined
+  if (website !== undefined) {
+    if (website === null) nextWebsite = null
+    else {
+      const parsed = parseKitWebsite(website)
+      if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 400 })
+      nextWebsite = parsed.website
+    }
+  }
 
   // 031 FR-20: an entry identical to a stored one is kept as is; any other must be a catalogue
   // family (its url is computed); at most 6. Nothing is written on a refusal.
@@ -106,6 +121,7 @@ export const PATCH = withTeamAdmin<Params>(async (req, { params }, user) => {
         ...(nextScriptFonts !== undefined && { scriptFonts: nextScriptFonts }),
         ...(logoUrl !== undefined && { logoUrl }),
         ...(isDefault !== undefined && { isDefault }),
+        ...(nextWebsite !== undefined && { website: nextWebsite }),
       },
     })
   })

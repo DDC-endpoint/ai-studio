@@ -32,6 +32,13 @@ describe('registryEnumMismatches (the registry guard)', () => {
     ])
   })
 
+  it('a Channel value with no entry fails: the registry fixture with FACEBOOK removed (039 T4)', () => {
+    expect(CHANNELS).toContain('FACEBOOK')
+    const withoutFacebook = CAPTION_REGISTRY.filter((s) => s.channel !== 'FACEBOOK')
+    expect(withoutFacebook.length).toBe(CAPTION_REGISTRY.length - 1)
+    expect(registryEnumMismatches(CHANNELS, withoutFacebook, RETIRED_CHANNELS, KINDS)).toEqual(['Channel:FACEBOOK'])
+  })
+
   it('a curated entry whose channel is not a Channel value fails: a fixture registry with MASTODON', () => {
     expect(
       registryEnumMismatches(CHANNELS, [...CAPTION_REGISTRY, curatedEntry('MASTODON')], RETIRED_CHANNELS, KINDS),

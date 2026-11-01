@@ -16,6 +16,7 @@ const kit: ResolvedBrandKit = {
   logoUrl: 'https://cdn.example.com/logo.svg',
   logos: [{ label: 'Primary logo', url: 'https://cdn.example.com/logo.svg', primary: true }],
   voicePrompt: 'Warm, confident, human.',
+  website: null,
   source: 'team',
 }
 
@@ -350,8 +351,8 @@ describe('buildCaptionPrompt (012 FR-07)', () => {
   it('exports the caption prompt version and the token budget', () => {
     expect(CAPTION_PROMPT_VERSION).toMatch(/^\d{4}-\d{2}-\d{2}\.\d+\+ps\d+$/)
     // 2026-10-25.1: post styles (027): derived from the post-style dataset.
-    // 2026-11-02.1: the general caption and the rendered rules (039). 2026-11-02.2: a curate carries the general caption (039 T3).
-    expect(CAPTION_PROMPT_VERSION).toBe(`2026-11-02.2+ps${POST_STYLES_REVISION}`)
+    // 2026-11-02.1: the general caption and the rendered rules (039). 2026-11-02.2: a curate carries the general caption (039 T3). 2026-11-02.3: Facebook's rules and the website line (039 T4).
+    expect(CAPTION_PROMPT_VERSION).toBe(`2026-11-02.3+ps${POST_STYLES_REVISION}`)
     // 039 D18: 512 + the headline cap + each caption's hard limit, from the registry
     expect(captionMaxTokens(['HEADLINE', 'INSTAGRAM', 'LINKEDIN'])).toBe(512 + 100 + 2200 + 3000)
     expect(captionMaxTokens(['HEADLINE', 'GENERAL'])).toBe(2812)
@@ -419,5 +420,40 @@ describe('buildCaptionPrompt — a curate (039 D18)', () => {
     const { user } = buildCaptionPrompt(withGeneral, ['INSTAGRAM'])
     expect(user.indexOf('Tone:')).toBeLessThan(user.indexOf('General caption for this post'))
     expect(user.indexOf('General caption for this post')).toBeLessThan(user.indexOf('Write the following for the brief above'))
+  })
+})
+
+// ── 039 T4 (D17, D18, AC-24): a Facebook curate ──────────────────────────────
+
+describe('buildCaptionPrompt — a Facebook curate (039 D17)', () => {
+  const brief = { topic: 'Hiring push', description: 'We are growing', goal: 'Applications', tone: 'Friendly' }
+  const withGeneral = { ...brief, generalCaption: 'Join us on 5 May.' }
+
+  it('asks for exactly "facebook", holds the general caption fenced and the Facebook rules, and says to write no URL', () => {
+    const { user, system } = buildCaptionPrompt({ ...withGeneral, kitWebsite: 'https://acme.example' }, ['FACEBOOK'])
+    expect(user).toContain('whose keys are exactly "facebook", each a string.')
+    expect(user).toContain('<<<UNTRUSTED-DATA>>>\nJoin us on 5 May.')
+    expect(user).toContain('40 to 120 words')
+    expect(user).toContain('At most 3 hashtags')
+    expect(user).toContain('Do not write any URL, domain or link placeholder')
+    expect(user).toContain('The app adds the link after it')
+    expect(system).toContain('Write a compelling, on-brand caption for Facebook')
+  })
+
+  it('without a website, the call to action carries no link and the prompt does not promise one', () => {
+    const { user } = buildCaptionPrompt(withGeneral, ['FACEBOOK'])
+    expect(user).toContain('End with one call to action sentence. Do not write any URL or domain.')
+    expect(user).not.toContain('The app adds the link after it')
+  })
+
+  it('the kit website itself never appears in the prompt (code inserts it, the model never sees it)', () => {
+    const { user, system } = buildCaptionPrompt({ ...withGeneral, kitWebsite: 'https://acme.example' }, ['FACEBOOK'])
+    expect(user).not.toContain('acme.example')
+    expect(system).not.toContain('acme.example')
+  })
+
+  it('an Instagram curate carries no website line even when the kit has one', () => {
+    const { user } = buildCaptionPrompt({ ...withGeneral, kitWebsite: 'https://acme.example' }, ['INSTAGRAM'])
+    expect(user).not.toContain('call to action')
   })
 })

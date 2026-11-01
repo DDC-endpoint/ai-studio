@@ -8,7 +8,7 @@ import { ADMIN_EMAIL, ADMIN_PASSWORD, pageLogin } from '../helpers/ui'
 // clauses); docs/e2e-test-plan.md).
 //
 // A post has one general caption. Under it, the author or a team admin curates
-// a caption for Instagram or LinkedIn (T4 adds Facebook): one model call, one
+// a caption for Instagram, LinkedIn or Facebook: one model call, one
 // curated row per channel, made on request. Edit, regenerate and delete each
 // keep one step of undo, on the server.
 //
@@ -17,6 +17,9 @@ import { ADMIN_EMAIL, ADMIN_PASSWORD, pageLogin } from '../helpers/ui'
 //     when the prompt carried the general caption;
 //   - "__FAIL_CURATED__" in the topic omits every curated key (the brief's topic
 //     is set through the test DB, as it flows into the next call);
+//   - the mock Facebook caption is 50 words with 2 hashtags and no link; "__MOCK_CURATE_LINK__"
+//     puts a link in it (refused: link-in-reply), "__MOCK_CURATE_SHORT__" makes it 12 words and
+//     "__MOCK_CURATE_HASHTAGS__" gives it 5 hashtags (stored, with a notice);
 //   - "__MOCK_FACT_PRICE__" appends "$49" to every caption (the facts check);
 //   - POST /api/test/caption-limit sets the per-user caption limit (admin only);
 //     cases that set it clear it in `finally`.
@@ -29,14 +32,15 @@ const LIMIT = '/api/test/caption-limit'
 
 type Caption = {
   kind: 'GENERAL' | 'CURATED'
-  channel: 'INSTAGRAM' | 'LINKEDIN' | null
-  target: 'GENERAL' | 'INSTAGRAM' | 'LINKEDIN'
+  channel: 'INSTAGRAM' | 'LINKEDIN' | 'FACEBOOK' | null
+  target: 'GENERAL' | 'INSTAGRAM' | 'LINKEDIN' | 'FACEBOOK'
   text: string
   status: 'PENDING' | 'READY' | 'FAILED'
   failureReason: string | null
   updatedAt: string
   deleted: boolean
   canUndo: boolean
+  rules: { met: boolean; unmet: string[] }
 }
 type Draft = Record<string, unknown>
 type Flag = { where: string; kind: string; value: string }
@@ -59,7 +63,7 @@ async function suiteKit(api: ApiClient): Promise<string> {
 }
 
 // A Path B post as `who`, polled until EXPORTED. Returns the draft (with briefId).
-async function mint(who: ApiClient, topic: string): Promise<Draft> {
+async function mint(who: ApiClient, topic: string, kitId?: string): Promise<Draft> {
   const brief = await (
     await who.post('/api/briefs', {
       topic,
@@ -67,7 +71,7 @@ async function mint(who: ApiClient, topic: string): Promise<Draft> {
       tone: 'professional',
       designMode: 'GENERATE',
       copyProviderKey: 'cli',
-      brandKitId: await suiteKit(who),
+      brandKitId: kitId ?? (await suiteKit(who)),
     })
   ).json()
   const res = await who.post('/api/generate/assemble-b', { briefId: brief.id })
@@ -88,7 +92,7 @@ test.describe('§AN — curated captions', () => {
   })
 
   const read = async (id: unknown) => (await (await api.get(`/api/drafts/${id}`)).json()) as Draft
-  const row = (draftId: string, channel: 'INSTAGRAM' | 'LINKEDIN') =>
+  const row = (draftId: string, channel: 'INSTAGRAM' | 'LINKEDIN' | 'FACEBOOK') =>
     prisma!.draftCaption.findFirstOrThrow({ where: { draftId, kind: 'CURATED', channel } })
 
   // TC-CUR-01 — AC-08: curate makes the row, from the general caption.
@@ -323,6 +327,124 @@ test.describe('§AN — curated captions', () => {
     await expect(card.getByTestId('caption-facts')).toContainText('$49')
   })
 
+  // A kit of its own (the suite kit stays without a website), optionally with one.
+  async function ownKit(label: string, website: string | null): Promise<string> {
+    const kit = await (
+      await api.post('/api/admin/brandkits', { name: `Cur ${label} Kit ${Date.now()}`, colors: ['#0b6e4f'] })
+    ).json()
+    if (website) expect((await api.patch(`/api/admin/brandkits/${kit.id}`, { website })).status()).toBe(200)
+    return kit.id as string
+  }
+  const fiftyWords = Array.from({ length: 50 }, (_, i) => `word${i}`).join(' ')
+
+  // TC-CUR-08 — AC-17: the kit has a website, and a Facebook curate carries it exactly once, on its own line.
+  test('a Facebook curate carries the kit website once, on its own line, before the hashtags', async () => {
+    if (!MOCKED()) { test.skip(); return }
+    test.skip(!dbAvailable, 'requires test DB access')
+    const site = 'https://acme.example/shop'
+    const draft = await mint(api, `Cur Fb Link ${Date.now()}`, await ownKit('Site', site))
+    const id = draft.id as string
+    expect(draft.kitWebsite).toBe(site)
+    const done = await curate(api, id, 'FACEBOOK')
+    const fb = captionOf(done, 'FACEBOOK')!
+    expect(fb).toMatchObject({ kind: 'CURATED', channel: 'FACEBOOK', status: 'READY', deleted: false })
+    expect(fb.text.split(site)).toHaveLength(2)
+    const lines = fb.text.split('\n')
+    expect(lines.filter((l) => l === site)).toHaveLength(1)
+    // After the body and before the closing hashtag line.
+    expect(lines.indexOf(site)).toBeLessThan(lines.indexOf('#mock #facebook'))
+    expect(lines.at(-1)).toBe('#mock #facebook')
+    expect((await row(id, 'FACEBOOK')).text).toBe(fb.text)
+    expect(fb.rules).toEqual({ met: true, unmet: [] })
+    expect(done.kitWebsite).toBe(site)
+  })
+
+  // TC-CUR-09 — AC-17: the kit has no website; the text has no link, and the button and the card say so.
+  test('a Facebook curate on a kit with no website has no link, and the button and the card show the line', async ({ page }) => {
+    if (!MOCKED()) { test.skip(); return }
+    const draft = await mint(api, `Cur Fb None ${Date.now()}`, await ownKit('None', null))
+    const id = draft.id as string
+    expect(draft.kitWebsite).toBeNull()
+    await openDraft(page, id)
+    const line = 'This brand kit has no website, so the call to action has no link. A team admin can add one in Brand kits.'
+    await expect(page.getByRole('button', { name: 'Curate for Facebook' })).toBeVisible()
+    await expect(page.getByTestId('curate-no-website')).toHaveText(line)
+
+    const curated = page.waitForResponse(
+      (r) => r.url().endsWith(`/api/drafts/${id}/regenerate-copy`) && r.request().method() === 'POST',
+    )
+    await page.getByRole('button', { name: 'Curate for Facebook' }).click()
+    expect((await curated).status()).toBe(202)
+    const field = page.getByRole('textbox', { name: 'Facebook caption', exact: true })
+    await expect(field).not.toHaveValue('', { timeout: 20_000 })
+    expect(await field.inputValue()).not.toMatch(/https?:|www\./)
+    await expect(page.getByTestId('caption-no-website')).toHaveText(line)
+    // The curate button is gone with its row, and so is its line.
+    await expect(page.getByTestId('curate-no-website')).toHaveCount(0)
+    const stored = captionOf(await (await api.get(`/api/drafts/${id}`)).json(), 'FACEBOOK')!
+    expect(stored.text).not.toMatch(/https?:|www\./)
+  })
+
+  // TC-CUR-10 — AC-17: a link in the model's reply is refused; a first curate fails, a regenerate keeps the text.
+  test('a Facebook reply with a link is refused: the first curate is FAILED with no text, and a regenerate keeps the text', async () => {
+    if (!MOCKED()) { test.skip(); return }
+    test.skip(!dbAvailable, 'requires test DB access')
+    const topic = `Cur Fb Refuse ${Date.now()}`
+    const draft = await mint(api, `${topic} __MOCK_CURATE_LINK__`, await ownKit('Refuse', 'https://acme.example'))
+    const id = draft.id as string
+    const first = await curate(api, id, 'FACEBOOK')
+    const failed = captionOf(first, 'FACEBOOK')!
+    expect(failed).toMatchObject({ status: 'FAILED', text: '', failureReason: 'link-in-reply' })
+    expect(await row(id, 'FACEBOOK')).toMatchObject({ status: 'FAILED', text: '', failureReason: 'link-in-reply' })
+
+    // The topic is fixed through the test DB, and a curate succeeds.
+    await setBriefTopic(draft.briefId as string, topic)
+    const ok = captionOf(await curate(api, id, 'FACEBOOK'), 'FACEBOOK')!
+    expect(ok.status).toBe('READY')
+    expect(ok.text).toContain('https://acme.example')
+
+    // The sentinel is set again: the regenerate is refused and the old text stays.
+    await setBriefTopic(draft.briefId as string, `${topic} __MOCK_CURATE_LINK__`)
+    const again = captionOf(await curate(api, id, 'FACEBOOK'), 'FACEBOOK')!
+    expect(again.text).toBe(ok.text)
+    expect(again.status).toBe('READY')
+    expect(again.failureReason).toBe('Regenerate failed: link-in-reply')
+  })
+
+  // TC-CUR-11 — AC-18: an out-of-range Facebook caption is stored with a notice (Q3), and the notice clears when fixed.
+  test('a short Facebook caption is stored with its rule notice, which clears after an edit to 50 words', async ({ page }) => {
+    if (!MOCKED()) { test.skip(); return }
+    const draft = await mint(api, `Cur Fb Short ${Date.now()} __MOCK_CURATE_SHORT__`, await ownKit('Short', null))
+    const id = draft.id as string
+    const done = await curate(api, id, 'FACEBOOK')
+    const fb = captionOf(done, 'FACEBOOK')!
+    expect(fb.status).toBe('READY')
+    expect(fb.text).not.toBe('')
+    expect(fb.rules).toEqual({ met: false, unmet: ['words-under'] })
+
+    await openDraft(page, id)
+    const field = page.getByRole('textbox', { name: 'Facebook caption', exact: true })
+    const card = field.locator('..')
+    await expect(card.getByTestId('caption-rule')).toHaveText('Facebook asks for 40 to 120 words. This has 12.')
+
+    const edited = await api.patch(`/api/drafts/${id}`, { channel: 'FACEBOOK', text: fiftyWords })
+    expect(edited.status()).toBe(200)
+    const after = captionOf(await (await api.get(`/api/drafts/${id}`)).json(), 'FACEBOOK')!
+    expect(after.rules).toEqual({ met: true, unmet: [] })
+    await page.reload()
+    await expect(page.getByRole('textbox', { name: 'Facebook caption', exact: true })).toHaveValue(fiftyWords, { timeout: 20_000 })
+    await expect(page.getByTestId('caption-rule')).toHaveCount(0)
+  })
+
+  // 039 D9: more than 3 hashtags is stored too, with the notice.
+  test('a Facebook caption with 5 hashtags is stored with the hashtag notice', async () => {
+    if (!MOCKED()) { test.skip(); return }
+    const draft = await mint(api, `Cur Fb Tags ${Date.now()} __MOCK_CURATE_HASHTAGS__`, await ownKit('Tags', null))
+    const fb = captionOf(await curate(api, draft.id as string, 'FACEBOOK'), 'FACEBOOK')!
+    expect(fb.status).toBe('READY')
+    expect(fb.rules).toEqual({ met: false, unmet: ['hashtags-over'] })
+  })
+
   // TC-CUR-12 — AC-23: the caption desk.
   test('the caption desk: curate, copy, delete and undo from the page', async ({ page }) => {
     if (!MOCKED()) { test.skip(); return }
@@ -339,6 +461,7 @@ test.describe('§AN — curated captions', () => {
     await expect(page.getByRole('heading', { name: 'Curated captions', level: 3 })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Curate for Instagram' })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Curate for LinkedIn' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Curate for Facebook' })).toBeVisible()
     await expect(page.getByRole('button', { name: /Regenerate all/ })).toHaveCount(0)
 
     // Curate LinkedIn: the card appears with its own controls, and its button goes.

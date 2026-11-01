@@ -105,6 +105,7 @@ const kit: ResolvedBrandKit = {
     { label: 'Reversed', url: 'https://cdn.example.com/logo-white.svg', primary: false },
   ],
   voicePrompt: 'Warm, confident, human.',
+  website: null,
   source: 'team',
 }
 const actor = { userId: 'user-actor', teamId: 'team-actor' }

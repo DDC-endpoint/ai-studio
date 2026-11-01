@@ -17,6 +17,8 @@ export interface ResolvedBrandKit {
   logoUrl: string | null
   logos: LogoEntry[]
   voicePrompt: string | null
+  // 039 D6: the kit's https website (null = none); code inserts it into a Facebook caption.
+  website: string | null
   source: BrandKitSource
 }
 
@@ -41,6 +43,7 @@ function normalise(kit: KitWithPrompts, source: BrandKitSource): ResolvedBrandKi
       kit.logoUrl ?? null,
     ),
     voicePrompt: kit.prompts[0]?.content ?? null,
+    website: kit.website ?? null,
     source,
   }
 }
