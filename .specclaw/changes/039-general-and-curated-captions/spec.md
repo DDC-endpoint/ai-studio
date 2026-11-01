@@ -780,9 +780,12 @@ The proposal (`proposal.md`) and its "Decisions after the party review (user, 20
 
 - **Q1. Should the facts check also flag links?** party-security's BLOCK fix ends: "Have the facts check flag any URL in any caption that is not in the brief, kit or project sources." The user's decision settled the Facebook link by insertion. A `url` kind would also flag a link the model echoes in the general, Instagram or LinkedIn caption that no source states.
   - The cost: one new kind in `src/lib/factsCheck/extract.ts` and its normaliser, the kit website as a source, and corpus cases. It also adds flags to posts that pass today.
+  - **Answered (user, 2026-11-01): not in 039.** No `url` kind; a follow-up change if wanted.
   - **Recommended default: not in 039.** The one required link (Facebook's) cannot come from the model. A link in the other captions is today's exposure, not a new one. It can be a follow-up change.
 - **Q2. May "Regenerate all" go?** Today `{}` regenerates every caption (012 FR-11), and the page has the "Regenerate all" button with its "All captions model" picker. After 039, "all" would mean the general caption plus whatever curated captions exist, written in one call alongside a general caption that is changing too. Curated captions are meant to be derived from the general caption, so that order fights the definition.
+  - **Answered (user, 2026-11-01): retire it.** `{}` is 400; the "Regenerate all" button, the "All captions model" picker and TC-MODEL-07 go.
   - **Recommended default: retire it.** `{}` becomes 400. The button, the picker and TC-MODEL-07 go. Each caption keeps its own Regenerate.
   - If kept, `{}` means the general caption plus the live curated captions, in one call. The curated ones are then not given the new general caption.
 - **Q3. Should an out-of-range Facebook caption be refused instead of stored with a notice?** The proposal sets 40 to 120 words and 0 to 3 hashtags. D9 stores a caption that misses them, with a one-line notice, because refusing throws away a paid reply the user could fix in seconds.
+  - **Answered (user, 2026-11-01): store with the notice.** A model-written link is still refused (D17).
   - **Recommended default: store with the notice.** A link written by the model is always refused (D17), because that is the security rule, not a style rule.
