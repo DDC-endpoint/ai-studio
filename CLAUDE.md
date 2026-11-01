@@ -38,7 +38,7 @@ This repo contains planning documents for **bistec-studio**, an internal marketi
   - **The local `ai_studio` database still needs those operator steps.** The user runs `npm run db:migrate` themselves. `ai_studio_test` is already at head.
   - The worker container keeps the name `scheduler` and runs only analytics retention.
   - 037 AC-17's end-to-end case is TC-DL-06 (Path A) and TC-DL-07 (Path B) in `tests/e2e/download.test.ts`.
-- **Change 039 (general and curated captions) is BUILT (2026-11-01), not yet verified. Pick up here: `/specclaw:verify` 039.** Commits `17e46fd8` T1, `9cc2f36d` T2, `dcdd1c05` T3, `af080adb` T4, `63230b10` T5; the T6 docs commit follows. CI green on `1e0ab2d8`, run 41267795655: E2E 611/3/0/0 (local mock run the same). Q1 to Q3 were answered: no URL facts kind, "Regenerate all" is retired, and an off-range Facebook caption is stored with a notice. Reports: `.specclaw/changes/039-general-and-curated-captions/reports/T1.md` to `T5.md`.
+- **Change 039 (general and curated captions) is VERIFIED PASS (2026-11-01, 29 of 29; CI green on `fddda008`, run 41282434850: E2E 612/3/0/0).** Commits `17e46fd8` T1, `9cc2f36d` T2, `dcdd1c05` T3, `af080adb` T4, `63230b10` T5, `1e0ab2d8` T6; `fddda008` closed eight weakly evidenced clauses at verify (tests and the MCP/ACP guide only). Report: [`verify-report.md`](.specclaw/changes/039-general-and-curated-captions/verify-report.md). **The 037–039 program is complete.** Q1 to Q3 were answered: no URL facts kind, "Regenerate all" is retired, and an off-range Facebook caption is stored with a notice. Task reports: `.specclaw/changes/039-general-and-curated-captions/reports/T1.md` to `T6.md`.
   - Every post has the headline plus one general caption (`kind` `GENERAL`, no channel). Instagram, LinkedIn and Facebook captions are curated on demand (`POST /api/drafts/[id]/regenerate-copy { channel }`), written from the brief plus the general caption. Each is editable, has one-step undo and a soft delete, and has a Copy button. The wizard has no channel picker. `Brief.channels` is ignored and deprecated.
   - Facebook is 40 to 120 words, 0 to 3 hashtags and a call to action. The kit's https **Website** (`BrandKit.website`, set by a team admin) is the link, and code inserts it. The model never writes a link: a link in its reply is refused.
   - Migrations (all additive, **no operator step**): `20261102120000_caption_kind`, `20261102130000_channel_facebook`, `20261102140000_kit_website`. The down script `prisma/rollback/039-general-and-curated-captions.down.sql` refuses to run unless the session sets `app.allow_caption_loss = 'on'`, because it deletes general, Facebook and deleted captions and kit websites. Take a `pg_dump` first. See [`docs/deploy.md`](docs/deploy.md) and [`docs/cold-start.md`](docs/cold-start.md).
@@ -61,7 +61,7 @@ This repo contains planning documents for **bistec-studio**, an internal marketi
     - an https Website field on the brand kit, which code inserts into the Facebook call to action;
     - one-step undo per caption, with soft delete;
     - `Brief.channels` ignored and deprecated, with no migration.
-  - **All three panels are done.** 037 and 038 are verified; 039 is built. Next: verify 039.
+  - **All three panels are done.** 037, 038 and 039 are verified.
   - **The user's decisions for the program (2026-10-28; most are in the three proposals):**
     - **Posts and projects:**
       - Every member of a team sees every post. Only the author and team admins edit, refine, regenerate, change the kit of or delete a post.
@@ -164,7 +164,7 @@ Before writing any backend code, API routes, Prisma models, or provider logic, r
 
 ## Architecture decisions to remember
 
-> The 037–039 program (see "Current state") removed scheduling and publishing (037, verified) and replaced campaigns with projects (038, verified). 039 (general and curated captions) is built and not yet verified; the caption entries below describe it.
+> The 037–039 program (see "Current state") removed scheduling and publishing (037, verified) and replaced campaigns with projects (038, verified). 039 added the general caption and curated Instagram, LinkedIn and Facebook captions (verified); the caption entries below describe it.
 
 - All AI calls are **server-side only** — the browser never calls an AI API or Puppeteer directly
 - **Roles are hierarchical:** `SUPER_ADMIN > ADMIN > EDITOR`; every check goes through `hasRole()` (`src/lib/roles.ts`) — never compare role strings directly. Super-admins pass every admin gate. User management (`/admin/users`) is super-admin-only; "delete" = deactivate (`User.disabled`, sessions revoked, sign-in blocked).
