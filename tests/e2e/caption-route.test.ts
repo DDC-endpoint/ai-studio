@@ -141,7 +141,7 @@ async function pageLoginToTeam(page: Page, teamId: string) {
 // A Path B walk to the Review step on `kitId`.
 async function walkToReview(page: Page, kitId: string, topic: string) {
   await page.goto('/brief')
-  await expect(page.getByRole('heading', { name: 'Select a campaign' })).toBeVisible({ timeout: 20_000 })
+  await expect(page.getByRole('heading', { name: 'Select a project' })).toBeVisible({ timeout: 20_000 })
   const cont = page.getByRole('button', { name: /continue/i })
   await cont.click()
   await expect(page.getByRole('heading', { name: 'Size & Design' })).toBeVisible()
@@ -224,7 +224,7 @@ test.describe('§AB — the caption credential route', () => {
     expect(draft.status, String(draft.failureReason)).toBe('EXPORTED')
     const rows = await prisma!.draftCaption.findMany({ where: { draftId: draft.id as string } })
     expect(rows.length).toBeGreaterThan(0)
-    for (const r of rows) expect(r.route, r.channel).toBe('API_KEY')
+    for (const r of rows) expect(r.route, String(r.channel)).toBe('API_KEY')
     const row = await prisma!.draft.findUniqueOrThrow({
       where: { id: draft.id as string },
       select: { headlineRoute: true },
@@ -308,46 +308,6 @@ test.describe('§AB — the caption credential route', () => {
     expect(refused.status()).toBe(422)
     expect(await refused.json()).toMatchObject({ code: 'CAPTION_ROUTE_NOT_READY' })
     expect(await prisma!.brief.count({ where: { teamId: t.teamId } })).toBe(before)
-  })
-
-  // TC-ROUTE-06 — AC-14 (E2E half): the scheduler follows the team route.
-  test('TC-ROUTE-06: a scheduled entry runs on the team route, and fails naming it once the row is gone', async () => {
-    const anthropic = await addRow(t.api, 'anthropic')
-    await putRoute(t.api, 'API_KEY')
-    const camp = await (await t.api.post('/api/campaigns', { name: `Route Camp ${Date.now()}`, brandKitId: t.kitId })).json()
-    const entryBody = (topic: string) => ({
-      topic,
-      goal: 'Awareness',
-      tone: 'professional',
-      channels: ['INSTAGRAM'],
-      designMode: 'GENERATE',
-      generateAt: new Date(Date.now() + 24 * 3600_000).toISOString(),
-      postAction: 'HOLD',
-    })
-    const makeDueAndTick = async (entryId: string) => {
-      await prisma!.scheduledGeneration.update({
-        where: { id: entryId },
-        data: { generateAt: new Date(Date.now() - 1000), nextRetryAt: null },
-      })
-      expect((await t.api.post('/api/test/generation-tick', {})).status()).toBe(200)
-    }
-
-    const ok = await (await t.api.post(`/api/campaigns/${camp.id}/queue`, entryBody(`Route 06a ${Date.now()}`))).json()
-    await makeDueAndTick(ok.id)
-    const done = await prisma!.scheduledGeneration.findUniqueOrThrow({ where: { id: ok.id } })
-    expect(done.draftId).toBeTruthy()
-    const calls = await copyCalls(t.api)
-    expect(calls.length).toBeGreaterThan(0)
-    for (const c of calls) expect(c.route).toBe('API_KEY')
-
-    expect((await t.api.del(`/api/admin/providers/${anthropic.id}`)).ok()).toBe(true)
-    await clearCalls(t.api)
-    const bad = await (await t.api.post(`/api/campaigns/${camp.id}/queue`, entryBody(`Route 06b ${Date.now()}`))).json()
-    await makeDueAndTick(bad.id)
-    const failed = await prisma!.scheduledGeneration.findUniqueOrThrow({ where: { id: bad.id } })
-    expect(failed.draftId).toBeNull()
-    expect(failed.errorReason).toContain('API key route')
-    expect(await copyCalls(t.api)).toEqual([])
   })
 
   // TC-ROUTE-07 — AC-08: the Opus gate's credential tier for captions.

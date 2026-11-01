@@ -18,29 +18,30 @@ import {
 } from 'lucide-react'
 import { ImageLightbox } from '@/components/ui/ImageLightbox'
 import { Button } from '@/components/ui/Button'
+import { SectionHead } from '@/components/ui/SectionHead'
+import { ProjectPicker } from '@/components/projects/ProjectPicker'
 import { Panel } from '@/components/ui/Panel'
 import { StatusChip } from '@/components/ui/StatusChip'
-import { PublishDialog } from '@/components/library/PublishDialog'
 import { CaptionPanels } from '@/components/drafts/CaptionPanels'
 import { RefinementPanel } from '@/components/drafts/RefinementPanel'
 import { InlineEditModal } from '@/components/drafts/InlineEditModal'
 import { BackgroundNotice } from '@/components/drafts/BackgroundNotice'
+import { ViewOnlyNote } from '@/components/drafts/ViewOnlyNote'
 import { Notice } from '@/components/ui/Notice'
 import { CompositionNotice } from '@/components/drafts/CompositionNotice'
 import { GeneratedWith, PostStyleLine } from '@/components/drafts/GeneratedWith'
 import { FactsCheckNotice } from '@/components/drafts/FactsCheckNotice'
+import { downloadLineFor } from '@/lib/renderedText/noticeText'
 import { HeadlineImageNotice } from '@/components/drafts/HeadlineImageNotice'
 import { ModelPicker } from '@/components/ui/ModelPicker'
 import { PageTitle } from '@/components/ui/PageHead'
 import { EYEBROW, FOCUS, ICON, PILL_BADGE, SUB_HEAD } from '@/components/ui/atoms'
 import { ApiError, apiFetch } from '@/lib/apiFetch'
-import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
 import { useUndoableAction } from '@/lib/hooks/useUndoableAction'
 import { useConfirm } from '@/components/ui/ConfirmDialog'
 import { applyFailureNotice, APPLY_FAILURES, type ApplyFailure } from '@/lib/applyText'
 import type { DraftDetail } from '@/lib/api-types'
 import { ASPECT_LABELS, aspectClassFor, dimensionsFor } from '@/lib/aspectRatio'
-import { channelLabel } from '@/lib/channels'
 import { formatDateTime } from '@/lib/format'
 import type { ModelKey } from '@/lib/models/catalogue'
 import { generatedWith } from '@/lib/models/stampLabel'
@@ -66,11 +67,10 @@ interface Revision {
   modelSubstitutedFrom: string | null
 }
 
-const STATUS_TO_CHIP: Record<DraftDetail['status'], 'draft' | 'exported' | 'published' | 'failed'> =
+const STATUS_TO_CHIP: Record<DraftDetail['status'], 'draft' | 'exported' | 'failed'> =
   {
     IN_PROGRESS: 'draft',
     EXPORTED: 'exported',
-    PUBLISHED: 'published',
     FAILED: 'failed',
   }
 
@@ -101,15 +101,14 @@ export default function DraftDetailPage() {
   const [revisions, setRevisions] = useState<Revision[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [exporting, setExporting] = useState(false)
+  const [downloading, setDownloading] = useState(false)
   const [retrying, setRetrying] = useState(false)
   const [restoringRev, setRestoringRev] = useState<number | null>(null)
-  const { isTeamAdmin } = useCurrentUser()
-  const [showPublish, setShowPublish] = useState(false)
   const [showPreview, setShowPreview] = useState(false)
   const [showInlineEdit, setShowInlineEdit] = useState(false)
   const [regenDesign, setRegenDesign] = useState(false)
   const [applyingText, setApplyingText] = useState(false)
+  const [applyingProject, setApplyingProject] = useState(false)
   const confirm = useConfirm()
   // 008 FR-20: the design regenerate's model pick (undefined = the current
   // design's stamp, A5) and a refused pick's 400 message.
@@ -207,19 +206,45 @@ export default function DraftDetailPage() {
     fetchRevisions()
   }
 
-  async function handleExport() {
-    setExporting(true)
+  // 038 FR-11: take the post's current project settings (author or team admin).
+  // The reply is the draft GET body, so the page replaces its copy with it.
+  async function handleApplyProject() {
+    setApplyingProject(true)
     try {
-      await apiFetch('/api/generate/export', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ draftId }),
-      })
+      setDraft(await apiFetch<DraftDetail>(`/api/drafts/${draftId}/apply-project`, { method: 'POST' }))
+      toast.success('Project settings applied')
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : 'Project settings could not be applied')
+      fetchDraft()
+    } finally {
+      setApplyingProject(false)
+    }
+  }
+
+  async function handleDownload() {
+    setDownloading(true)
+    try {
+      const res = await fetch(`/api/drafts/${draftId}/download`)
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as { error?: string } | null
+        throw new Error(body?.error ?? 'Download failed')
+      }
+      const filename =
+        /filename="([^"]+)"/.exec(res.headers.get('Content-Disposition') ?? '')?.[1] ?? `post-${draftId}.png`
+      const url = URL.createObjectURL(await res.blob())
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+      // A download may have rendered and stored a fresh PNG.
       await fetchDraft()
     } catch (e: unknown) {
       toast.error(e instanceof Error ? e.message : 'Something went wrong')
     } finally {
-      setExporting(false)
+      setDownloading(false)
     }
   }
 
@@ -334,7 +359,7 @@ export default function DraftDetailPage() {
     draft?.pendingAction === 'REFINE' ||
     draft?.pendingAction === 'APPLY_TEXT'
   const isFailed = draft?.status === 'FAILED'
-  const ready = draft?.status === 'EXPORTED' || draft?.status === 'PUBLISHED'
+  const ready = draft?.status === 'EXPORTED'
 
   if (loading) {
     return (
@@ -358,6 +383,14 @@ export default function DraftDetailPage() {
   }
 
   const { width, height } = dimensionsFor(draft.brief.aspectRatio)
+  const flaggedCount = draft.factsCheck?.status === 'flagged' ? draft.factsCheck.flagged.length : 0
+  const downloadLine =
+    (draft.headlineImage ? downloadLineFor(draft.headlineImage.state) : null) ??
+    (flaggedCount > 0
+      ? `The facts check flagged values in this post. ${flaggedCount} flagged.`
+      : null)
+  // 038 D11: the author and team admins edit; everyone else on the team views.
+  const canEdit = draft.canEdit
   const ratioShort = ASPECT_LABELS[draft.brief.aspectRatio ?? 'SQUARE'].split(' ')[0]
   const currentRevision = revisions.find((r) => r.revisionNumber === draft.currentRevisionNumber)
   // The versions read left to right, oldest first, like the study (§8.13);
@@ -383,19 +416,17 @@ export default function DraftDetailPage() {
         <PageTitle className="mb-3 mt-2 break-words">{draft.brief.topic}</PageTitle>
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-ui-sm text-fg-muted">
           <StatusChip status={STATUS_TO_CHIP[draft.status]} />
-          <span>
-            {draft.brief.channels.map(channelLabel).join(', ')} · {ratioShort}
-          </span>
+          <span>{ratioShort}</span>
         </div>
 
         {/* The action bar (§8.17, within FR-12): every control stays a visible
-            button with its own name, Publish the one primary. The design action
+            button with its own name, Download the one primary. The design action
             on the left; the rest on the right. No More menu and no Refine
             button (021 A5). It wraps, never scrolls. */}
         <div className="mt-6 flex flex-wrap items-center gap-2 border-b border-t-2 border-b-line-subtle border-t-fg py-3.5">
           {/* Regenerate design — Path B (freeform) only. Produces a fresh design
               variant; the prior one is saved to history and offered as Undo. */}
-          {isPathB && (
+          {isPathB && canEdit && (
             <Button
               variant="secondary"
               onClick={handleRegenerateDesign}
@@ -411,38 +442,37 @@ export default function DraftDetailPage() {
             </Button>
           )}
           <div className="ml-auto flex flex-wrap justify-end gap-2">
-            {ready && (
+            {ready && canEdit && (
               <Button
                 variant="secondary"
                 onClick={() => setShowInlineEdit(true)}
                 disabled={actionPending || !draft.htmlContent}
-                title="Manually edit text and images, then re-export"
+                title="Manually edit text and images, then download"
               >
                 <Pencil {...ICON} /> Edit inline
               </Button>
             )}
             <Button
-              variant="secondary"
-              onClick={handleExport}
-              disabled={exporting || !draft.htmlContent || actionPending}
+              variant="primary"
+              onClick={handleDownload}
+              disabled={downloading || draft.status !== 'EXPORTED' || !draft.htmlContent || actionPending}
+              data-testid="download-button"
             >
-              {exporting ? <Loader2 {...ICON} className="animate-spin" /> : <Download {...ICON} />}
-              {draft.exportUrl ? 'Re-export' : 'Export'}
+              {downloading ? <Loader2 {...ICON} className="animate-spin" /> : <Download {...ICON} />}
+              Download
             </Button>
-            {isTeamAdmin && (
-              <Button
-                variant="primary"
-                disabled={!draft.exportUrl || actionPending}
-                onClick={() => setShowPublish(true)}
-              >
-                Publish
-              </Button>
-            )}
           </div>
         </div>
+        {!canEdit && <ViewOnlyNote />}
+        {/* The download line (037 FR-05): one muted sentence, never blocking. */}
+        {downloadLine && (
+          <p className="mt-2 text-ui-xs text-fg-muted" data-testid="download-line">
+            {downloadLine}
+          </p>
+        )}
         {/* The design regenerate's model (008 FR-20), pre-selected from the
             current design's stamp (FR-09). Path B only, like the button. */}
-        {isPathB && ready && (
+        {isPathB && ready && canEdit && (
           <ModelPicker
             id="draft-design-model"
             surface="DESIGN_FREEFORM"
@@ -455,7 +485,7 @@ export default function DraftDetailPage() {
             className="mt-3 sm:max-w-xs"
           />
         )}
-        {isPathB && regenDesign && (
+        {isPathB && canEdit && regenDesign && (
           <p className="mt-3 flex items-center gap-1.5 text-ui-xs text-fg-muted">
             <Loader2 {...ICON} className="animate-spin" /> Designing a new variant — up to a minute…
           </p>
@@ -526,14 +556,16 @@ export default function DraftDetailPage() {
                     <span className="line-clamp-3 text-ui-xs text-fg-muted">
                       {draft.failureReason ?? 'Something went wrong while generating this post.'}
                     </span>
-                    <Button variant="secondary" size="sm" onClick={handleRetry} disabled={retrying}>
-                      {retrying ? (
-                        <Loader2 {...ICON} className="animate-spin" />
-                      ) : (
-                        <RotateCcw {...ICON} />
-                      )}
-                      Retry
-                    </Button>
+                    {canEdit && (
+                      <Button variant="secondary" size="sm" onClick={handleRetry} disabled={retrying}>
+                        {retrying ? (
+                          <Loader2 {...ICON} className="animate-spin" />
+                        ) : (
+                          <RotateCcw {...ICON} />
+                        )}
+                        Retry
+                      </Button>
+                    )}
                   </div>
                 ) : (
                   <div className="flex h-full w-full flex-col items-center justify-center gap-2">
@@ -622,6 +654,7 @@ export default function DraftDetailPage() {
                 canEditInline={ready && !!draft.htmlContent}
                 canRegenerate={isPathB && !!draft.htmlContent}
                 canApply={ready && !!draft.htmlContent}
+                readOnly={!canEdit}
                 disabled={actionPending || regenDesign || applyingText || designUndo.undoing}
                 onEditInline={() => setShowInlineEdit(true)}
                 onRegenerateDesign={handleRegenerateDesign}
@@ -636,7 +669,7 @@ export default function DraftDetailPage() {
               <h2 className={SUB_HEAD}>Revision History</h2>
               {/* Regenerate design's Undo, beside the versions (§8.17). Any design
                   action with a snapshot offers it (031 FR-42). */}
-              {showUndo && (
+              {showUndo && canEdit && (
                 <Button
                   variant="ghost"
                   size="sm"
@@ -721,9 +754,9 @@ export default function DraftDetailPage() {
                     <li key={r.id} className="min-w-0">
                       {/* Cells are narrow, so the clamped instruction is repeated in
                         the tooltip; the accessible name stays "Switch to vN". */}
-                      {isCurrent ? (
+                      {isCurrent || !canEdit ? (
                         <div
-                          aria-current="true"
+                          aria-current={isCurrent ? 'true' : undefined}
                           title={r.instruction ?? undefined}
                           className={VERSION_CELL}
                         >
@@ -749,7 +782,7 @@ export default function DraftDetailPage() {
           </section>
 
           {/* Refinement only makes sense once there's a rendered design to refine. */}
-          {ready && (
+          {ready && canEdit && (
             <RefinementPanel
               draftId={draftId}
               designPath={isPathB ? 'B' : 'A'}
@@ -769,7 +802,36 @@ export default function DraftDetailPage() {
           {/* Captions resolve independently of the image, each panel by its own
               row: a skeleton only while that row is PENDING, so empty text on a
               written row is always an editable field (TC-ASYNC-10). */}
-          <CaptionPanels draft={draft} onSaved={() => fetchDraft()} onActionStarted={fetchDraft} />
+          <CaptionPanels
+            draft={draft}
+            onSaved={() => fetchDraft()}
+            onActionStarted={fetchDraft}
+            canEdit={canEdit}
+          />
+
+          {/* The project (038 FR-15): any member can assign or move the post; only
+              the author or a team admin can apply the project's settings. */}
+          <section aria-labelledby="draft-project-head" className="pt-[22px] pb-5" data-testid="project-block">
+            <SectionHead id="draft-project-head" title="Project" className="mb-3" />
+            <ProjectPicker
+              draftId={draftId}
+              label="Project"
+              id="draft-project"
+              value={draft.project}
+              onChanged={() => fetchDraft()}
+            />
+            {canEdit && !draft.inputsCurrent && (
+              <div className="mt-3 flex flex-col items-start gap-2" data-testid="apply-project">
+                <p className="text-ui-xs text-fg-muted">
+                  Made with {draft.inputs?.project?.name ?? 'no project'} settings.
+                </p>
+                <Button variant="secondary" size="sm" onClick={handleApplyProject} disabled={applyingProject || actionPending}>
+                  {applyingProject && <Loader2 {...ICON} className="animate-spin" />}
+                  Apply project settings
+                </Button>
+              </div>
+            )}
+          </section>
         </div>
       </div>
 
@@ -781,24 +843,6 @@ export default function DraftDetailPage() {
           src={draft.exportUrl}
           topic={draft.brief.topic}
           aspectRatio={draft.brief.aspectRatio}
-        />
-      )}
-
-      {/* Publish dialog — channel + optional schedule (shared with Library). */}
-      {showPublish && (
-        <PublishDialog
-          draftId={draftId}
-          headlineState={draft.headlineImage?.state}
-          onClose={() => {
-            // A partial failure closes here, not via onSuccess, and the
-            // channels that did publish can change the draft's status.
-            setShowPublish(false)
-            fetchDraft()
-          }}
-          onSuccess={() => {
-            setShowPublish(false)
-            fetchDraft()
-          }}
         />
       )}
 

@@ -24,6 +24,7 @@
 // captionWriters / renderStamps / draftActionModels.
 
 import { describe, it, expect, vi, beforeEach, afterEach, afterAll } from 'vitest'
+import { ctxFor } from '../helpers/postContext'
 
 const h = vi.hoisted(() => ({
   mode: 'cli' as 'api' | 'cli',
@@ -139,7 +140,7 @@ const { ClaudeCliCopyProvider } = await import('@/providers/implementations/copy
 const { AnthropicCopyProvider } = await import('@/providers/implementations/copy/anthropic')
 const { runDesignAgent, runDesignAgentRefine } = await import('@/lib/agent/designAgent')
 const { runDesignAgentCli, runDesignAgentCliRefine } = await import('@/lib/agent/designAgentCli')
-const { enhancePostBrief } = await import('@/lib/campaign/briefingAssistant')
+const { enhancePostBrief } = await import('@/lib/projects/briefingAssistant')
 const { draftBrandVoice } = await import('@/lib/brandkit/voiceDraft')
 const { generateBackgroundForBrief } = await import('@/lib/agent/background')
 const { verifyRefine } = await import('@/lib/drafts/refineVerify')
@@ -219,7 +220,7 @@ const SURFACES: Array<{ surface: Surface; reply: string; run: () => Promise<unkn
       const provider =
         h.mode === 'cli' ? new ClaudeCliCopyProvider() : new AnthropicCopyProvider('sk-ant-api03-FAKE-unit-test')
       return provider.generateCaptions(
-        { topic: 't', description: 'd', goal: 'g', tone: 'friendly', channels: ['INSTAGRAM'] },
+        { topic: 't', description: 'd', goal: 'g', tone: 'friendly' },
         ['INSTAGRAM'],
         model,
       )
@@ -263,7 +264,7 @@ const SURFACES: Array<{ surface: Surface; reply: string; run: () => Promise<unkn
   {
     surface: 'INTERNAL_BACKGROUND',
     reply: '{"needed": false, "prompt": ""}',
-    run: () => generateBackgroundForBrief(brief, kit, 'Headline', null, { userId: USER, teamId: TEAM }),
+    run: () => generateBackgroundForBrief(brief, ctxFor(kit), 'Headline', { userId: USER, teamId: TEAM }),
   },
   {
     surface: 'INTERNAL_VERIFIER',

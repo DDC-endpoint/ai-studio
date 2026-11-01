@@ -7,8 +7,8 @@ export async function createBrandKit(args: {
   colors?: string[]
   fonts?: Array<{ name: string; url: string }>
   logoUrl?: string
-  // Caller's team (the ApiKey's teamId — same pattern as generatePost/getDraft/
-  // publishPost in server.ts). BrandKit.teamId is NOT NULL as of Task 15 — a
+  // Caller's team (the ApiKey's teamId — same pattern as generatePost/getDraft
+  // in server.ts). BrandKit.teamId is NOT NULL as of Task 15 — a
   // brand kit created via MCP is attributed to the calling key's team, and
   // (final review C2 fix) every read/write tool below is now team-scoped too:
   // brand kits are a fully per-team resource, not a cross-team/system-default

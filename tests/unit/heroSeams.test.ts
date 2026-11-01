@@ -30,6 +30,7 @@ import {
   type Region,
 } from '@/lib/designData'
 import { ASPECT_DIMENSIONS } from '@/lib/aspectRatio'
+import { ctxFor } from '../helpers/postContext'
 
 const h = vi.hoisted(() => ({
   resolveImageProvider: vi.fn(),
@@ -104,7 +105,8 @@ const kit: ResolvedBrandKit = {
     { label: 'Reversed', url: 'https://cdn.example.com/logo-white.svg', primary: false },
   ],
   voicePrompt: 'Warm, confident, human.',
-  source: 'system',
+  website: null,
+  source: 'team',
 }
 const actor = { userId: 'user-actor', teamId: 'team-actor' }
 const mkBrief = (over: Record<string, unknown> = {}) =>
@@ -179,7 +181,7 @@ describe('the art-director decision is closed (FR-05, AC-23)', () => {
 })
 
 describe('the hero background step: one image call, the check, the fallback (FR-04, FR-09, FR-16)', () => {
-  const run = (brief: Brief) => generateBackgroundForBrief(brief, kit, 'Big news!', null, actor, heroPlanFor(brief))
+  const run = (brief: Brief) => generateBackgroundForBrief(brief, ctxFor(kit), 'Big news!', actor, heroPlanFor(brief))
 
   it('a pass keeps the archetype: the check result is { ok: true } and the decision `needed: false` is ignored', async () => {
     const p = provider()
@@ -212,7 +214,7 @@ describe('the hero background step: one image call, the check, the fallback (FR-
       const plan = planComposition({ imageStyle: 'device-screen', aspectRatio: size, hasCompositeSource: true })
       if (plan.kind !== 'hero') throw new Error('expected a hero plan')
       let sent = ''
-      await generateBackgroundForBrief(mkBrief({ imageStyle: 'device-screen', aspectRatio: size }), kit, 'c', null, actor, plan, (s) => {
+      await generateBackgroundForBrief(mkBrief({ imageStyle: 'device-screen', aspectRatio: size }), ctxFor(kit), 'c', actor, plan, (s) => {
         sent = s
       })
       const expected = `a laptop, centred\n\n${imageGeometryPin(plan.contract, plan.sizeContract)}`
@@ -271,7 +273,7 @@ describe('the hero background step: one image call, the check, the fallback (FR-
     const runDevice = () => {
       h.resolveImageProvider.mockResolvedValue(provider())
       h.anthropicCreate.mockResolvedValue(decisionReply({ needed: true, prompt: 'a laptop' }))
-      return generateBackgroundForBrief(deviceBrief, kit, 'c', null, actor, devicePlan())
+      return generateBackgroundForBrief(deviceBrief, ctxFor(kit), 'c', actor, devicePlan())
     }
     const flatGrid = async (_url: string, window: never, canvas: never, opts: { seamRegion: Region }) =>
       (await import('@/lib/testHooks')).syntheticScreenGrid(window, opts.seamRegion, canvas)
@@ -315,7 +317,7 @@ describe('the hero background step: one image call, the check, the fallback (FR-
       h.sample.mockResolvedValue([calm()])
       h.resolveImageProvider.mockResolvedValue(provider())
       h.anthropicCreate.mockResolvedValue(decisionReply({ needed: true, prompt: 'a laptop' }))
-      const result = await generateBackgroundForBrief(mkBrief(), kit, 'c', null, actor, heroPlanFor(mkBrief()))
+      const result = await generateBackgroundForBrief(mkBrief(), ctxFor(kit), 'c', actor, heroPlanFor(mkBrief()))
       expect((result as { check: object }).check).toEqual({ ok: true })
       expect(h.grid).not.toHaveBeenCalled()
     })
@@ -395,7 +397,7 @@ describe('the hero background step: one image call, the check, the fallback (FR-
       h.sample.mockResolvedValue([calm()])
       h.imageQuality = opts.quality
       const brief = mkBrief()
-      await (opts.hero ? run(brief) : generateBackgroundForBrief(brief, kit, 'c', null, actor))
+      await (opts.hero ? run(brief) : generateBackgroundForBrief(brief, ctxFor(kit), 'c', actor))
       return p.generateImage.mock.calls[0] as unknown[]
     }
 
@@ -474,7 +476,7 @@ describe('the __MOCK_HERO_* seams drive the real planner and evaluators', () => 
     const { bg } = await loadFresh({ MOCK_AI: 'true' })
     h.resolveImageProvider.mockResolvedValue(provider())
     const brief = mkBrief({ topic: 'Q3 __MOCK_BG__ __MOCK_HERO_CHECK_ERROR__' })
-    const result = await bg.generateBackgroundForBrief(brief, kit, 'c', null, actor, heroPlanFor(brief))
+    const result = await bg.generateBackgroundForBrief(brief, ctxFor(kit), 'c', actor, heroPlanFor(brief))
     expect(result).toMatchObject({ check: { ok: false, reason: 'check-error' } })
     expect(settleComposition(heroPlanFor(brief), result)).toMatchObject({ appliedArchetype: 'classic', fallbackReason: 'check-error' })
   })
@@ -501,7 +503,7 @@ describe('the __MOCK_HERO_* seams drive the real planner and evaluators', () => 
     const plan = planComposition({ imageStyle: 'product-showcase', aspectRatio: 'SQUARE' }, source)
     if (plan.kind !== 'hero') throw new Error('expected hero')
     h.resolveImageProvider.mockResolvedValue(provider())
-    const result = await bg.generateBackgroundForBrief(brief, kit, 'c', null, actor, plan)
+    const result = await bg.generateBackgroundForBrief(brief, ctxFor(kit), 'c', actor, plan)
     expect(result).toMatchObject({ check: { ok: false, reason: 'region-invalid' } })
     expect(settleComposition(plan, result)).toMatchObject({ appliedArchetype: 'classic', fallbackReason: 'region-invalid' })
   })
@@ -509,7 +511,7 @@ describe('the __MOCK_HERO_* seams drive the real planner and evaluators', () => 
   it('without a __MOCK_BG__ sentinel a hero plan has no image under MOCK_AI: no-image', async () => {
     const { bg } = await loadFresh({ MOCK_AI: 'true' })
     const brief = mkBrief({ topic: 'Q3 plain' })
-    const result = await bg.generateBackgroundForBrief(brief, kit, 'c', null, actor, heroPlanFor(brief))
+    const result = await bg.generateBackgroundForBrief(brief, ctxFor(kit), 'c', actor, heroPlanFor(brief))
     expect(result).toEqual({ url: null, skip: 'NOT_NEEDED' })
     expect(settleComposition(heroPlanFor(brief), result).fallbackReason).toBe('no-image')
   })
@@ -574,14 +576,7 @@ describe('the __MOCK_HERO_* seams drive the real planner and evaluators', () => 
       type Check = { ok: boolean; reason?: string; composites?: Array<{ region: number; rect: { x: number; y: number } }> }
       const check = async (seam: string) => {
         h.resolveImageProvider.mockResolvedValue(provider())
-        const result = await bg.generateBackgroundForBrief(
-          mkBrief({ topic: `Q3 ${seam}`, imageStyle: 'device-screen', aspectRatio: size }),
-          kit,
-          'c',
-          null,
-          actor,
-          plan,
-        )
+        const result = await bg.generateBackgroundForBrief(mkBrief({ topic: `Q3 ${seam}`, imageStyle: 'device-screen', aspectRatio: size }), ctxFor(kit), 'c', actor, plan)
         return { result, check: (result as unknown as { check: Check }).check }
       }
       const pass = await check('__MOCK_BG__')
@@ -734,9 +729,9 @@ describe('runPathBDesign wiring', () => {
     h.background.mockResolvedValue(keptBg)
     h.observe.mockResolvedValue({ ok: true })
     const brief = mkBrief()
-    const result = await runPathBDesign(brief, kit, 'Big news', 'Campaign says: logo top-left', actor, model)
+    const result = await runPathBDesign(brief, ctxFor(kit, 'Project says: logo top-left'), 'Big news', actor, model)
     expect(h.background).toHaveBeenCalledTimes(1)
-    expect(h.background.mock.calls[0][5]).toMatchObject({ kind: 'hero', requestedArchetype: 'product-showcase' })
+    expect(h.background.mock.calls[0][4]).toMatchObject({ kind: 'hero', requestedArchetype: 'product-showcase' })
     expect(h.designCalls).toHaveLength(1)
     expect(h.designCalls[0].systemPrompt).toContain('Headline, body text and the logo go only inside these regions:')
     expect(h.designCalls[0].systemPrompt).not.toContain('subtle scrim/gradient overlay')
@@ -763,7 +758,7 @@ describe('runPathBDesign wiring', () => {
     const { runPathBDesign } = await load()
     h.background.mockResolvedValue(keptBg)
     h.observe.mockResolvedValue({ ok: false, outside: 2 })
-    const result = await runPathBDesign(mkBrief(), kit, 'h', null, actor, model)
+    const result = await runPathBDesign(mkBrief(), ctxFor(kit), 'h', actor, model)
     expect(result.composition).toMatchObject({ appliedArchetype: 'product-showcase', observations: ['layout-violation'] })
     expect(h.designCalls).toHaveLength(1)
   })
@@ -772,7 +767,7 @@ describe('runPathBDesign wiring', () => {
     const { runPathBDesign } = await load()
     h.background.mockResolvedValue(keptBg)
     h.observe.mockResolvedValue(null)
-    const result = await runPathBDesign(mkBrief(), kit, 'h', null, actor, model)
+    const result = await runPathBDesign(mkBrief(), ctxFor(kit), 'h', actor, model)
     expect(result.composition).not.toHaveProperty('observations')
   })
 
@@ -781,7 +776,7 @@ describe('runPathBDesign wiring', () => {
     async (reason) => {
       const { runPathBDesign } = await load()
       h.background.mockResolvedValue({ url: 'https://minio.example.com/bg.png', check: { ok: false, reason } })
-      const result = await runPathBDesign(mkBrief(), kit, 'h', 'briefing text', actor, model)
+      const result = await runPathBDesign(mkBrief(), ctxFor(kit, 'briefing text'), 'h', actor, model)
       expect(h.background).toHaveBeenCalledTimes(1)
       expect(h.designCalls[0].systemPrompt).toContain('Layer a subtle scrim/gradient overlay')
       expect(h.designCalls[0].systemPrompt).toContain('https://minio.example.com/bg.png')
@@ -801,7 +796,7 @@ describe('runPathBDesign wiring', () => {
   it('a hero style with no image: no-image, classic, no observation', async () => {
     const { runPathBDesign } = await load()
     h.background.mockResolvedValue({ url: null, skip: 'NO_PROVIDER' })
-    const result = await runPathBDesign(mkBrief(), kit, 'h', null, actor, model)
+    const result = await runPathBDesign(mkBrief(), ctxFor(kit), 'h', actor, model)
     expect(result.composition).toMatchObject({ appliedArchetype: 'classic', fallbackReason: 'no-image' })
     expect(h.observe).not.toHaveBeenCalled()
   })
@@ -809,8 +804,8 @@ describe('runPathBDesign wiring', () => {
   it('a classic request: no hero plan, no observation, a classic stamp with no reason', async () => {
     const { runPathBDesign } = await load()
     h.background.mockResolvedValue({ url: 'https://minio.example.com/bg.png' })
-    const result = await runPathBDesign(mkBrief({ imageStyle: 'classic' }), kit, 'h', null, actor, model)
-    expect(h.background.mock.calls[0][5]).toBeUndefined()
+    const result = await runPathBDesign(mkBrief({ imageStyle: 'classic' }), ctxFor(kit), 'h', actor, model)
+    expect(h.background.mock.calls[0][4]).toBeUndefined()
     expect(h.observe).not.toHaveBeenCalled()
     expect(result.composition).toEqual({
       requestedArchetype: 'classic',
@@ -827,17 +822,17 @@ describe('runPathBDesign wiring', () => {
   ])('%s: classic with its reason, no hero plan', async (_n, over, reason) => {
     const { runPathBDesign } = await load()
     h.background.mockResolvedValue({ url: 'https://minio.example.com/bg.png' })
-    const result = await runPathBDesign(mkBrief(over), kit, 'h', null, actor, model)
-    expect(h.background.mock.calls[0][5]).toBeUndefined()
+    const result = await runPathBDesign(mkBrief(over), ctxFor(kit), 'h', actor, model)
+    expect(h.background.mock.calls[0][4]).toBeUndefined()
     expect(result.composition).toMatchObject({ appliedArchetype: 'classic', fallbackReason: reason })
   })
 
   it('under MOCK_PUPPETEER the observation is not run; the seam boxes feed the real evaluateLayout', async () => {
     const { runPathBDesign } = await load({ MOCK_AI: 'true', MOCK_PUPPETEER: 'true' })
     h.background.mockResolvedValue(keptBg)
-    const ok = await runPathBDesign(mkBrief(), kit, 'h', null, actor, model)
+    const ok = await runPathBDesign(mkBrief(), ctxFor(kit), 'h', actor, model)
     expect(ok.composition).not.toHaveProperty('observations')
-    const bad = await runPathBDesign(mkBrief({ topic: 'Q3 __MOCK_HERO_LAYOUT__' }), kit, 'h', null, actor, model)
+    const bad = await runPathBDesign(mkBrief({ topic: 'Q3 __MOCK_HERO_LAYOUT__' }), ctxFor(kit), 'h', actor, model)
     expect(bad.composition).toMatchObject({ appliedArchetype: 'product-showcase', observations: ['layout-violation'] })
     expect(h.observe).not.toHaveBeenCalled()
   })

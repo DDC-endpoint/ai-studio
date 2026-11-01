@@ -67,7 +67,6 @@ jobs:
       TOKEN_ENCRYPTION_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
       MOCK_AI: "true"
       MOCK_PUPPETEER: "true"
-      MOCK_SOCIAL: "true"
       # BISTEC_API_KEYS / BISTEC_ADMIN_API_KEYS removed 2026-07-21 (team tenancy):
       # the §J ACP-auth cases mint real hashed ApiKey rows via POST /api/team/api-keys.
       TEST_BASE_URL: http://localhost:3001
@@ -126,7 +125,7 @@ jobs:
         #   rows onto the Bistec team). Without seed-teams the editor has no
         #   team membership, so every team-scoped route 403s for it (breaking
         #   the D6 editor-visibility cases across agui-refinement, briefing-
-        #   assistant, campaign-scheduling, library), and clientx.admin does
+        #   assistant, library, post-permissions), and clientx.admin does
         #   not exist, so the team-isolation suite's login fails outright.
         run: |
           node scripts/seed-admin.mjs
@@ -162,9 +161,9 @@ jobs:
         run: npm run lint
 
       - name: Start app (:3001, dev mode) and wait
-        # Dev mode (NODE_ENV=development) so the test-only /api/test/scheduler-tick
-        # seam is active (it hard-404s in production by design). Matches the local
-        # `npm run test:e2e:serve` flow.
+        # Dev mode (NODE_ENV=development), matching the local
+        # `npm run test:e2e:serve` flow. Every remaining test seam under
+        # /api/test is a 404 in a production build.
         run: |
           npx next dev -p 3001 &
           ready=0

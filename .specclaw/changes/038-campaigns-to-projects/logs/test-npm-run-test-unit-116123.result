@@ -1,0 +1,7 @@
+exit=0
+duration_s=13
+log=.specclaw/changes/038-campaigns-to-projects/logs/test-npm-run-test-unit-116123.log
+head=633b807425d589b0abf8e2e72358bf7f17e70f30
+dirty=true
+cmd=npm run test:unit
+interrupted=false

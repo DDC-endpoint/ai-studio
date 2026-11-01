@@ -6,11 +6,11 @@ import {
   isAllowedDocument,
   isAllowedDocImage,
   parseDocumentText,
-} from '@/lib/campaign/documents'
+} from '@/lib/projects/documents'
 import { MAX_DOCS_PER_BRAND_KIT } from '@/lib/brandkit/documents'
 
 // Brand-kit assistant source documents — mirrors the campaign documents routes
-// (src/app/api/campaigns/[id]/documents). Admin-only: the assistant surface is
+// (src/app/api/projects/[id]/documents). Admin-only: the assistant surface is
 // admin-only. These are NOT artifacts and never enter generation prompts.
 
 type Params = { id: string }

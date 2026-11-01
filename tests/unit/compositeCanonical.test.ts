@@ -141,7 +141,7 @@ describe('no writer stores a URL to the screenshot (NFR-05)', () => {
       .filter((f) => /\b(htmlContent|htmlSnapshot)\s*:\s*[A-Za-z_]/.test(readFileSync(f, 'utf8')))
       .map((f) => relative(root, f).split('\\').join('/'))
       // Reads and types, not writers.
-      .filter((f) => !/(api-types|\/types|acp\/agent|mcp\/tools|designAgent|api\/drafts\/\[id\]\/route|adopt\/route)/.test(f))
+      .filter((f) => !/(api-types|\/types|acp\/agent|mcp\/tools|designAgent|api\/drafts\/\[id\]\/route|lib\/drafts\/detail|adopt\/route)/.test(f))
       .filter((f) => !f.includes('refine/route'))
     expect(writers.sort()).toEqual(Object.keys(WRITERS).sort())
   })

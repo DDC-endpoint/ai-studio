@@ -1,77 +1,18 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect } from 'vitest'
 import { Channel } from '@prisma/client'
+import { captionMaxTokens } from '@/lib/agent/prompts/caption'
+import { FACT_WHERE, parseFactsCheck } from '@/lib/factsCheck/types'
 import {
   CAPTION_CHANNELS,
+  CAPTION_REGISTRY,
+  GENERAL_CAPTION,
+  targetOf,
   CHANNEL_CAPTION_LIMITS,
   CHANNEL_LABELS,
-  CHANNEL_VALUES,
-  PUBLISHABLE_CHANNELS,
   captionLength,
   captionSpec,
   channelLabel,
-  isPublishableChannel,
 } from '@/lib/channels'
-import { PublishError } from '@/lib/social/types'
-
-// --- Team-scoped channel-token credential resolution (Task 12) ---
-// linkedin.ts / instagram.ts each resolve their credentials via
-// prisma.channelToken.findFirst({ where: { teamId, channel } }) and throw a
-// fixed message when no row exists for that team — the env-var fallback
-// (LINKEDIN_ACCESS_TOKEN/ORGANIZATION_ID, INSTAGRAM_ACCESS_TOKEN/BUSINESS_ACCOUNT_ID)
-// is gone. Prisma is mocked; the throw happens before any network/crypto call,
-// so no encryption key setup is needed for these cases.
-const h = vi.hoisted(() => ({
-  channelTokenFindFirst: vi.fn(),
-}))
-
-vi.mock('@/lib/prisma', () => ({
-  prisma: { channelToken: { findFirst: h.channelTokenFindFirst } },
-}))
-
-const linkedin = await import('@/lib/social/linkedin')
-const instagram = await import('@/lib/social/instagram')
-
-const TEAM_ID = 'team-1'
-const EXPORT_URL = 'https://example.com/export.png'
-const CAPTION = 'caption text'
-
-beforeEach(() => {
-  h.channelTokenFindFirst.mockReset()
-})
-
-describe('linkedin.publish — team-scoped credentials', () => {
-  it('throws the exact missing-credentials message when no row exists for this team', async () => {
-    h.channelTokenFindFirst.mockResolvedValue(null)
-    await expect(linkedin.publish(EXPORT_URL, CAPTION, TEAM_ID)).rejects.toThrow(
-      'No LinkedIn credentials configured for this team'
-    )
-  })
-
-  it('looks up the token scoped by teamId + channel, not a global row', async () => {
-    h.channelTokenFindFirst.mockResolvedValue(null)
-    await expect(linkedin.publish(EXPORT_URL, CAPTION, TEAM_ID)).rejects.toThrow()
-    expect(h.channelTokenFindFirst).toHaveBeenCalledWith({
-      where: { teamId: TEAM_ID, channel: 'LINKEDIN' },
-    })
-  })
-})
-
-describe('instagram.publish — team-scoped credentials', () => {
-  it('throws the exact missing-credentials message when no row exists for this team', async () => {
-    h.channelTokenFindFirst.mockResolvedValue(null)
-    await expect(instagram.publish(EXPORT_URL, CAPTION, TEAM_ID)).rejects.toThrow(
-      'No Instagram credentials configured for this team'
-    )
-  })
-
-  it('looks up the token scoped by teamId + channel, not a global row', async () => {
-    h.channelTokenFindFirst.mockResolvedValue(null)
-    await expect(instagram.publish(EXPORT_URL, CAPTION, TEAM_ID)).rejects.toThrow()
-    expect(h.channelTokenFindFirst).toHaveBeenCalledWith({
-      where: { teamId: TEAM_ID, channel: 'INSTAGRAM' },
-    })
-  })
-})
 
 describe('channelLabel', () => {
   it('maps enum values to human labels', () => {
@@ -100,29 +41,37 @@ describe('CAPTION_CHANNELS registry', () => {
     expect(new Set(registered).size).toBe(registered.length)
   })
 
-  it('is ordered Instagram, LinkedIn with unique JSON keys (026 AC-01)', () => {
-    expect(CAPTION_CHANNELS.map((s) => s.channel)).toEqual(['INSTAGRAM', 'LINKEDIN'])
-    expect(CAPTION_CHANNELS.map((s) => s.jsonKey)).toEqual(['instagram', 'linkedin'])
+  it('is ordered Instagram, LinkedIn, Facebook with unique JSON keys (026 AC-01, 039 T4)', () => {
+    expect(CAPTION_CHANNELS.map((s) => s.channel)).toEqual(['INSTAGRAM', 'LINKEDIN', 'FACEBOOK'])
+    expect(CAPTION_CHANNELS.map((s) => s.jsonKey)).toEqual(['instagram', 'linkedin', 'facebook'])
   })
 
   it('has no WhatsApp entry, so a lookup throws', () => {
-    expect(() => captionSpec('WHATSAPP')).toThrow(/No caption registry entry/)
+    expect(() => captionSpec('WHATSAPP' as never)).toThrow(/No caption registry entry/)
   })
 
-  it('IG hard limit 2200, LI 3000', () => {
+  it('IG hard limit 2200, LI 3000, Facebook 2000', () => {
     expect(captionSpec('INSTAGRAM')).toMatchObject({ hardLimit: 2200 })
     expect(captionSpec('LINKEDIN')).toMatchObject({ hardLimit: 3000 })
-    expect(CHANNEL_CAPTION_LIMITS).toEqual({ INSTAGRAM: 2200, LINKEDIN: 3000 })
+    expect(captionSpec('FACEBOOK')).toMatchObject({ hardLimit: 2000 })
+    expect(CHANNEL_CAPTION_LIMITS).toEqual({ INSTAGRAM: 2200, LINKEDIN: 3000, FACEBOOK: 2000 })
   })
 
   it('derives the labels, and keeps WhatsApp for old Post rows (026 AC-01)', () => {
-    expect(CHANNEL_LABELS).toEqual({ INSTAGRAM: 'Instagram', LINKEDIN: 'LinkedIn', WHATSAPP: 'WhatsApp' })
+    expect(CHANNEL_LABELS).toEqual({
+      INSTAGRAM: 'Instagram',
+      LINKEDIN: 'LinkedIn',
+      FACEBOOK: 'Facebook',
+      WHATSAPP: 'WhatsApp',
+    })
     expect(channelLabel('whatsapp')).toBe('WhatsApp')
   })
 
-  it('only IG and LI are publishable, and CHANNEL_VALUES equals them', () => {
-    expect(PUBLISHABLE_CHANNELS).toEqual(['INSTAGRAM', 'LINKEDIN'])
-    expect(CHANNEL_VALUES).toEqual(['INSTAGRAM', 'LINKEDIN'])
+  it('the publish-era names are gone (039 FR-02)', async () => {
+    const mod = (await import('@/lib/channels')) as Record<string, unknown>
+    expect(mod.PUBLISHABLE_CHANNELS).toBeUndefined()
+    expect(mod.CHANNEL_VALUES).toBeUndefined()
+    expect(mod.isPublishableChannel).toBeUndefined()
   })
 
   it('normalises model output: IG/LI drop every **', () => {
@@ -136,42 +85,59 @@ describe('CAPTION_CHANNELS registry', () => {
   })
 })
 
-describe('isPublishableChannel', () => {
-  it('accepts the publishable enum values', () => {
-    expect(PUBLISHABLE_CHANNELS.every(isPublishableChannel)).toBe(true)
+// --- 039 AC-03: the vocabulary is derived from the one registry ---
+describe('CAPTION_REGISTRY (039)', () => {
+  it('is ordered General, Instagram, LinkedIn, Facebook, with unique JSON keys', () => {
+    expect(CAPTION_REGISTRY.map((s) => s.target)).toEqual(['GENERAL', 'INSTAGRAM', 'LINKEDIN', 'FACEBOOK'])
+    const keys = CAPTION_REGISTRY.map((s) => s.jsonKey)
+    expect(keys).toEqual(['general', 'instagram', 'linkedin', 'facebook'])
+    expect(new Set(keys).size).toBe(keys.length)
   })
 
-  it('rejects WhatsApp, other casings, non-channels and non-strings', () => {
-    expect(isPublishableChannel('WHATSAPP')).toBe(false)
-    expect(isPublishableChannel('instagram')).toBe(false)
-    expect(isPublishableChannel('facebook')).toBe(false)
-    expect(isPublishableChannel(null)).toBe(false)
-    expect(isPublishableChannel(42)).toBe(false)
+  it('the general entry has no channel; the curated ones are CAPTION_CHANNELS', () => {
+    expect(GENERAL_CAPTION).toMatchObject({ kind: 'GENERAL', channel: null, hardLimit: 2200 })
+    expect(CAPTION_CHANNELS.every((s) => s.kind === 'CURATED' && s.channel !== null)).toBe(true)
+    expect(CAPTION_CHANNELS.map((s) => s.target)).toEqual(['INSTAGRAM', 'LINKEDIN', 'FACEBOOK'])
   })
-})
 
-describe('PublishError', () => {
-  it('is not terminal by default and carries terminal when set', () => {
-    expect(new PublishError('INSTAGRAM', 'boom').terminal).toBe(false)
-    const err = new PublishError('WHATSAPP', 'no publisher', { terminal: true })
-    expect(err.terminal).toBe(true)
-    expect(err.message).toBe('[WHATSAPP] no publisher')
+  it('FACT_WHERE deep-equals [headline, ...registry targets], so it cannot drift', () => {
+    expect([...FACT_WHERE]).toEqual(['headline', ...CAPTION_REGISTRY.map((e) => e.target)])
   })
-})
 
-// --- 012 FR-21: the mock publishers' platformId carries the caption hash ---
-describe('mockPlatformId', () => {
-  it('keeps the mock-<channel>-<timestamp> prefix and ends in sha256(caption)[0:12]', async () => {
-    const { createHash } = await import('node:crypto')
-    const { mockPlatformId } = await import('@/lib/testHooks')
-    const sha = (s: string) => createHash('sha256').update(s).digest('hex').slice(0, 12)
+  it('a stored flag with where FACEBOOK parses (039 T4)', () => {
+    const stored = {
+      v: 1,
+      status: 'flagged',
+      checkedAt: '2026-11-02T00:00:00.000Z',
+      flagged: [{ kind: 'cur', value: '$49', where: 'FACEBOOK' }],
+    }
+    expect(parseFactsCheck(stored)).toEqual(stored)
+  })
 
-    const li = mockPlatformId('LINKEDIN', 'LinkedIn caption')
-    expect(li).toMatch(/^mock-linkedin-\d+-[0-9a-f]{12}$/)
-    expect(li.endsWith(`-${sha('LinkedIn caption')}`)).toBe(true)
+  it('a stored flag with where INSTAGRAM still parses', () => {
+    const stored = {
+      v: 1,
+      status: 'flagged',
+      checkedAt: '2026-10-24T00:00:00.000Z',
+      flagged: [{ kind: 'cur', value: '$49', where: 'INSTAGRAM' }],
+    }
+    expect(parseFactsCheck(stored)).toEqual(stored)
+  })
 
-    const ig = mockPlatformId('INSTAGRAM', 'Instagram caption')
-    expect(ig).toMatch(/^mock-instagram-\d+-/)
-    expect(ig.split('-').at(-1)).not.toBe(li.split('-').at(-1))
+  it('captionMaxTokens is 512 plus the headline cap and each hard limit', () => {
+    expect(captionMaxTokens(['HEADLINE', 'GENERAL'])).toBe(2812)
+    expect(captionMaxTokens(['LINKEDIN'])).toBe(512 + 3000)
+    expect(captionMaxTokens([])).toBe(512)
+  })
+
+  it('targetOf maps a stored row to its target, and a retired channel to null', () => {
+    expect(targetOf({ kind: 'GENERAL', channel: null })).toBe('GENERAL')
+    expect(targetOf({ kind: 'CURATED', channel: 'LINKEDIN' })).toBe('LINKEDIN')
+    expect(targetOf({ kind: 'CURATED', channel: 'FACEBOOK' })).toBe('FACEBOOK')
+    expect(targetOf({ kind: 'CURATED', channel: 'WHATSAPP' })).toBeNull()
+  })
+
+  it('the general caption normalises like the others (no **)', () => {
+    expect(GENERAL_CAPTION.normalise('**Big** news')).toBe('Big news')
   })
 })

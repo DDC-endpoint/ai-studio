@@ -88,7 +88,7 @@ export async function resolveCopyProvider(teamId: string, providerKey?: string):
     return {
       generateCaptions: async (brief, targets, model) => {
         recordModelCall(modelCallFor(model, pipelineMode(), 'copy', route))
-        return { raw: buildMockCaptionReply(brief?.topic ?? '', targets), modelId: model.arg, route }
+        return { raw: buildMockCaptionReply(brief?.topic ?? '', targets, { hasGeneral: !!brief?.generalCaption }), modelId: model.arg, route }
       },
     }
   }

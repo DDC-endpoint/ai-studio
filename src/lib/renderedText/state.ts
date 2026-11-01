@@ -16,31 +16,19 @@ export function headlineState(stamp: RenderedText | null, headline: string | nul
   return normaliseHeadline(h.text) === normaliseHeadline(headline) ? 'fresh' : 'stale'
 }
 
-export interface ScheduledPosts {
-  count: number
-  nextAt: string
-}
-
 export interface HeadlineImage {
   state: HeadlineState
   renderedHeadline: string | null
   reason: UnverifiedReason | null
-  scheduledPosts: ScheduledPosts | null
 }
 
-// Each field is filled only for the states the spec names. `scheduled` is passed
-// in by the caller, which reads it only when the state calls for it.
-export function headlineImageFor(
-  stamp: RenderedText | null,
-  headline: string | null,
-  scheduled: ScheduledPosts | null,
-): HeadlineImage {
+// Each field is filled only for the states the spec names.
+export function headlineImageFor(stamp: RenderedText | null, headline: string | null): HeadlineImage {
   const state = headlineState(stamp, headline)
   const h = stamp?.headline
   return {
     state,
     renderedHeadline: state === 'stale' && h ? h.text : null,
     reason: state === 'unconfirmed' && h && !h.verified ? h.reason : null,
-    scheduledPosts: (state === 'stale' || state === 'unconfirmed') && scheduled ? scheduled : null,
   }
 }

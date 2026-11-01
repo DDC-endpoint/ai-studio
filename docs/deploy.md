@@ -10,12 +10,12 @@ For local development, use [`cold-start.md`](cold-start.md) instead.
 
 `docker-compose.yml` defines four services. The project name is `${COMPOSE_PROJECT_NAME:-ai-studio}`.
 
-| Service     | What it is                                                                                                      | Published on the host                                                                                                 |
-| ----------- | --------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| `app`       | The Next.js server (`node server.js`), built from the repo's `Dockerfile`                                       | `3000:3000` (all interfaces)                                                                                          |
-| `scheduler` | The same image, running `node dist/scheduler/worker.js` (scheduled generation, publishing, analytics retention) | nothing                                                                                                               |
-| `postgres`  | `postgres:16-alpine`, volume `postgres_data`                                                                    | `127.0.0.1:${POSTGRES_HOST_PORT:-5442}`                                                                               |
-| `minio`     | `pgsty/silo`, pinned by digest (a maintained MinIO-compatible server), volumes `minio_data` and `minio_config`  | console only, `127.0.0.1:${MINIO_CONSOLE_HOST_PORT:-9101}`; the S3 port 9000 is `expose`d to the compose network only |
+| Service     | What it is                                                                                                     | Published on the host                                                                                                 |
+| ----------- | -------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `app`       | The Next.js server (`node server.js`), built from the repo's `Dockerfile`                                      | `3000:3000` (all interfaces)                                                                                          |
+| `scheduler` | The same image, running `node dist/scheduler/worker.js` (analytics retention only)                             | nothing                                                                                                               |
+| `postgres`  | `postgres:16-alpine`, volume `postgres_data`                                                                   | `127.0.0.1:${POSTGRES_HOST_PORT:-5442}`                                                                               |
+| `minio`     | `pgsty/silo`, pinned by digest (a maintained MinIO-compatible server), volumes `minio_data` and `minio_config` | console only, `127.0.0.1:${MINIO_CONSOLE_HOST_PORT:-9101}`; the S3 port 9000 is `expose`d to the compose network only |
 
 `app` and `scheduler` read `.env` (`env_file: .env`). Postgres and MinIO take their credentials from the same file through compose variable substitution.
 
@@ -42,14 +42,14 @@ The app checks its environment before anything else, in `docker-entrypoint.sh` t
 
 ## 3. MinIO must be reachable from browsers
 
-The app talks to MinIO inside the compose network. Browsers load logos, generated images and exports from MinIO directly. Public objects use plain URLs, and exports use pre-signed URLs. Both kinds of URL are built from `MINIO_PUBLIC_ENDPOINT`, which falls back to `MINIO_ENDPOINT`. Without it, every image URL comes out as `http://minio:9000/...`, which no browser can resolve. The 2026-10-27 scratch deploy showed exactly that.
+The app talks to MinIO inside the compose network. Browsers load logos, generated images and exports from MinIO directly. Public objects use plain URLs, and downloads use pre-signed URLs. Both kinds of URL are built from `MINIO_PUBLIC_ENDPOINT`, which falls back to `MINIO_ENDPOINT`. Without it, every image URL comes out as `http://minio:9000/...`, which no browser can resolve. The 2026-10-27 scratch deploy showed exactly that.
 
 Choose one:
 
 - **Reverse proxy (recommended).** Route a hostname such as `https://files.example.com` to the `minio` container's port 9000. Set `MINIO_PUBLIC_ENDPOINT=https://files.example.com`.
 - **Host port.** `docker-compose.override.yml` publishes MinIO's S3 port on `${MINIO_HOST_PORT:-9100}` on all interfaces. `docker compose up` loads that file automatically when it sits next to `docker-compose.yml`. Set `MINIO_PUBLIC_ENDPOINT=http://<server>:9100`.
 
-`MINIO_PUBLIC_ENDPOINT` must be exactly the base the browser uses: scheme, host and port. Pre-signed URLs are signed against it, so a mismatch makes exports fail with a signature error. The app's renderer also allows this host, so post images load during rendering.
+`MINIO_PUBLIC_ENDPOINT` must be exactly the base the browser uses: scheme, host and port. Pre-signed URLs are signed against it, so a mismatch makes downloads fail with a signature error. The app's renderer also allows this host, so post images load during rendering.
 
 The `generated-images` and `brand-kits` buckets are made public-read on startup. `exported-designs` and `campaign-docs` stay private.
 
@@ -60,7 +60,7 @@ Compose publishes the app as `3000:3000` on every interface. Put a TLS-terminati
 ## 5. Build and start
 
 ```bash
-git clone https://github.com/EnderGuardian25/ai-studio.git
+git clone https://github.com/DDC-endpoint/ai-studio.git
 cd ai-studio
 git checkout main
 # write .env (section 2), then:
@@ -98,7 +98,6 @@ Then sign in at `BETTER_AUTH_URL`:
 1. Create the first team at `/admin/teams`.
 2. Create the other accounts at `/admin/users`, and add them to the team.
 3. Connect Claude at `/settings` (per user) or `/team` (the team's shared token or key). See [`claude-account-setup.md`](claude-account-setup.md).
-4. For publishing, see [`social-publishing-setup.md`](social-publishing-setup.md).
 
 ## 7. Smoke check
 
@@ -107,10 +106,43 @@ Then sign in at `BETTER_AUTH_URL`:
 - `docker compose logs app scheduler` shows `[preflight] environment ok` and `[entrypoint] migrations up to date` for both services; the second one to boot also logs `No pending migrations to apply`. The scheduler logs `[scheduler] starting`.
 - The super admin signs in, creates a team, and creates a post. Its image loads in the browser from `MINIO_PUBLIC_ENDPOINT`.
 - An anonymous `POST /api/auth/sign-up/email` answers 404.
-- The campaign queue shows no "Scheduler offline" banner.
+- `/admin/insights` shows the retention worker as running (no "offline" Health line).
 
 ## 8. Upgrades and backups
 
 - **Upgrade:** `git pull`, `docker compose build --build-arg GIT_SHA=$(git rev-parse HEAD)`, `docker compose up -d`. Pending migrations apply on boot.
 - **Back up** the `postgres_data` and `minio_data` volumes and the `.env` file (above all `TOKEN_ENCRYPTION_KEY` and `BETTER_AUTH_SECRET`).
 - `docker compose down -v` deletes the volumes and everything in them.
+
+## 9. Upgrading to the build without scheduling and publishing (change 037)
+
+Migration `20261031120000_remove_scheduling_publishing` drops publishing, scheduling and the generation queue. It is fail-closed: it refuses to run while any `Post`, `ChannelToken` or `ScheduledGeneration` row exists, or any draft is `PUBLISHED`. A fresh deploy has none of these and needs no step. A database that ran an older build needs the sequence below, from a checkout with Node 22 or later. The one-way removal is accepted; the tag `pre-037-publishing` is the last commit that publishes.
+
+1. Dry run: `DATABASE_URL=... node scripts/clear-publishing-data.mjs`. It prints the row counts and the connected channel accounts, and exits 3 if any rows exist.
+2. Delete the rows: run the same command with `--yes`.
+3. Apply the migration: `npm run db:migrate` (on a server, `docker compose up -d` applies it on boot).
+4. If the migration ran first and its precondition stopped it, mark it rolled back, then do steps 1 to 3: `npx prisma migrate resolve --rolled-back 20261031120000_remove_scheduling_publishing`.
+5. Revoke the Instagram and LinkedIn app access by hand, in each provider's app settings. Dropping a stored token does not revoke the grant.
+
+The `scheduler` container keeps its name and now runs only the analytics retention loop.
+
+## 10. Upgrading to the build with projects instead of campaigns (change 038)
+
+Migration `20261101130000_drop_campaigns` drops `Campaign`, `CampaignDocument`, `CampaignBriefing`, `ProjectCampaign` and `Brief.campaignId`. It is fail-closed: a `DO` precondition refuses to run while any row exists in those tables or any post still names a campaign (`038 drop_campaigns refused: ...`). The additive migration `20261101120000_project_inputs` ran before it and moved the briefing, documents and defaults onto projects. A fresh deploy has no campaigns and needs no step. A database that ran an older build needs the sequence below, from a checkout with Node 22 or later.
+
+**Posts made before 038 become visible to the whole team.** Every member now sees every post; only the author and team admins edit, refine, regenerate, change the kit of or delete one.
+
+1. Back up first: `pg_dump` the database.
+2. Dry run: `DATABASE_URL=... node scripts/clear-campaign-data.mjs`. It prints the row counts and the number of posts that become team-visible, and exits 3 if any rows exist (2 without an explicit `DATABASE_URL`).
+3. Delete the rows: run the same command with `--yes` (one transaction).
+4. Apply the migration: `npm run db:migrate` (on a server, `docker compose up -d` applies it on boot).
+5. If the migration ran first and its precondition stopped it, mark it rolled back, then do steps 2 to 4: `npx prisma migrate resolve --rolled-back 20261101130000_drop_campaigns`.
+6. Sweep the campaign document objects from `campaign-docs`: `DATABASE_URL=... MINIO_ENDPOINT=... MINIO_ACCESS_KEY=... MINIO_SECRET_KEY=... MINIO_BUCKET_DOCS=campaign-docs node scripts/sweep-campaign-documents.mjs` (dry run; it needs all five variables, with real MinIO keys, never `minioadmin`). Exit 3 means keys would be removed; run it again with `--yes`. Exit 4 means the drop migration has not finished, so do step 4 first. It keeps `brandkits/`, `screenshots/` and `projects/`.
+
+The bucket keeps its name `campaign-docs`. The down scripts are `prisma/rollback/038-project-inputs.down.sql` and `prisma/rollback/038-drop-campaigns.down.sql`; both restore the schema only, never data.
+
+## 11. Upgrading to the build with general and curated captions (change 039)
+
+Three migrations ship with 039: `20261102120000_caption_kind` (the `CaptionKind` enum; `DraftCaption` gains `kind`, `deletedAt`, `previous` and `generalHash`, and `channel` may be null), `20261102130000_channel_facebook` (adds `FACEBOOK` to `Channel`) and `20261102140000_kit_website` (adds `BrandKit.website`). All three are additive. **No operator step is needed:** `docker compose up -d` applies them on boot, and `npm run db:migrate` applies them locally. Existing posts keep their Instagram and LinkedIn captions as curated captions. They have no general caption until a member presses "Generate general caption". Existing kits have no website until a team admin adds one (the Facebook call to action has no link until then).
+
+The down script is `prisma/rollback/039-general-and-curated-captions.down.sql`. It restores the schema and **deletes** every general caption, Facebook caption, deleted caption and kit website, so it refuses to run unless the session sets `app.allow_caption_loss = 'on'`. Take a `pg_dump` first. `FACEBOOK` stays in the `Channel` type, because Postgres cannot drop an enum value. The header of the script has the exact command.

@@ -9,7 +9,7 @@ import { join, relative, sep } from 'node:path'
 //   generation, sync and async, and regenerate design  -> renderStamps.test.ts
 //   commit (refine-like, inline-edit-like), null headline, rejected render,
 //   adopt, restore                                      -> draftRevisions.test.ts
-//   the export route (renders, stamps nothing)          -> compositeRerender.test.ts
+//   the download path (renders, stamps nothing)        -> compositeRerender.test.ts
 
 const SRC = join(__dirname, '..', '..', 'src')
 

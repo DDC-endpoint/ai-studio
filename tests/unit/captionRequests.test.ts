@@ -8,8 +8,12 @@ import {
   PATCH_SHAPE_MESSAGE,
   REGENERATE_BOTH_MESSAGE,
   REGENERATE_SHAPE_MESSAGE,
+  GENERAL_NOT_DELETABLE_MESSAGE,
+  UNDO_SHAPE_MESSAGE,
   parseCaptionPatch,
+  parseDeleteQuery,
   parseRegenerateBody,
+  parseUndoBody,
 } from '@/lib/captions/requests'
 import { modelKeyMessage } from '@/lib/models/requests'
 
@@ -27,6 +31,24 @@ describe('parseCaptionPatch (FR-12)', () => {
     })
   })
 
+  it("accepts { kind: 'GENERAL', text } for the general caption, text as typed (039 D13)", () => {
+    expect(parseCaptionPatch({ kind: 'GENERAL', text: '  **kept** ' })).toEqual({
+      ok: true,
+      value: { kind: 'GENERAL', text: '  **kept** ' },
+    })
+  })
+
+  it("refuses { kind: 'CURATED', text }, a kind with a channel, and a kind with a headline", () => {
+    for (const body of [
+      { kind: 'CURATED', text: 'x' },
+      { kind: 'GENERAL', channel: 'INSTAGRAM', text: 'x' },
+      { kind: 'GENERAL', headline: 'h' },
+      { kind: 'GENERAL' },
+    ]) {
+      expect(parseCaptionPatch(body).ok, JSON.stringify(body)).toBe(false)
+    }
+  })
+
   it('accepts { headline } (validated later by validateHeadline)', () => {
     expect(parseCaptionPatch({ headline: 'Applications are open' })).toEqual({
       ok: true,
@@ -42,9 +64,9 @@ describe('parseCaptionPatch (FR-12)', () => {
     })
   })
 
-  it('a legacy { copyText } body → "Send { channel, text } or { headline }"', () => {
+  it('a legacy { copyText } body → the shape message', () => {
     expect(parseCaptionPatch({ copyText: 'old' })).toEqual({ ok: false, error: PATCH_SHAPE_MESSAGE })
-    expect(PATCH_SHAPE_MESSAGE).toBe('Send { channel, text } or { headline }')
+    expect(PATCH_SHAPE_MESSAGE).toBe("Send { kind: 'GENERAL', text }, { channel, text } or { headline }")
   })
 
   it.each([
@@ -61,12 +83,12 @@ describe('parseCaptionPatch (FR-12)', () => {
 
   it('an unknown channel names the registry channels', () => {
     expect(parseCaptionPatch({ channel: 'TIKTOK', text: 'x' })).toEqual({ ok: false, error: CHANNEL_MESSAGE })
-    expect(CHANNEL_MESSAGE).toBe('channel must be INSTAGRAM or LINKEDIN')
+    expect(CHANNEL_MESSAGE).toBe('channel must be INSTAGRAM, LINKEDIN or FACEBOOK')
   })
 
-  it('WHATSAPP is refused on PATCH and on regenerate (026 AC-03)', () => {
+  it('WHATSAPP is refused on PATCH (026 AC-03) and on regenerate (039 AC-27: the shape message)', () => {
     expect(parseCaptionPatch({ channel: 'WHATSAPP', text: 'x' })).toEqual({ ok: false, error: CHANNEL_MESSAGE })
-    expect(parseRegenerateBody({ channel: 'WHATSAPP' })).toMatchObject({ ok: false, error: CHANNEL_MESSAGE })
+    expect(parseRegenerateBody({ channel: 'WHATSAPP' })).toMatchObject({ ok: false, error: REGENERATE_SHAPE_MESSAGE })
   })
 
   it('non-string values get their own message', () => {
@@ -75,9 +97,9 @@ describe('parseCaptionPatch (FR-12)', () => {
   })
 })
 
-describe('parseRegenerateBody (FR-11)', () => {
-  it('{} → "Regenerate all": the two captions, never the headline (A9)', () => {
-    expect(parseRegenerateBody({})).toStrictEqual({ ok: true, value: { targets: ['INSTAGRAM', 'LINKEDIN'] } })
+describe('parseRegenerateBody (FR-11, 039 D12)', () => {
+  it("{ kind: 'GENERAL' } → the general caption only", () => {
+    expect(parseRegenerateBody({ kind: 'GENERAL' })).toStrictEqual({ ok: true, value: { targets: ['GENERAL'] } })
   })
 
   it('{ channel } → that caption only', () => {
@@ -88,15 +110,26 @@ describe('parseRegenerateBody (FR-11)', () => {
     expect(parseRegenerateBody({ headline: true })).toStrictEqual({ ok: true, value: { targets: ['HEADLINE'] } })
   })
 
-  it('both channel and headline → 400', () => {
-    expect(parseRegenerateBody({ channel: 'LINKEDIN', headline: true })).toEqual({
-      ok: false,
-      error: REGENERATE_BOTH_MESSAGE,
-    })
+  // 039 Q2, AC-27: "Regenerate all" is retired.
+  it.each([
+    ['{}', {}],
+    ['{ kind: CURATED }', { kind: 'CURATED' }],
+    ['{ channel: WHATSAPP }', { channel: 'WHATSAPP' }],
+    ['{ channel: TIKTOK }', { channel: 'TIKTOK' }],
+    ['{ model } alone', { model: 'OPUS' }],
+  ])('%s gets the shape message', (_name, body) => {
+    expect(parseRegenerateBody(body)).toEqual({ ok: false, error: REGENERATE_SHAPE_MESSAGE })
+    expect(REGENERATE_SHAPE_MESSAGE).toBe("Send { kind: 'GENERAL' }, { channel } or { headline: true }")
   })
 
-  it('an unknown channel → 400 naming the channels', () => {
-    expect(parseRegenerateBody({ channel: 'TIKTOK' })).toEqual({ ok: false, error: CHANNEL_MESSAGE })
+  it('more than one of kind, channel and headline → 400', () => {
+    for (const body of [
+      { channel: 'LINKEDIN', headline: true },
+      { kind: 'GENERAL', channel: 'LINKEDIN' },
+      { kind: 'GENERAL', headline: true },
+    ]) {
+      expect(parseRegenerateBody(body)).toEqual({ ok: false, error: REGENERATE_BOTH_MESSAGE })
+    }
   })
 
   it('headline other than true, an unknown key, or a non-object → 400', () => {
@@ -107,9 +140,9 @@ describe('parseRegenerateBody (FR-11)', () => {
 
   // 008 FR-17: `model` is optional on all three forms; the body stays strict.
   it('each form takes an optional model, returned beside the targets', () => {
-    expect(parseRegenerateBody({ model: 'OPUS' })).toStrictEqual({
+    expect(parseRegenerateBody({ kind: 'GENERAL', model: 'OPUS' })).toStrictEqual({
       ok: true,
-      value: { targets: ['INSTAGRAM', 'LINKEDIN'], model: 'OPUS' },
+      value: { targets: ['GENERAL'], model: 'OPUS' },
     })
     expect(parseRegenerateBody({ channel: 'LINKEDIN', model: 'HAIKU' })).toStrictEqual({
       ok: true,
@@ -136,6 +169,50 @@ describe('parseRegenerateBody (FR-11)', () => {
         error: modelKeyMessage(),
         code: 'MODEL_NOT_ALLOWED',
       })
+    }
+  })
+})
+
+// ── 039 T3: the undo body and the delete query (D14, D15) ────────────────────
+
+describe('parseUndoBody (039 D15)', () => {
+  it('takes { kind: "GENERAL" } or { channel }', () => {
+    expect(parseUndoBody({ kind: 'GENERAL' })).toEqual({ ok: true, value: { kind: 'GENERAL' } })
+    expect(parseUndoBody({ channel: 'LINKEDIN' })).toEqual({ ok: true, value: { kind: 'CURATED', channel: 'LINKEDIN' } })
+  })
+
+  it.each([
+    ['empty', {}],
+    ['both', { kind: 'GENERAL', channel: 'INSTAGRAM' }],
+    ['a wrong kind', { kind: 'CURATED' }],
+    ['WhatsApp', { channel: 'WHATSAPP' }],
+    ['an extra key', { channel: 'INSTAGRAM', text: 'x' }],
+    ['null', null],
+    ['a string', 'x'],
+  ])('%s is the shape error', (_n, raw) => {
+    const r = parseUndoBody(raw)
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect([UNDO_SHAPE_MESSAGE, CHANNEL_MESSAGE, "kind must be 'GENERAL'"]).toContain(r.error)
+  })
+})
+
+describe('parseDeleteQuery (039 D14)', () => {
+  const q = (s: string) => parseDeleteQuery(new URLSearchParams(s))
+
+  it('takes a curatable channel', () => {
+    expect(q('channel=INSTAGRAM')).toEqual({ ok: true, channel: 'INSTAGRAM' })
+    expect(q('channel=LINKEDIN')).toEqual({ ok: true, channel: 'LINKEDIN' })
+  })
+
+  it('refuses the general caption with its own code', () => {
+    for (const s of ['channel=GENERAL', 'kind=GENERAL', 'kind=GENERAL&channel=INSTAGRAM']) {
+      expect(q(s)).toEqual({ ok: false, error: GENERAL_NOT_DELETABLE_MESSAGE, code: 'general-not-deletable' })
+    }
+  })
+
+  it('anything else is the channel message', () => {
+    for (const s of ['', 'channel=', 'channel=WHATSAPP', 'channel=instagram', 'kind=CURATED']) {
+      expect(q(s)).toEqual({ ok: false, error: CHANNEL_MESSAGE })
     }
   })
 })

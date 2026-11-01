@@ -67,18 +67,13 @@ test.describe('Authentication & RBAC', () => {
 
   // TC-AUTH-05 — Admin-only mutations are gated for an editor → 403. Guards H4.
   test('an editor is forbidden from admin-only mutations', async ({ request }) => {
-    // Seed a campaign + project as admin to target.
+    // Seed a project as admin to target.
     const { post: adminPost } = await loginAs(request, ADMIN_EMAIL, ADMIN_PASSWORD)
-    const camp = await (await adminPost('/api/campaigns', { name: 'RBAC Campaign' })).json()
     const proj = await (await adminPost('/api/projects', { name: 'RBAC Project' })).json()
 
     const editor = await loginAs(request, EDITOR_EMAIL, EDITOR_PASSWORD)
-    expect((await editor.patch(`/api/campaigns/${camp.id}`, { name: 'hijack' })).status()).toBe(403)
-    expect((await editor.del(`/api/campaigns/${camp.id}`)).status()).toBe(403)
     expect((await editor.patch(`/api/projects/${proj.id}`, { name: 'hijack' })).status()).toBe(403)
     expect((await editor.del(`/api/projects/${proj.id}`)).status()).toBe(403)
-    // POST /api/posts is admin-only — requireRole fires before draft validation.
-    expect((await editor.post('/api/posts', { draftId: 'x', channel: 'INSTAGRAM' })).status()).toBe(403)
     // Any /api/admin/* write.
     expect((await editor.post('/api/admin/brandkits', { name: 'nope' })).status()).toBe(403)
   })

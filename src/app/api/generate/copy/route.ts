@@ -2,10 +2,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import { withTeamAuth, parseBody } from '@/lib/api/handler'
-import { canAccessContent } from '@/lib/authz/visibility'
+import { canView, canEditPost, NOT_AUTHOR } from '@/lib/authz/visibility'
 import { resolveCopyProvider } from '@/providers/registry'
-import { resolveBrandKit } from '@/lib/brandkit/resolve'
-import { getActiveCampaignBriefing } from '@/lib/campaign/briefing'
+import { newPostContext } from '@/lib/projects/context'
 import { buildBriefInput } from '@/lib/agent/briefInput'
 import { GENERATION_TARGETS, writeCaptions } from '@/lib/captions/generate'
 import { captionRowsFromFields } from '@/lib/captions/store'
@@ -19,11 +18,11 @@ export const POST = withTeamAuth(async (req: NextRequest, _ctx, user) => {
   const { briefId } = body.data
 
   const brief = await prisma.brief.findUnique({ where: { id: briefId } })
-  if (
-    !brief ||
-    !canAccessContent(user, { teamId: brief.teamId, ownerId: brief.userId, campaignId: brief.campaignId })
-  ) {
+  if (!brief || !canView(user, { teamId: brief.teamId })) {
     return NextResponse.json({ error: 'Brief not found' }, { status: 404 })
+  }
+  if (!canEditPost(user, { teamId: brief.teamId, ownerId: brief.userId })) {
+    return NextResponse.json(NOT_AUTHOR, { status: 403 })
   }
 
   try {
@@ -34,22 +33,20 @@ export const POST = withTeamAuth(async (req: NextRequest, _ctx, user) => {
 
     const provider = await resolveCopyProvider(brief.teamId, brief.copyProviderKey ?? undefined)
 
-    // Brand voice for copy comes from the same kit precedence as design:
-    // explicit brief kit → campaign → project → system default.
-    const kit = await resolveBrandKit(brief.teamId, brief.campaignId ?? undefined, brief.brandKitId ?? undefined)
-    const campaignBriefing = await getActiveCampaignBriefing(brief.campaignId)
+    // Brand voice and the briefing come from the post's project context, resolved
+    // live from the brief (038 FR-07; no draft exists here).
+    const ctx = await newPostContext(brief)
 
     // Nothing is persisted (012 FR-10). Each caption reports its own result,
     // so a partial reply still returns the fields that validated.
     const { fields, stamp } = await writeCaptions(
       provider,
-      buildBriefInput(brief, kit, campaignBriefing),
+      buildBriefInput(brief, ctx),
       GENERATION_TARGETS,
       resolved.resolved,
     )
-    // Nothing is stored here, so the 012 response shape stays exactly
-    // {channel, text, status, failureReason}: the 008 stamp fields and the
-    // 024 route are dropped.
+    // Nothing is stored here, so the stamp fields (008) and the route (024) are
+    // dropped; each item names its kind and channel (039 FR-06).
     const captions = captionRowsFromFields(fields, stamp).map(
       ({ model: _model, modelSubstitutedFrom: _from, route: _route, ...row }) => row,
     )

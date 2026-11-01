@@ -55,9 +55,9 @@ export interface GenerationDecisionOptions {
   tone: string
   // The on-image headline (012 FR-09) — never a caption.
   headline: string
-  // Active campaign briefing — campaign-level context that should inform the
+  // Active project briefing — project-level context that should inform the
   // background mood/subject alongside the per-post brief.
-  campaignBriefing?: string | null
+  projectBriefing?: string | null
   // Present only for a hero plan (009): replaces the classic image rules and the
   // default-to-yes paragraph. Absent: the output is byte-identical to before.
   hero?: HeroPromptContext
@@ -69,11 +69,11 @@ export interface GenerationDecisionOptions {
 // Initial generation (Path B): biased toward generating — most posts benefit
 // from a real background; skip only when a flat/gradient design is clearly better.
 export function buildBackgroundDecisionPrompt(opts: GenerationDecisionOptions): BackgroundDecisionPrompt {
-  const { kit, topic, description, goal, tone, headline, campaignBriefing, hero, imageRules } = opts
+  const { kit, topic, description, goal, tone, headline, projectBriefing, hero, imageRules } = opts
 
-  const briefingSection = campaignBriefing
-    ? `Campaign briefing (applies to every post in this campaign):
-${campaignBriefing}
+  const briefingSection = projectBriefing
+    ? `Project briefing (applies to every post in this project):
+${projectBriefing}
 
 `
     : ''

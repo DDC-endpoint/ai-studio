@@ -4,7 +4,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 const h = vi.hoisted(() => ({ resolve: vi.fn(), run: vi.fn() }))
 vi.mock('@/lib/agent/config', () => ({ pipelineMode: () => 'cli' }))
-vi.mock('@/lib/campaign/briefingAssistant', () => ({
+vi.mock('@/lib/projects/briefingAssistant', () => ({
   resolveAssistantModel: h.resolve,
   runBriefingModel: h.run,
 }))
@@ -55,9 +55,9 @@ describe('runRuleUpgrade', () => {
       ...base,
       surface: 'ASSISTANT_BRIEFING',
       label: 'briefing-upgrade',
-      logRef: { name: 'campaign', id: 'c9' },
+      logRef: { name: 'project', id: 'p9' },
     })
-    expect(logs[0]).toMatch(/^\[briefing-upgrade\] team=t1 campaign=c9 candidates=1 /)
+    expect(logs[0]).toMatch(/^\[briefing-upgrade\] team=t1 project=p9 candidates=1 /)
     await runRuleUpgrade({ ...base, surface: 'ASSISTANT_BRIEFING', label: 'briefing-upgrade' })
     expect(logs[1]).toMatch(/^\[briefing-upgrade\] team=t1 candidates=1 /)
   })

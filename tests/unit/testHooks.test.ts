@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
-// testHooks.ts snapshots its MOCK_* env vars at module load, and
-// shouldMockPublishFail keeps per-caption __FAIL_ONCE__ state at module level —
-// so every scenario gets a fresh module instance via resetModules + dynamic import.
+// testHooks.ts snapshots its MOCK_* env vars at module load, and the generation
+// seams keep per-prompt __FAIL_GEN_ONCE__ state at module level — so every
+// scenario gets a fresh module instance via resetModules + dynamic import.
 async function loadHooks(env: Record<string, string> = {}) {
   vi.resetModules()
   vi.unstubAllEnvs()
@@ -14,39 +14,23 @@ beforeEach(() => {
   vi.unstubAllEnvs()
 })
 
-describe('shouldMockPublishFail', () => {
-  it('succeeds by default (no sentinel, no env)', async () => {
-    const hooks = await loadHooks({ MOCK_SOCIAL: 'true' })
-    expect(hooks.shouldMockPublishFail('a perfectly normal caption')).toBe(false)
+describe('MOCK_* flags', () => {
+  it('are dormant unless exactly "true"', async () => {
+    for (const v of ['1', 'TRUE', 'false']) {
+      const hooks = await loadHooks({ MOCK_AI: v, MOCK_PUPPETEER: v })
+      expect(hooks.MOCK_AI).toBe(false)
+      expect(hooks.MOCK_PUPPETEER).toBe(false)
+    }
+    const on = await loadHooks({ MOCK_AI: 'true', MOCK_PUPPETEER: 'true' })
+    expect(on.MOCK_AI).toBe(true)
+    expect(on.MOCK_PUPPETEER).toBe(true)
   })
 
-  it('__FAIL_ALWAYS__ sentinel always fails', async () => {
-    const hooks = await loadHooks({ MOCK_SOCIAL: 'true' })
-    const caption = 'post __FAIL_ALWAYS__ x'
-    expect(hooks.shouldMockPublishFail(caption)).toBe(true)
-    expect(hooks.shouldMockPublishFail(caption)).toBe(true)
-  })
-
-  it('__FAIL_ONCE__ fails the first attempt then succeeds (per unique caption)', async () => {
-    const hooks = await loadHooks({ MOCK_SOCIAL: 'true' })
-    const caption = 'retry-me __FAIL_ONCE__ unique-1'
-    expect(hooks.shouldMockPublishFail(caption)).toBe(true)
-    expect(hooks.shouldMockPublishFail(caption)).toBe(false)
-    // A different caption gets its own first failure
-    expect(hooks.shouldMockPublishFail('retry-me __FAIL_ONCE__ unique-2')).toBe(true)
-  })
-
-  it('MOCK_SOCIAL_FAIL env forces failure regardless of caption', async () => {
+  it('MOCK_SOCIAL and MOCK_SOCIAL_FAIL are gone (037)', async () => {
     const hooks = await loadHooks({ MOCK_SOCIAL: 'true', MOCK_SOCIAL_FAIL: 'true' })
-    expect(hooks.MOCK_SOCIAL_FAIL).toBe(true)
-    expect(hooks.shouldMockPublishFail('no sentinel at all')).toBe(true)
-  })
-
-  it('MOCK_* flags are dormant unless exactly "true"', async () => {
-    const hooks = await loadHooks({ MOCK_SOCIAL: '1', MOCK_SOCIAL_FAIL: 'TRUE' })
-    expect(hooks.MOCK_SOCIAL).toBe(false)
-    expect(hooks.MOCK_SOCIAL_FAIL).toBe(false)
-    expect(hooks.shouldMockPublishFail('plain')).toBe(false)
+    expect(hooks).not.toHaveProperty('MOCK_SOCIAL')
+    expect(hooks).not.toHaveProperty('MOCK_SOCIAL_FAIL')
+    expect(hooks).not.toHaveProperty('shouldMockPublishFail')
   })
 })
 
@@ -90,36 +74,100 @@ describe('buildMockCaptionReply', () => {
     expect(raw.match(/__FAIL_ONCE__/g)).toHaveLength(3)
   })
 
-  it('__DROP_CAPTION_LINKEDIN__ drops linkedin from an all-channel reply, but not from a {linkedin} reply', async () => {
+  // 039 FR-21: a generation asks for the headline and the general caption.
+  const GENERATION = ['HEADLINE', 'GENERAL'] as const
+
+  it('a generation reply holds exactly the headline and the general caption, which the topic marks', async () => {
     const hooks = await loadHooks()
     const { extractCaptionReply } = await import('@/lib/captions/extract')
-    const topic = 'x __DROP_CAPTION_LINKEDIN__'
-
-    const all = extractCaptionReply(hooks.buildMockCaptionReply(topic, ALL), ALL)
-    expect(all.ok && all.fields.LINKEDIN).toEqual({ ok: false, reason: 'missing' })
-    expect(all.ok && all.fields.INSTAGRAM?.ok).toBe(true)
-
-    const one = extractCaptionReply(hooks.buildMockCaptionReply(topic, ['LINKEDIN']), ['LINKEDIN'])
-    expect(one.ok && one.fields.LINKEDIN?.ok).toBe(true)
+    const raw = hooks.buildMockCaptionReply('Launch day', GENERATION)
+    expect(raw).not.toMatch(/"(instagram|linkedin|facebook)"/)
+    const result = extractCaptionReply(raw, GENERATION)
+    expect(result.ok && result.fields).toEqual({
+      HEADLINE: { ok: true, text: 'Mock headline Launch day' },
+      GENERAL: { ok: true, text: 'Mock General caption [Launch day]' },
+    })
   })
 
-  it('each drop sentinel drops only its own key, and only when every channel is requested', async () => {
+  it('__DROP_CAPTION_GENERAL__ drops general from a generation reply, but not from a {general} reply', async () => {
     const hooks = await loadHooks()
     const { extractCaptionReply } = await import('@/lib/captions/extract')
-    for (const target of ALL) {
-      const topic = `t __DROP_CAPTION_${target}__`
-      const all = extractCaptionReply(hooks.buildMockCaptionReply(topic, ALL), ALL)
-      if (!all.ok) throw new Error('mock reply rejected')
-      for (const other of ALL) {
-        expect(all.fields[other]?.ok).toBe(other !== target)
-      }
-    }
-    // A headline-only request keeps the headline; channels without the headline keep every channel.
+    const topic = 'x __DROP_CAPTION_GENERAL__'
+
+    const gen = extractCaptionReply(hooks.buildMockCaptionReply(topic, GENERATION), GENERATION)
+    expect(gen.ok && gen.fields.GENERAL).toEqual({ ok: false, reason: 'missing' })
+    expect(gen.ok && gen.fields.HEADLINE?.ok).toBe(true)
+
+    const one = extractCaptionReply(hooks.buildMockCaptionReply(topic, ['GENERAL']), ['GENERAL'])
+    expect(one.ok && one.fields.GENERAL?.ok).toBe(true)
+  })
+
+  it('the Instagram and LinkedIn drop sentinels are gone: every curated caption is always written', async () => {
+    const hooks = await loadHooks()
+    const { extractCaptionReply } = await import('@/lib/captions/extract')
+    const topic = 't __DROP_CAPTION_LINKEDIN__ __DROP_CAPTION_INSTAGRAM__'
+    const all = extractCaptionReply(hooks.buildMockCaptionReply(topic, ALL), ALL)
+    expect(all.ok && all.fields.INSTAGRAM?.ok).toBe(true)
+    expect(all.ok && all.fields.LINKEDIN?.ok).toBe(true)
+  })
+
+  it('__DROP_CAPTION_HEADLINE__ drops the headline from a generation reply only', async () => {
+    const hooks = await loadHooks()
+    const { extractCaptionReply } = await import('@/lib/captions/extract')
+    const gen = extractCaptionReply(hooks.buildMockCaptionReply('t __DROP_CAPTION_HEADLINE__', GENERATION), GENERATION)
+    expect(gen.ok && gen.fields.HEADLINE).toEqual({ ok: false, reason: 'missing' })
+    expect(gen.ok && gen.fields.GENERAL?.ok).toBe(true)
+    // A headline-only request keeps the headline; captions without the headline keep every caption.
     const headlineOnly = hooks.buildMockCaptionReply('t __DROP_CAPTION_HEADLINE__', ['HEADLINE'])
     expect(headlineOnly).toContain('"headline"')
-    const channelsOnly = hooks.buildMockCaptionReply('t __DROP_CAPTION_HEADLINE__', ['INSTAGRAM', 'LINKEDIN'])
-    expect(channelsOnly).not.toContain('"headline"')
-    expect(channelsOnly).toContain('"instagram"')
+    const captionsOnly = hooks.buildMockCaptionReply('t __DROP_CAPTION_HEADLINE__', ['INSTAGRAM', 'LINKEDIN'])
+    expect(captionsOnly).not.toContain('"headline"')
+    expect(captionsOnly).toContain('"instagram"')
+  })
+
+  // 039 FR-21: the Facebook body and its sentinels.
+  it('the default Facebook body has 50 words and 2 hashtags and no link, so it meets every rule', async () => {
+    const hooks = await loadHooks()
+    const { extractCaptionReply } = await import('@/lib/captions/extract')
+    const { checkCaptionRules, countWords, countHashtags, findLinks } = await import('@/lib/captions/rules')
+    const { captionSpec } = await import('@/lib/channels')
+    for (const topic of ['Launch day', 'a much longer topic '.repeat(30)]) {
+      const r = extractCaptionReply(hooks.buildMockCaptionReply(topic, ['FACEBOOK'], { hasGeneral: true }), ['FACEBOOK'])
+      const text = r.ok && r.fields.FACEBOOK?.ok ? r.fields.FACEBOOK.text : ''
+      expect(countWords(text)).toBe(50)
+      expect(countHashtags(text)).toBe(2)
+      expect(findLinks(text)).toEqual([])
+      expect(text).toContain('[from general]')
+      expect(checkCaptionRules(captionSpec('FACEBOOK'), text, { website: null })).toEqual({ met: true, unmet: [] })
+    }
+  })
+
+  it('__MOCK_CURATE_SHORT__ gives 12 words, __MOCK_CURATE_HASHTAGS__ gives 5 hashtags, __MOCK_CURATE_LINK__ puts a link in', async () => {
+    const hooks = await loadHooks()
+    const { extractCaptionReply } = await import('@/lib/captions/extract')
+    const { checkCaptionRules, countWords, countHashtags } = await import('@/lib/captions/rules')
+    const { captionSpec } = await import('@/lib/channels')
+    const fb = (topic: string) => {
+      const r = extractCaptionReply(hooks.buildMockCaptionReply(topic, ['FACEBOOK'], { hasGeneral: true }), ['FACEBOOK'])
+      return r.ok ? r.fields.FACEBOOK : undefined
+    }
+    const short = fb('t __MOCK_CURATE_SHORT__')
+    expect(short?.ok && countWords(short.text)).toBe(12)
+    expect(short?.ok && checkCaptionRules(captionSpec('FACEBOOK'), short.text, { website: null }).unmet).toEqual(['words-under'])
+    const tags = fb('t __MOCK_CURATE_HASHTAGS__')
+    expect(tags?.ok && countHashtags(tags.text)).toBe(5)
+    expect(tags?.ok && checkCaptionRules(captionSpec('FACEBOOK'), tags.text, { website: null }).unmet).toEqual(['hashtags-over'])
+    // The link is a model-written one, so the real extractor refuses it (D17).
+    expect(fb('t __MOCK_CURATE_LINK__')).toEqual({ ok: false, reason: 'link-in-reply' })
+  })
+
+  it('fact values go before the Facebook hashtag line', async () => {
+    const hooks = await loadHooks()
+    const { extractCaptionReply } = await import('@/lib/captions/extract')
+    const r = extractCaptionReply(hooks.buildMockCaptionReply('t __MOCK_FACT_PRICE__', ['FACEBOOK']), ['FACEBOOK'])
+    const text = r.ok && r.fields.FACEBOOK?.ok ? r.fields.FACEBOOK.text : ''
+    expect(text).toContain('$49')
+    expect(text.split('\n').at(-1)).toBe('#mock #facebook')
   })
 
   it('clips the headline to 100 characters', async () => {
@@ -546,5 +594,47 @@ describe('027 fact sentinels in buildMockCaptionReply', () => {
     expect(on.shouldMockFactError('x')).toBe(false)
     const off = await loadHooks()
     expect(off.shouldMockFactError('x __MOCK_FACT_ERROR__')).toBe(false)
+  })
+})
+
+// ── 039 T3 (FR-21): the curate seams ─────────────────────────────────────────
+
+describe('buildMockCaptionReply — curate (039 FR-21)', () => {
+  it('"[from general]" appears in a curated caption only when the prompt carried the general caption', async () => {
+    const hooks = await loadHooks()
+    const { extractCaptionReply } = await import('@/lib/captions/extract')
+    const text = (opts?: { hasGeneral?: boolean }) => {
+      const r = extractCaptionReply(hooks.buildMockCaptionReply('Launch', ['INSTAGRAM'], opts), ['INSTAGRAM'])
+      return r.ok && r.fields.INSTAGRAM?.ok ? r.fields.INSTAGRAM.text : null
+    }
+    expect(text({ hasGeneral: true })).toBe('Mock Instagram caption [Launch] [from general]')
+    expect(text({ hasGeneral: false })).toBe('Mock Instagram caption [Launch]')
+    expect(text()).toBe('Mock Instagram caption [Launch]')
+  })
+
+  it('the general caption never carries the marker, whatever hasGeneral says', async () => {
+    const hooks = await loadHooks()
+    expect(hooks.buildMockCaptionReply('Launch', ['GENERAL'], { hasGeneral: true })).not.toContain('[from general]')
+  })
+
+  it('each curated key it is asked for is answered', async () => {
+    const hooks = await loadHooks()
+    const { extractCaptionReply } = await import('@/lib/captions/extract')
+    const both = extractCaptionReply(hooks.buildMockCaptionReply('t', ['INSTAGRAM', 'LINKEDIN'], { hasGeneral: true }), [
+      'INSTAGRAM',
+      'LINKEDIN',
+    ])
+    expect(both.ok && both.fields.INSTAGRAM?.ok && both.fields.LINKEDIN?.ok).toBe(true)
+  })
+
+  it('__FAIL_CURATED__ omits every curated key in any reply and leaves the general caption and headline', async () => {
+    const hooks = await loadHooks()
+    const { extractCaptionReply } = await import('@/lib/captions/extract')
+    const targets = ['HEADLINE', 'GENERAL', 'INSTAGRAM', 'LINKEDIN'] as const
+    const r = extractCaptionReply(hooks.buildMockCaptionReply('t __FAIL_CURATED__', targets, { hasGeneral: true }), targets)
+    expect(r.ok && r.fields.INSTAGRAM).toEqual({ ok: false, reason: 'missing' })
+    expect(r.ok && r.fields.LINKEDIN).toEqual({ ok: false, reason: 'missing' })
+    expect(r.ok && r.fields.GENERAL?.ok).toBe(true)
+    expect(r.ok && r.fields.HEADLINE?.ok).toBe(true)
   })
 })

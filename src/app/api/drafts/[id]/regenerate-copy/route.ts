@@ -1,34 +1,37 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { withTeamAuth } from '@/lib/api/handler'
-import { canAccessContent } from '@/lib/authz/visibility'
+import { canView, canEditPost, NOT_AUTHOR } from '@/lib/authz/visibility'
 import { copyProviderIsClaude, resolveCopyProvider } from '@/providers/registry'
-import { resolveBrandKit } from '@/lib/brandkit/resolve'
-import { getActiveCampaignBriefing } from '@/lib/campaign/briefing'
+import { postContext, type PostContext } from '@/lib/projects/context'
 import { briefPostStyleStamp, buildBriefInput } from '@/lib/agent/briefInput'
 import { writeCaptions } from '@/lib/captions/generate'
 import { parseRegenerateBody } from '@/lib/captions/requests'
 import { failedCaptionFields } from '@/lib/captions/actionTargets'
 import { trackHeadlineEdited } from '@/lib/renderedText/track'
 import { claimCaptionAction, loadDraftCaptions, settleCaptionAction } from '@/lib/captions/store'
+import { admitCaptionAction } from '@/lib/captions/limits'
+import { generalHashOf } from '@/lib/captions/generalHash'
 import { releaseDraftAction, startDraftAction } from '@/lib/drafts/draftActions'
 import { resolveModel } from '@/lib/models/policy'
 import { regenerateStampTier, type ResolvedModel } from '@/lib/models/resolve'
 import { captionProviderNotClaudeError, modelError } from '@/lib/models/requests'
 import { newActionTrace } from '@/lib/analytics/trace'
 
-// Regenerates captions for a draft (012 FR-11; the route name is a kept
-// contract): body {} → the three captions ("Regenerate all"), { channel } →
-// that caption, { headline: true } → the headline, each with an optional
-// `model` pick (008 FR-17). Validation runs
+// Regenerates a caption for a draft (012 FR-11; the route name is a kept
+// contract): body { kind: 'GENERAL' } → the general caption (made on a post that
+// has none), { channel } → curate that channel (made if it does not exist,
+// replaced after a successful settle if it does), { headline: true } → the
+// headline, each with an optional `model` pick (008 FR-17). {} is a 400: "Regenerate
+// all" is retired (039 Q2). Validation runs
 // synchronously, then the model work runs in-process fire-and-forget (the F1
 // pattern — see draftActions.ts) and the route returns 202; the draft page
 // polls pendingAction and the rows' status to completion. The design HTML/PNG
 // is untouched — captions and design regenerate independently, and
 // Draft.status never changes.
 export const POST = withTeamAuth<{ id: string }>(async (req, { params }, user) => {
-  // An empty or absent body is {} ("Regenerate all"), as before 012, when the
-  // route took no body. Malformed JSON is still a 400.
+  // An empty or absent body parses as {}, which is the wrong shape (400).
+  // Malformed JSON is a 400 of its own.
   let raw: unknown = {}
   const text = await req.text()
   if (text.trim() !== '') {
@@ -40,7 +43,8 @@ export const POST = withTeamAuth<{ id: string }>(async (req, { params }, user) =
   }
   const parsed = parseRegenerateBody(raw)
   if (!parsed.ok) {
-    const body = 'code' in parsed ? { error: parsed.error, code: parsed.code } : { error: parsed.error }
+    const body =
+      'code' in parsed ? { error: parsed.error, code: parsed.code } : { error: parsed.error }
     return NextResponse.json(body, { status: 400 })
   }
   const { targets, model: requested } = parsed.value
@@ -49,68 +53,106 @@ export const POST = withTeamAuth<{ id: string }>(async (req, { params }, user) =
     where: { id: params.id },
     include: { brief: true },
   })
-  if (
-    !draft ||
-    !canAccessContent(user, { teamId: draft.teamId, ownerId: draft.brief.userId, campaignId: draft.brief.campaignId })
-  ) {
+  if (!draft || !canView(user, { teamId: draft.teamId })) {
     return NextResponse.json({ error: 'Draft not found' }, { status: 404 })
+  }
+  if (!canEditPost(user, { teamId: draft.teamId, ownerId: draft.brief.userId })) {
+    return NextResponse.json(NOT_AUTHOR, { status: 403 })
   }
 
   // Regeneration needs existing content to replace — a draft still generating
   // (or one whose generation failed) has none.
-  if (draft.status !== 'EXPORTED' && draft.status !== 'PUBLISHED') {
-    return NextResponse.json({ error: 'Draft is not ready for caption regeneration' }, { status: 409 })
+  if (draft.status !== 'EXPORTED') {
+    return NextResponse.json(
+      { error: 'Draft is not ready for caption regeneration' },
+      { status: 409 },
+    )
+  }
+
+  // 039 D16: a per-user limit on caption actions, before anything is claimed or
+  // any model is called.
+  const admitted = admitCaptionAction(user.userId)
+  if (!admitted.ok) {
+    return NextResponse.json(
+      { error: 'Too many caption requests. Try again shortly.', code: 'rate-limited' },
+      { status: 429, headers: { 'Retry-After': String(admitted.retryAfterSec) } },
+    )
   }
 
   // Everything fallible that needs no claim runs first, so its failure (422)
   // leaves nothing claimed.
   let provider: Awaited<ReturnType<typeof resolveCopyProvider>>
-  let kit: Awaited<ReturnType<typeof resolveBrandKit>>
-  let campaignBriefing: Awaited<ReturnType<typeof getActiveCampaignBriefing>>
+  let ctx: PostContext
   let model: ResolvedModel
+  // 039 D18: a curate writes from the post's general caption when it has a live one.
+  let general: { text: string; hash: string } | null = null
   try {
-    // Load the rows BEFORE the claim marks them PENDING: the loader fills any
-    // registry channel the draft lacks, which the claim would otherwise not
-    // mark, leaving the settle no row to write. The rows also carry the stamps
-    // below.
+    // The rows are read BEFORE the claim marks them PENDING: they carry the
+    // stamps below.
     const loaded = await loadDraftCaptions(draft.id)
+    // A target row that does not exist yet (a curate, or the general caption of an
+    // old post) is created in the claim.
+    const source = loaded?.general
+    if (
+      targets.some((t) => t !== 'HEADLINE' && t !== 'GENERAL') &&
+      source?.status === 'READY' &&
+      !source.deleted &&
+      source.text.trim() !== ''
+    ) {
+      general = { text: source.text, hash: generalHashOf(source.text) }
+    }
 
     // 008 FR-09: the regenerate default is the stamp of what is being replaced
-    // — the row's model, the headline's, or for "Regenerate all" the common
-    // stamp (mixed or any null → no stamp tier, so the team default). An
+    // — the row's model or the headline's (a missing row or a null stamp → no
+    // stamp tier, so the team default). An
     // explicit pick (FR-17) is tier 1, above the stamp. Resolved before the
     // claim, so a refused pick (400) or a team with nothing allowed (422)
     // claims nothing.
     // Spec open question 1: a caption pick needs a Claude caption provider (the
     // one this run would use: the brief's key, else the team default).
-    if (requested && !(await copyProviderIsClaude(draft.brief.teamId, draft.brief.copyProviderKey ?? undefined))) {
+    if (
+      requested &&
+      !(await copyProviderIsClaude(draft.brief.teamId, draft.brief.copyProviderKey ?? undefined))
+    ) {
       return NextResponse.json(captionProviderNotClaudeError(), { status: 400 })
     }
     const stamp = regenerateStampTier(targets, {
-      captions: loaded?.captions ?? [],
+      captions: [...(loaded?.general ? [loaded.general] : []), ...(loaded?.curated ?? [])],
       headlineModel: draft.headlineModel ?? null,
     })
-    const resolved = await resolveModel('CAPTION', { requested, stamp, userId: user.userId, teamId: draft.teamId })
+    const resolved = await resolveModel('CAPTION', {
+      requested,
+      stamp,
+      userId: user.userId,
+      teamId: draft.teamId,
+    })
     if (!resolved.ok) {
       if (requested) return NextResponse.json(modelError(resolved), { status: 400 })
       throw new Error(resolved.message)
     }
     model = resolved.resolved
 
-    provider = await resolveCopyProvider(draft.brief.teamId, draft.brief.copyProviderKey ?? undefined)
-    // Brand voice follows the same kit precedence as design generation.
-    kit = await resolveBrandKit(draft.teamId, draft.brief.campaignId ?? undefined, draft.brief.brandKitId ?? undefined)
-    campaignBriefing = await getActiveCampaignBriefing(draft.brief.campaignId)
+    provider = await resolveCopyProvider(
+      draft.brief.teamId,
+      draft.brief.copyProviderKey ?? undefined,
+    )
+    // 038 D3: the kit and the briefing the post was made with (its recorded stamp),
+    // not the brief's current project.
+    ctx = await postContext(draft)
   } catch (err) {
     return copyError(err)
   }
 
   // One draft-level claim for every caption action (A2), with the target rows
   // marked PENDING in the same transaction.
-  const claim = await claimCaptionAction(draft.id, targets)
-  if (!claim) {
-    return NextResponse.json({ error: 'Another action is already running on this draft' }, { status: 409 })
+  const claimed = await claimCaptionAction(draft.id, targets)
+  if (!claimed) {
+    return NextResponse.json(
+      { error: 'Another action is already running on this draft' },
+      { status: 409 },
+    )
   }
+  const { claim, created } = claimed
 
   try {
     // CLI mode bills the acting user's personal Claude token when connected
@@ -121,7 +163,20 @@ export const POST = withTeamAuth<{ id: string }>(async (req, { params }, user) =
     // 008 FR-08: the reply's stamp goes on the fields that validated only; the
     // failure settles pass none, so a row keeps the stamp of the text it keeps.
     const trace = newActionTrace()
-    trace.fields.model = { model: model.key, modelId: model.arg, substitutedFrom: model.substitutedFrom }
+    trace.fields.model = {
+      model: model.key,
+      modelId: model.arg,
+      substitutedFrom: model.substitutedFrom,
+    }
+    // 039 D22/D25: a caption action names its kind, its channel (curated) and
+    // whether it made the row or replaced it on the settle event (startDraftAction
+    // spreads trace.fields into the payload).
+    const only = targets.length === 1 ? targets[0] : null
+    if (only && only !== 'HEADLINE') {
+      trace.fields.captionKind = only === 'GENERAL' ? 'GENERAL' : 'CURATED'
+      if (only !== 'GENERAL') trace.fields.channel = only
+      trace.fields.captionOp = created.includes(only) ? 'create' : 'replace'
+    }
     await startDraftAction(
       draft.id,
       user.userId,
@@ -130,13 +185,23 @@ export const POST = withTeamAuth<{ id: string }>(async (req, { params }, user) =
       async () => {
         // 027: the brief's post style rules, if it has one (a stored key that does
         // not resolve throws here and settles the rows as failed).
-        const briefInput = buildBriefInput(draft.brief, kit, campaignBriefing)
+        const base = buildBriefInput(draft.brief, ctx)
+        const briefInput = general ? { ...base, generalCaption: general.text } : base
         const { fields, stamp } = await writeCaptions(provider, briefInput, targets, model)
         // The copy ran under the style's current version; the settle writes it to
         // Draft.postStyle (claim-guarded) and recomputes the facts check. Only when
         // some target validated: a run that changed no text keeps the old stamp.
         const anyOk = Object.values(fields).some((f) => f?.ok)
-        const settled = await settleCaptionAction(draft.id, claim, targets, fields, stamp, undefined, anyOk ? briefPostStyleStamp(draft.brief) : undefined)
+        const settled = await settleCaptionAction(
+          draft.id,
+          claim,
+          targets,
+          fields,
+          stamp,
+          undefined,
+          anyOk ? briefPostStyleStamp(draft.brief) : undefined,
+          { generalHash: general?.hash ?? null, website: ctx.kit?.website ?? null },
+        )
         // 030 FR-15: one event when the settle wrote a headline (after the transaction).
         if (settled.headlineWritten) {
           await trackHeadlineEdited({
@@ -155,7 +220,12 @@ export const POST = withTeamAuth<{ id: string }>(async (req, { params }, user) =
         }
       },
       async (err) => {
-        await settleCaptionAction(draft.id, claim, targets, failedCaptionFields(targets, errorMessage(err)))
+        await settleCaptionAction(
+          draft.id,
+          claim,
+          targets,
+          failedCaptionFields(targets, errorMessage(err)),
+        )
       },
       trace,
     )
@@ -169,7 +239,10 @@ export const POST = withTeamAuth<{ id: string }>(async (req, { params }, user) =
       await settleCaptionAction(draft.id, claim, targets, failedCaptionFields(targets, message))
       await releaseDraftAction(draft.id, claim, message)
     } catch (e) {
-      console.error(`[draft-action] draft ${draft.id}: releasing the unstarted caption action failed:`, e)
+      console.error(
+        `[draft-action] draft ${draft.id}: releasing the unstarted caption action failed:`,
+        e,
+      )
     }
     return copyError(err)
   }

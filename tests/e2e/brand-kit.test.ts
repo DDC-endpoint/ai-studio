@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test'
 import { loginAs, type ApiClient } from '../helpers/api'
+import { pageLogin } from '../helpers/ui'
 
 const ADMIN_EMAIL = 'admin@bisteccare.lk'
 const ADMIN_PASSWORD = 'BistecStudio2026!'
@@ -318,6 +319,67 @@ test.describe('Brand kit management', () => {
       expect(createRes.status()).toBe(403)
     } finally {
       await editor.dispose()
+    }
+  })
+
+  // TC-BK-30 — 039 AC-19: an admin sets and clears the kit website, and KitDetail shows it.
+  test('an admin sets and clears the website, and the kit page shows it', async ({ page }) => {
+    const name = `Website Kit ${Date.now()}`
+    const kit = await (await api.post('/api/admin/brandkits', { name, colors: [] })).json()
+    try {
+      expect((await api.get(`/api/admin/brandkits/${kit.id}`).then((r) => r.json())).website).toBeNull()
+      const set = await api.patch(`/api/admin/brandkits/${kit.id}`, { website: '  https://acme.example/shop  ' })
+      expect(set.status()).toBe(200)
+      expect((await set.json()).website).toBe('https://acme.example/shop')
+      expect((await (await api.get(`/api/admin/brandkits/${kit.id}`)).json()).website).toBe('https://acme.example/shop')
+
+      await pageLogin(page)
+      await page.goto('/admin/brandkits')
+      await page
+        .getByRole('region', { name: 'Brand kits', exact: true })
+        .getByRole('button', { name: new RegExp(`^${name}`) })
+        .click()
+      await expect(page.getByRole('heading', { name, level: 2 })).toBeVisible()
+      await expect(page.getByTestId('kit-website')).toContainText('https://acme.example/shop')
+
+      // Edit mode: change it from the page.
+      await page.getByRole('button', { name: 'Edit', exact: true }).click()
+      const field = page.getByLabel('Website', { exact: true })
+      await expect(field).toHaveValue('https://acme.example/shop')
+      await field.fill('https://acme.example/new')
+      const saved = page.waitForResponse(
+        (r) => r.url().endsWith(`/api/admin/brandkits/${kit.id}`) && r.request().method() === 'PATCH',
+      )
+      await page.getByRole('button', { name: 'Save', exact: true }).click()
+      expect((await saved).status()).toBe(200)
+      await expect(page.getByTestId('kit-website')).toContainText('https://acme.example/new')
+
+      // null clears it.
+      const cleared = await api.patch(`/api/admin/brandkits/${kit.id}`, { website: null })
+      expect(cleared.status()).toBe(200)
+      expect((await cleared.json()).website).toBeNull()
+      expect((await (await api.get(`/api/admin/brandkits/${kit.id}`)).json()).website).toBeNull()
+    } finally {
+      await api.del(`/api/admin/brandkits/${kit.id}`)
+    }
+  })
+
+  // TC-BK-31 — 039 AC-19: an editor cannot set it (403), and a non-https value is refused (400).
+  test('an editor cannot set the website, and a non-https value is refused', async ({ request }) => {
+    const kit = await (await api.post('/api/admin/brandkits', { name: `Website Guard ${Date.now()}`, colors: [] })).json()
+    const editor = await loginAs(request, EDITOR_EMAIL, EDITOR_PASSWORD)
+    try {
+      const denied = await editor.patch(`/api/admin/brandkits/${kit.id}`, { website: 'https://acme.example' })
+      expect(denied.status()).toBe(403)
+      for (const bad of ['http://acme.example', 'javascript:alert(1)', 'https://localhost', 'https://u:p@acme.example']) {
+        const res = await api.patch(`/api/admin/brandkits/${kit.id}`, { website: bad })
+        expect(res.status(), bad).toBe(400)
+        expect((await res.json()).error).toBe('website must be an https URL')
+      }
+      expect((await (await api.get(`/api/admin/brandkits/${kit.id}`)).json()).website).toBeNull()
+    } finally {
+      await editor.dispose()
+      await api.del(`/api/admin/brandkits/${kit.id}`)
     }
   })
 })

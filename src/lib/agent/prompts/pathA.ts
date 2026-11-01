@@ -14,16 +14,16 @@ export interface PathAPromptOptions {
   height: number
   hasInlineAssets: boolean
   additionalImageUrl?: string | null
-  // Active campaign briefing — Path A's user message carries only the headline,
+  // Active project briefing — Path A's user message carries only the headline,
   // topic and description, so the briefing's design-relevant direction lands here.
-  campaignBriefing?: string | null
+  projectBriefing?: string | null
 }
 
 export function buildPathASystemPrompt(opts: PathAPromptOptions): string {
-  const { kit, mode, width, height, hasInlineAssets, additionalImageUrl, campaignBriefing } = opts
+  const { kit, mode, width, height, hasInlineAssets, additionalImageUrl, projectBriefing } = opts
 
-  const briefingSection = campaignBriefing
-    ? `\n\nCampaign context (applies to every post in this campaign):\n${campaignBriefing}`
+  const briefingSection = projectBriefing
+    ? `\n\nProject briefing (applies to every post in this project):\n${projectBriefing}`
     : ''
 
   const imageInstruction = additionalImageUrl

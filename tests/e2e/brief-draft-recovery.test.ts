@@ -30,7 +30,7 @@ const PNG_1PX = Buffer.from(
 function payload(overrides: Record<string, unknown> = {}) {
   return {
     step: 2,
-    campaignId: '',
+    projectId: '',
     aspectRatio: 'SQUARE',
     brandKitId: '',
     designMode: 'GENERATE',

@@ -1,11 +1,10 @@
 // The per-action time budget (008 FR-12, design §5).
 //
-// Two lazy 15-minute bounds decide that work is dead: the draft sweep
+// One lazy 15-minute bound decides that work is dead: the draft sweep
 // (STUCK_GENERATION_MS, drafts/recovery.ts) fails a generation, or clears an
-// action, whose Draft.updatedAt has not moved for that long; the scheduler
-// reclaims a RUNNING entry whose lease (GENERATION_LEASE_MS) has lapsed. Every
-// long action therefore writes liveness at fixed points (the heartbeats and
-// lease renewals), and the time between two of those writes is a SEGMENT. This
+// action, whose Draft.updatedAt has not moved for that long. Every long action
+// therefore writes liveness at fixed points (the heartbeats), and the time
+// between two of those writes is a SEGMENT. This
 // module models each segment as the sum of its steps' bounds, with every model
 // call at the LARGEST timeout of any model eligible for its surface, in both
 // modes, and reports every segment whose worst case plus MARGIN_MS could reach
@@ -24,7 +23,6 @@ import { HERO_CHECK_TIMEOUT_MS, SET_CONTENT_TIMEOUT_MS } from '@/lib/renderer/pu
 import { LAYOUT_OBSERVE_TIMEOUT_MS } from '@/lib/renderer/layoutFacts'
 import { TX_MAX_WAIT_MS } from '@/lib/drafts/revisions'
 import { STUCK_GENERATION_MS } from '@/lib/drafts/recovery'
-import { GENERATION_LEASE_MS } from '@/lib/scheduler/generationRunner'
 
 /** Screenshot + upload, beyond setContent's own bound. */
 export const RENDER_ALLOWANCE_MS = 30_000
@@ -53,8 +51,6 @@ export interface StepBudgets {
   apiToolTailDesignMs: number
   /** API refine loop: image only (the refine tool list has no renderHtml). */
   apiToolTailRefineMs: number
-  /** The scheduler's executePostAction: up to 3 Post inserts, DB only (design §5 decision: 0). */
-  postActionMs: number
   marginMs: number
 }
 
@@ -66,14 +62,13 @@ export const STEP_BUDGETS: StepBudgets = {
   txMs: TX_MAX_WAIT_MS,
   apiToolTailDesignMs: IMAGE_GENERATION_TIMEOUT_MS + SET_CONTENT_TIMEOUT_MS + RENDER_ALLOWANCE_MS,
   apiToolTailRefineMs: IMAGE_GENERATION_TIMEOUT_MS,
-  postActionMs: 0,
   marginMs: MARGIN_MS,
 }
 
 /** A model call (the largest timeout among the models eligible for any listed surface) or a fixed step. */
 export type BudgetTerm = { model: readonly Surface[] } | { step: Exclude<keyof StepBudgets, 'marginMs'> }
 
-export type BudgetLimit = 'STUCK_GENERATION_MS' | 'GENERATION_LEASE_MS'
+export type BudgetLimit = 'STUCK_GENERATION_MS'
 
 export interface ActionSegment {
   action: string
@@ -100,7 +95,6 @@ export interface BudgetViolation {
 
 const LIMIT_MS: Record<BudgetLimit, number> = {
   STUCK_GENERATION_MS,
-  GENERATION_LEASE_MS,
 }
 
 const caption = { model: ['CAPTION'] } as const
@@ -116,7 +110,6 @@ const layoutMeasure = { step: 'layoutMeasureMs' } as const
 const tx = { step: 'txMs' } as const
 const toolTailDesign = { step: 'apiToolTailDesignMs' } as const
 const toolTailRefine = { step: 'apiToolTailRefineMs' } as const
-const postAction = { step: 'postActionMs' } as const
 
 function seg(
   action: string,
@@ -137,7 +130,6 @@ function seg(
  */
 export function actionSegments(): ActionSegment[] {
   const STUCK = 'STUCK_GENERATION_MS'
-  const LEASE = 'GENERATION_LEASE_MS'
   const refineAttempt = {
     api: [refine, toolTailRefine, render, verifier],
     cli: [refine, render, verifier],
@@ -165,18 +157,6 @@ export function actionSegments(): ActionSegment[] {
     seg('Refine', 'attempt-2 touch → pre-commit touch', STUCK, refineAttempt.api, refineAttempt.cli),
     seg('Refine', 'pre-commit touch → settle', STUCK, [render, tx]),
     seg('Regenerate copy', 'claim → settle', STUCK, [caption, tx]),
-    seg('Scheduled generation', 'lease renew at entry start → renew before design', LEASE, [
-      caption,
-      backgroundDecision,
-      image,
-    ]),
-    seg(
-      'Scheduled generation',
-      'renew before design → complete',
-      LEASE,
-      [design, toolTailDesign, tx, postAction, tx],
-      [design, render, tx, postAction, tx],
-    ),
   ]
 }
 

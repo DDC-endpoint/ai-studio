@@ -24,7 +24,7 @@ This repo runs its own Docker stack, so it can run beside another clone of the p
 
 Commands:
 
-- `docker compose up -d postgres minio` starts the infra of the `ai-studio` project. A bare `docker compose up -d` also builds and starts the `app` and `scheduler` containers, which local dev does not use.
+- `docker compose up -d postgres minio` starts the infra of the `ai-studio` project. A bare `docker compose up -d` also builds and starts the `app` and `scheduler` containers, which local dev does not use. The `scheduler` container runs only the analytics retention loop.
 - `npm run db:migrate` applies the migrations. Never run a bare `npx prisma migrate deploy`: the npm script runs the preflight first.
 - `npm run db:seed` seeds the admin and the demo kit (also behind the preflight).
 - `npm run test:e2e:db -- --reset` drops `ai_studio_test` (with `WITH (FORCE)`; it refuses any name that does not end in `_test`), then creates, migrates and seeds it. Use it for every clean E2E gate. Without `--reset` it keeps the database.
@@ -130,7 +130,7 @@ PUPPETEER_EXECUTABLE_PATH=C:\Program Files\Google\Chrome\Application\chrome.exe
 
 **For real design generation:** the dev machines run **CLI mode** (`DESIGN_PROVIDER=cli`) — no `ANTHROPIC_API_KEY` needed or set; CLI mode needs a **personal or team Claude token** (connected in-app at `/settings` or `/team`; there is no env or logged-in-session fallback). Setup guide: [`docs/claude-account-setup.md`](claude-account-setup.md). See also §7. `ANTHROPIC_API_KEY` only matters if you switch to API mode (`DESIGN_PROVIDER=claude-html`).
 
-**Credentials no longer live in `.env`.** Personal Claude/OpenAI credentials are connected at **`/settings`**; a team's shared credentials (Claude, OpenAI, Instagram/LinkedIn social channels, and MCP/ACP API keys) are set at **`/team`** by a team admin, in-app, once you're signed in. For social channel setup specifically, follow **[`docs/social-publishing-setup.md`](social-publishing-setup.md)** (account setup for both channels, the Cloudflare-tunnel image path Instagram needs, and the full posting sequence) — just enter the resulting tokens at `/team` instead of `.env`.
+**Credentials no longer live in `.env`.** Personal Claude/OpenAI credentials are connected at **`/settings`**; a team's shared credentials (Claude, OpenAI, and MCP/ACP API keys) are set at **`/team`** by a team admin, in-app, once you're signed in.
 
 ---
 
@@ -248,12 +248,12 @@ draft pages all work; Puppeteer rendering, `generateImage`, and MinIO upload are
 
 > **Whose Claude account pays?** In CLI mode a user who has connected a personal token
 > at `/settings` (from `claude setup-token`) bills their OWN subscription; everyone else
-> — plus the scheduler worker and MCP/ACP — falls back to the team's shared token (set at
+> — plus MCP/ACP — falls back to the team's shared token (set at
 > `/team` by a team admin). There are **exactly these two tiers, personal → team**: if the
 > team token is unset too, the call **hard-fails** with a no-credential error. The old
 > shared-`CLAUDE_CODE_OAUTH_TOKEN` and "your logged-in session" tiers were removed by team
-> tenancy. Note the scheduler and MCP have **no personal tier at all** (they resolve with
-> `userId: null`), so scheduled generation needs a **team** token or it cannot run.
+> tenancy. Note MCP and ACP have **no personal tier at all** (they resolve with
+> `userId: null`), so they need a **team** token or they cannot run.
 > `TOKEN_ENCRYPTION_KEY` also protects these stored personal/team tokens. The Docker image
 > ships the Claude CLI, so `DESIGN_PROVIDER=cli` works in the container too.
 
@@ -265,7 +265,7 @@ draft pages all work; Puppeteer rendering, `generateImage`, and MinIO upload are
 > release regardless of which image you run — the volume's on-disk format ("xl meta
 > version 3") makes older images crash-loop with `decodeXLHeaders: Unknown xl meta version 3`.
 
-For E2E tests with everything stubbed (no AI, no Puppeteer, no social):
+For E2E tests with everything stubbed (no AI, no Puppeteer):
 
 ```bash
 npm run test:e2e:mock
@@ -279,3 +279,32 @@ npm run test:e2e:mock
 docker compose down       # stop containers, keep data
 docker compose down -v    # stop AND wipe volumes (next start = full cold start, re-seed needed)
 ```
+
+## Upgrading a database that ran a build with publishing (change 037)
+
+Migration `20261031120000_remove_scheduling_publishing` is fail-closed: it refuses to run while any `Post`, `ChannelToken` or `ScheduledGeneration` row exists, or any draft is `PUBLISHED`. A fresh database needs nothing. A local database that ran an older build needs, in order:
+
+1. Dry run: `DATABASE_URL=... node scripts/clear-publishing-data.mjs`. It prints the counts and the connected channel accounts, and exits 3 if rows exist.
+2. The same command with `--yes`.
+3. `npm run db:migrate`.
+4. If the migration ran first and its precondition stopped it: `npx prisma migrate resolve --rolled-back 20261031120000_remove_scheduling_publishing`, then steps 1 to 3.
+5. Revoke the Instagram and LinkedIn app access by hand. Dropping a token does not revoke the grant.
+
+## Upgrading a database that ran a build with campaigns (change 038)
+
+Migration `20261101130000_drop_campaigns` is fail-closed: it refuses to run while any campaign, campaign document, campaign briefing or project-campaign row exists, or any post names a campaign. A fresh database needs nothing. A local database that ran an older build needs, in order (posts made before 038 become visible to the whole team):
+
+1. `pg_dump` the database.
+2. Dry run: `DATABASE_URL=... node scripts/clear-campaign-data.mjs`. It prints the counts and the team-visible post count, and exits 3 if rows exist.
+3. The same command with `--yes`.
+4. `npm run db:migrate`.
+5. If the migration ran first and its precondition stopped it: `npx prisma migrate resolve --rolled-back 20261101130000_drop_campaigns`, then steps 2 to 4.
+6. `DATABASE_URL=... MINIO_ENDPOINT=... MINIO_ACCESS_KEY=... MINIO_SECRET_KEY=... MINIO_BUCKET_DOCS=campaign-docs node scripts/sweep-campaign-documents.mjs` (dry run, exit 3 when keys exist, exit 4 before the migration finished, exit 2 for a missing or `minioadmin` key), then again with `--yes`.
+
+Down scripts (schema only): `prisma/rollback/038-project-inputs.down.sql`, `prisma/rollback/038-drop-campaigns.down.sql`.
+
+## Upgrading a database that ran a build with per-channel captions (change 039)
+
+The three 039 migrations (`20261102120000_caption_kind`, `20261102130000_channel_facebook`, `20261102140000_kit_website`) are additive. A local database that ran an older build needs only `npm run db:migrate`, after the 037 and 038 steps above if it has not had them. Old Instagram and LinkedIn captions become curated captions; a post has no general caption until "Generate general caption". A kit has no website until a team admin sets one.
+
+Down script (schema only, and it deletes the new data): `prisma/rollback/039-general-and-curated-captions.down.sql`. It refuses to run unless the session sets `app.allow_caption_loss = 'on'`; take a `pg_dump` first and read the script's header.

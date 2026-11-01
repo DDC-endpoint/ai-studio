@@ -1,0 +1,7 @@
+exit=0
+duration_s=14
+log=.specclaw/changes/040-template-viewer/logs/test-npm-run-test-unit-27273.log
+head=3c54e7c9e2771afc102747c392f0cd2930062387
+dirty=true
+cmd=npm run test:unit
+interrupted=false

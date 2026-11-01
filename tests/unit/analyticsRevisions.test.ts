@@ -37,7 +37,7 @@ vi.mock('@/lib/api/handler', () => ({
       handler(req, { params: ctx.params }, { userId: 'u1', teamId: 'team1' }),
   withTeamAdmin: (handler: unknown) => handler,
 }))
-vi.mock('@/lib/authz/visibility', () => ({ canAccessContent: () => true }))
+vi.mock('@/lib/authz/visibility', () => ({ canView: () => true, canEditPost: () => true, NOT_AUTHOR: { code: 'not-author' } }))
 vi.mock('@/lib/auth', () => ({ getDraftAccessInfo: h.access }))
 vi.mock('@/lib/storage/minio', () => ({
   resolveExportUrl: async (k: string | null) => k,
@@ -99,7 +99,7 @@ function draft(over: Record<string, unknown> = {}) {
     createdAt: new Date(),
     posts: [],
     _count: { revisions: 3 },
-    brief: { id: 'b1', userId: 'u1', campaignId: null, brandKitId: null, aspectRatio: 'SQUARE', designMode: 'GENERATE', topic: 't', goal: null, tone: null, channels: [] },
+    brief: { id: 'b1', userId: 'u1', brandKitId: null, aspectRatio: 'SQUARE', designMode: 'GENERATE', topic: 't', goal: null, tone: null, channels: [] },
     ...over,
   }
 }
@@ -114,7 +114,7 @@ beforeEach(() => {
   h.dropUpsert.mockResolvedValue({})
   h.commit.mockResolvedValue({ revisionId: 'rev-9', revisionNumber: 4, exportKey: 'exports/r.png' })
   h.restore.mockResolvedValue(undefined)
-  h.access.mockResolvedValue({ teamId: 'team1', ownerId: 'u1', campaignId: null })
+  h.access.mockResolvedValue({ teamId: 'team1', ownerId: 'u1' })
   vi.spyOn(console, 'warn').mockImplementation(() => {})
   vi.spyOn(console, 'error').mockImplementation(() => {})
 })

@@ -1,13 +1,15 @@
 import { test, expect } from '@playwright/test'
 import { loginAs, waitForDraft, type ApiClient } from '../helpers/api'
+import { pageLogin } from '../helpers/ui'
 
 // §H — Library (docs/e2e-test-plan.md).
 //
 // Contract (src/app/api/library/route.ts):
-//   GET /api/library?page&pageSize&status&search
-//     → { drafts:[{id,status,exportUrl(signed),brief:{topic,channels},posts:[…],…}], total, page, pageSize }
-//   pageSize clamped to 1..50. status ∈ ALL|READY|PUBLISHED|SCHEDULED|FAILED.
-//   Admins see all drafts; editors see only their own.
+//   GET /api/library?page&pageSize&search&brandKitId&postStyle&projectId
+//     → { drafts:[{id,status,exportUrl(signed),brief:{topic,aspectRatio,postStyle,brandKitName},project,canEdit,…}], total, page, pageSize }
+//   pageSize clamped to 1..50. Lists EXPORTED drafts only (037: no status param).
+//   An unknown postStyle is 400.
+//   Every member of a team sees every post in it (038 D10); nothing from another team.
 
 const MOCKED = () => !!(process.env.MOCK_AI && process.env.MOCK_PUPPETEER)
 const ADMIN_EMAIL = 'admin@bisteccare.lk'
@@ -16,17 +18,17 @@ const EDITOR_EMAIL = 'editor@bisteccare.lk'
 const EDITOR_PASSWORD = 'BistecStudio2026!'
 
 // Mint an EXPORTED (READY) draft as the admin, returning the draftId.
-// UNCATEGORIZED (no campaignId) — team tenancy's D6 rule makes a
-// campaign-linked brief team-shared (visible to every in-team editor), so a
-// campaign-linked admin fixture would no longer prove "an editor never sees
-// the admin's draft" (it did, pre-tenancy, since there was no sharing
-// concept at all). Uses an explicit brandKitId instead of a campaign so
-// resolveBrandKit still has something concrete to resolve.
-async function adminDraft(admin: ApiClient, topic: string): Promise<string> {
-  const kit = await (await admin.post('/api/admin/brandkits', { name: `Lib Kit ${topic}`, colors: ['#0284c7'] })).json()
+// Uses an explicit brandKitId so resolveBrandKit has something concrete to resolve.
+async function adminDraft(
+  admin: ApiClient,
+  topic: string,
+  opts: { postStyle?: string; brandKitId?: string } = {},
+): Promise<string> {
+  const kitId = opts.brandKitId ?? (await (await admin.post('/api/admin/brandkits', { name: `Lib Kit ${topic}`, colors: ['#0284c7'] })).json()).id
   const brief = await (await admin.post('/api/briefs', {
     topic, goal: 'g', tone: 'professional', channels: ['INSTAGRAM'],
-    designMode: 'GENERATE', copyProviderKey: 'cli', brandKitId: kit.id,
+    designMode: 'GENERATE', copyProviderKey: 'cli', brandKitId: kitId,
+    ...(opts.postStyle ? { postStyle: opts.postStyle } : {}),
   })).json()
   const assembled = await (await admin.post('/api/generate/assemble-b', { briefId: brief.id })).json()
   await waitForDraft(admin, assembled.draftId)
@@ -51,8 +53,8 @@ test.describe('Library', () => {
   })
   test.afterEach(async () => { await api.dispose() })
 
-  // TC-LIB-01 — Admin sees all; editor sees only their own. Guards H3.
-  test('admin sees all drafts; an editor sees only their own', async ({ request }) => {
+  // TC-LIB-01 — 038 D10: admin and editor both see every post on the team.
+  test('an editor sees the admin post, and the admin sees the editor post', async ({ request }) => {
     if (!MOCKED()) { test.skip(); return }
     const adminDraftId = await adminDraft(api, `LibAdmin-${Date.now()}`)
 
@@ -60,11 +62,11 @@ test.describe('Library', () => {
     try {
       const editorDraftId = await editorDraft(editor, `LibEditor-${Date.now()}`)
 
-      // Editor library: contains the editor's draft, never the admin's.
+      // Editor library: contains the editor's draft and the admin's.
       const editorLib = await (await editor.get('/api/library?pageSize=50')).json()
       const editorIds = editorLib.drafts.map((d: { id: string }) => d.id)
       expect(editorIds).toContain(editorDraftId)
-      expect(editorIds).not.toContain(adminDraftId)
+      expect(editorIds).toContain(adminDraftId)
 
       // Admin library: sees the editor's draft too.
       const adminLib = await (await api.get('/api/library?pageSize=50')).json()
@@ -76,22 +78,145 @@ test.describe('Library', () => {
     }
   })
 
-  // TC-LIB-02 — Status filters return the right subsets.
-  test('status filters split READY vs PUBLISHED correctly', async () => {
+  // TC-LIB-02 — 037 AC-10: the kit and style filters narrow the list; no status param.
+  test('brandKitId and postStyle filters narrow the list; an unknown style is 400', async () => {
     if (!MOCKED()) { test.skip(); return }
-    const draftId = await adminDraft(api, `LibReady-${Date.now()}`)
+    const stamp = Date.now()
+    const kitA = await (await api.post('/api/admin/brandkits', { name: `LibKitA ${stamp}`, colors: ['#0284c7'] })).json()
+    const kitB = await (await api.post('/api/admin/brandkits', { name: `LibKitB ${stamp}`, colors: ['#0284c7'] })).json()
+    const dA = await adminDraft(api, `LibFA-${stamp}`, { brandKitId: kitA.id, postStyle: 'launch' })
+    const dB = await adminDraft(api, `LibFB-${stamp}`, { brandKitId: kitB.id, postStyle: 'tip' })
+    const ids = async (qs: string) =>
+      ((await (await api.get(`/api/library?pageSize=50&${qs}`)).json()).drafts as { id: string }[]).map((d) => d.id)
 
-    const ready = await (await api.get('/api/library?status=READY&pageSize=50')).json()
-    const readyHit = ready.drafts.find((d: { id: string }) => d.id === draftId)
-    expect(readyHit).toBeTruthy()
-    expect(readyHit.posts.length).toBe(0) // READY = EXPORTED with no posts
+    const byKit = await ids(`brandKitId=${kitA.id}`)
+    expect(byKit).toContain(dA)
+    expect(byKit).not.toContain(dB)
+    const byStyle = await ids('postStyle=tip')
+    expect(byStyle).toContain(dB)
+    expect(byStyle).not.toContain(dA)
+    const none = await ids('')
+    expect(none).toEqual(expect.arrayContaining([dA, dB]))
 
-    const all = await (await api.get('/api/library?status=ALL&pageSize=50')).json()
-    expect(all.drafts.find((d: { id: string }) => d.id === draftId)).toBeTruthy()
+    expect((await api.get('/api/library?postStyle=no-such-style')).status()).toBe(400)
 
-    // It has not been published, so it must NOT appear under PUBLISHED.
-    const published = await (await api.get('/api/library?status=PUBLISHED&pageSize=50')).json()
-    expect(published.drafts.find((d: { id: string }) => d.id === draftId)).toBeUndefined()
+    // The card data carries the kit name and the style key.
+    const hit = (await (await api.get(`/api/library?pageSize=50&brandKitId=${kitA.id}`)).json()).drafts.find(
+      (d: { id: string }) => d.id === dA,
+    )
+    expect(hit.brief.brandKitName).toBe(`LibKitA ${stamp}`)
+    expect(hit.brief.postStyle).toBe('launch')
+  })
+
+  // TC-LIB-06 — 037 AC-10 (UI): two selects, no status filter, no Publish or History.
+  test('the library page filters by kit and style and has no publish controls', async ({ page }) => {
+    if (!MOCKED()) { test.skip(); return }
+    const stamp = Date.now()
+    const kitA = await (await api.post('/api/admin/brandkits', { name: `LibUiA ${stamp}`, colors: ['#0284c7'] })).json()
+    const kitB = await (await api.post('/api/admin/brandkits', { name: `LibUiB ${stamp}`, colors: ['#0284c7'] })).json()
+    await adminDraft(api, `LibUiTopicA-${stamp}`, { brandKitId: kitA.id, postStyle: 'launch' })
+    await adminDraft(api, `LibUiTopicB-${stamp}`, { brandKitId: kitB.id, postStyle: 'tip' })
+
+    await pageLogin(page)
+    await page.goto('/library')
+    const cardA = page.getByText(`LibUiTopicA-${stamp}`)
+    const cardB = page.getByText(`LibUiTopicB-${stamp}`)
+    await expect(cardA).toBeVisible({ timeout: 20_000 })
+    await expect(cardB).toBeVisible()
+
+    // No status filter, Publish button or History control.
+    await expect(page.getByRole('group', { name: 'Filter by status' })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: /^publish$/i })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: 'History', exact: true })).toHaveCount(0)
+    await expect(page.getByRole('link', { name: 'Open' }).first()).toBeVisible()
+
+    // Kit filter. The request is awaited before the change that triggers it.
+    const kitResponse = page.waitForResponse(
+      (r) => r.url().includes('/api/library') && r.url().includes(`brandKitId=${kitA.id}`),
+    )
+    await page.getByLabel('Brand kit').selectOption(kitA.id)
+    await kitResponse
+    await expect(cardA).toBeVisible()
+    await expect(cardB).toHaveCount(0)
+
+    // Back to "All kits", then the style filter.
+    await page.getByLabel('Brand kit').selectOption('')
+    await expect(cardB).toBeVisible()
+    const styleResponse = page.waitForResponse(
+      (r) => r.url().includes('/api/library') && r.url().includes('postStyle=tip'),
+    )
+    await page.getByLabel('Post style').selectOption('tip')
+    await styleResponse
+    await expect(cardB).toBeVisible()
+    await expect(cardA).toHaveCount(0)
+
+    // "All styles" shows both again.
+    await page.getByLabel('Post style').selectOption('')
+    await expect(cardA).toBeVisible()
+    await expect(cardB).toBeVisible()
+  })
+
+  // TC-LIB-07 — 038 AC-23: the Project filter (all, no project, a project) narrows
+  // the list, and a card shows its project and can move it.
+  test('the library Project filter narrows the list and a card moves its post', async ({ page }) => {
+    if (!MOCKED()) { test.skip(); return }
+    const stamp = Date.now()
+    const project = await (await api.post('/api/projects', { name: `LibProj ${stamp}` })).json()
+    const inProject = await adminDraft(api, `LibPA-${stamp}`)
+    const bare = await adminDraft(api, `LibPB-${stamp}`)
+    expect((await api.put(`/api/drafts/${inProject}/project`, { projectId: project.id })).status()).toBe(200)
+
+    await pageLogin(page)
+    await page.goto('/library')
+    const cardIn = page.getByText(`LibPA-${stamp}`, { exact: true })
+    const cardBare = page.getByText(`LibPB-${stamp}`, { exact: true })
+    await expect(cardIn).toBeVisible({ timeout: 20_000 })
+    await expect(cardBare).toBeVisible()
+    // The card names its project.
+    await expect(page.getByLabel(`Project for LibPA-${stamp}`)).toHaveValue(project.id)
+    await expect(page.getByLabel(`Project for LibPB-${stamp}`)).toHaveValue('')
+
+    const filter = page.getByRole('combobox', { name: 'Project', exact: true })
+    const inResponse = page.waitForResponse((r) => r.url().includes('/api/library') && r.url().includes(`projectId=${project.id}`))
+    await filter.selectOption(project.id)
+    await inResponse
+    await expect(cardIn).toBeVisible()
+    await expect(cardBare).toHaveCount(0)
+
+    const noneResponse = page.waitForResponse((r) => r.url().includes('/api/library') && r.url().includes('projectId=none'))
+    await filter.selectOption('none')
+    await noneResponse
+    await expect(cardBare).toBeVisible()
+    await expect(cardIn).toHaveCount(0)
+
+    // Move the unassigned post from its card, with the request awaited first.
+    const moved = page.waitForResponse((r) => r.url().endsWith(`/api/drafts/${bare}/project`) && r.request().method() === 'PUT')
+    await page.getByLabel(`Project for LibPB-${stamp}`).selectOption(project.id)
+    expect((await moved).status()).toBe(200)
+    await expect(cardBare).toHaveCount(0) // it left the "No project" list
+    expect((await (await api.get(`/api/drafts/${bare}`)).json()).project.id).toBe(project.id)
+
+    await filter.selectOption('')
+    await expect(cardIn).toBeVisible()
+    await expect(cardBare).toBeVisible()
+  })
+
+  // TC-LIB-08 — 038 D11 (T1 review): a card offers Delete only for a post the caller may edit.
+  test('the library says per post whether the caller may edit it (the card shows Delete only then)', async ({ request }) => {
+    if (!MOCKED()) { test.skip(); return }
+    const adminId = await adminDraft(api, `LibDelA-${Date.now()}`)
+    const editor = await loginAs(request, EDITOR_EMAIL, EDITOR_PASSWORD)
+    try {
+      const editorId = await editorDraft(editor, `LibDelE-${Date.now()}`)
+      const asEditor = (await (await editor.get('/api/library?pageSize=50')).json()).drafts as Array<{ id: string; canEdit: boolean }>
+      expect(asEditor.find((d) => d.id === editorId)?.canEdit).toBe(true)
+      expect(asEditor.find((d) => d.id === adminId)?.canEdit).toBe(false)
+      const asAdmin = (await (await api.get('/api/library?pageSize=50')).json()).drafts as Array<{ id: string; canEdit: boolean }>
+      expect(asAdmin.find((d) => d.id === adminId)?.canEdit).toBe(true)
+      expect(asAdmin.find((d) => d.id === editorId)?.canEdit).toBe(true) // a team admin edits any post
+    } finally {
+      await editor.dispose()
+    }
   })
 
   // TC-LIB-03 — Search by topic substring.

@@ -1,7 +1,7 @@
 // 025 T9 (FR-16, NFR-05, NFR-08): the stamp decides the screenshot on every
 // re-render path. Pure helpers first, then the refine route (the model never
 // sees the element; the stamped rect names the screen; a replaced image drops
-// the composite), the override, and the export and restore routes.
+// the composite), the override, and the download and restore paths.
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { insertComposite } from '@/lib/composite/insert'
 import { CompositePlacementError, COMPOSITE_PLACEMENT_ERROR } from '@/lib/composite/render'
@@ -30,6 +30,7 @@ const h = vi.hoisted(() => ({
   bgUrl: null as string | null,
   renderDraftHtml: vi.fn(),
   updates: [] as unknown[],
+  casWrites: [] as unknown[],
 }))
 
 vi.mock('@/lib/prisma', () => ({
@@ -42,6 +43,17 @@ vi.mock('@/lib/prisma', () => ({
       },
       updateMany: async () => ({ count: 1 }),
     },
+    draftRevision: { findFirst: async () => null },
+    $transaction: async (fn: (tx: unknown) => unknown) =>
+      fn({
+        draft: {
+          updateMany: async (a: unknown) => {
+            h.casWrites.push(a)
+            return { count: 1 }
+          },
+        },
+        draftRevision: { updateMany: async () => ({ count: 1 }) },
+      }),
     teamModelPolicy: { findUnique: async () => null },
     userClaudeToken: { findFirst: async () => null },
   },
@@ -53,14 +65,15 @@ vi.mock('@/lib/api/handler', () => ({
     (req: unknown, ctx: { params: unknown }) =>
       handler(req, { params: ctx.params }, { userId: 'u1', teamId: 'team1' }),
 }))
-vi.mock('@/lib/authz/visibility', () => ({ canAccessContent: () => true }))
-vi.mock('@/lib/auth', () => ({ getDraftAccessInfo: async () => ({ teamId: 'team1', ownerId: 'u1', campaignId: null }) }))
+vi.mock('@/lib/authz/visibility', () => ({ canView: () => true, canEditPost: () => true, NOT_AUTHOR: { code: 'not-author' } }))
+vi.mock('@/lib/auth', () => ({ getDraftAccessInfo: async () => ({ teamId: 'team1', ownerId: 'u1' }) }))
 vi.mock('@/lib/brandkit/resolve', () => ({
   resolveBrandKit: async () => ({ id: 'kit', name: 'Kit', colors: [], fonts: [], logos: [], artifacts: [] }),
 }))
 vi.mock('@/lib/storage/minio', () => ({
   resolveExportUrl: async (k: string | null) => k,
   uploadObject: async () => {},
+  deleteObject: async () => {},
   exportKey: (kind: string, id: string) => `exports/${kind}-${id}.png`,
   BUCKET_EXPORTS: 'exports',
 }))
@@ -117,7 +130,7 @@ vi.mock('@/lib/drafts/revisions', async (importOriginal) => {
 })
 
 const { POST: refine } = await import('@/app/api/drafts/[id]/refine/route')
-const { POST: exportPost } = await import('@/app/api/generate/export/route')
+const { ensureCurrentExport } = await import('@/lib/drafts/download')
 const { POST: inlineEdit } = await import('@/app/api/drafts/[id]/inline-edit/route')
 const { POST: restore } = await import('@/app/api/drafts/[id]/revisions/[rev]/restore/route')
 
@@ -139,7 +152,7 @@ function draft(over: Record<string, unknown> = {}) {
     exportUrl: null,
     pendingAction: null,
     currentRevisionNumber: 2,
-    brief: { id: 'b1', userId: 'u1', campaignId: null, brandKitId: null, aspectRatio: 'SQUARE', designMode: 'GENERATE' },
+    brief: { id: 'b1', userId: 'u1', brandKitId: null, aspectRatio: 'SQUARE', designMode: 'GENERATE' },
     ...over,
   }
 }
@@ -148,6 +161,7 @@ beforeEach(() => {
   h.draft = draft()
   h.bgUrl = null
   h.updates = []
+  h.casWrites = []
   h.result = { kind: 'accepted', html: BASE, refineCalls: 1, verifierCalls: 1, attempts: [] }
   for (const fn of [h.claim, h.commit, h.reject, h.refineApi, h.renderDraftHtml]) fn.mockReset()
   h.claim.mockResolvedValue({ action: 'REFINE', claimId: 'c1' })
@@ -246,29 +260,23 @@ describe('the override on a composite draft', () => {
   })
 })
 
-describe('export and restore render with the stamp', () => {
-  const exportReq = () =>
-    (exportPost as unknown as Handler)(
-      new Request('http://test/x', { method: 'POST', body: JSON.stringify({ draftId: 'd1' }) }),
-      ctx,
-    )
-
-  it('export passes the draft stamp, and a placement failure answers 422 and writes nothing', async () => {
-    expect((await exportReq()).status).toBe(200)
+describe('download and restore render with the stamp', () => {
+  it('download passes the draft stamp, and a placement failure answers 422 and writes nothing', async () => {
+    h.draft = draft({ status: 'EXPORTED' })
+    expect(await ensureCurrentExport('d1')).toMatchObject({ ok: true, rendered: true })
     const call = h.renderDraftHtml.mock.calls[0]
     expect(call[0]).toBe('d1')
     expect(call[2].composites[0].rect).toEqual(RECT)
-    // 030 FR-04: an export checks no headline and leaves renderedText out of its write.
+    // 030 FR-04: a download checks no headline and leaves renderedText out of its write.
     expect(call[5]).toBeNull()
-    expect(h.updates).toHaveLength(1)
-    expect((h.updates[0] as { data: Record<string, unknown> }).data).not.toHaveProperty('renderedText')
+    expect(h.casWrites).toHaveLength(1)
+    expect((h.casWrites[0] as { data: Record<string, unknown> }).data).not.toHaveProperty('renderedText')
 
-    h.updates = []
+    h.casWrites = []
     h.renderDraftHtml.mockRejectedValue(new CompositePlacementError(new Error('gone')))
-    const res = await exportReq()
-    expect(res.status).toBe(422)
-    expect((await res.json()).error).toBe(COMPOSITE_PLACEMENT_ERROR)
-    expect(h.updates).toEqual([])
+    const res = await ensureCurrentExport('d1')
+    expect(res).toMatchObject({ ok: false, status: 422, code: 'composite-not-placed', message: COMPOSITE_PLACEMENT_ERROR })
+    expect(h.casWrites).toEqual([])
   })
 
   it('a legacy restore re-render uses the revision stamp; a placement failure answers 422', async () => {

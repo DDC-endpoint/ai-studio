@@ -14,7 +14,7 @@ import { useConfirm } from '@/components/ui/ConfirmDialog'
 import { PageHead } from '@/components/ui/PageHead'
 import { FOCUS, ICON, ICON_BUTTON, ICON_SM, TAG } from '@/components/ui/atoms'
 import { apiFetch } from '@/lib/apiFetch'
-import { LIST, LIST_ROW, ROW_TITLE } from '@/components/campaigns/classes'
+import { LIST, LIST_ROW, ROW_TITLE } from '@/components/projects/classes'
 import type { ProjectSummary, BrandKitSummary } from '@/lib/api-types'
 
 export default function ProjectsPage() {
@@ -64,15 +64,19 @@ export default function ProjectsPage() {
     } catch (e: unknown) { toast.error(e instanceof Error ? e.message : 'Something went wrong') }
   }
 
-  async function softDelete(id: string) {
+  async function softDelete(id: string, postCount: number) {
     if (!(await confirm({
       title: 'Delete this project?',
-      description: 'You can restore it later from "Show deleted".',
+      description:
+        postCount === 0
+          ? 'No posts are assigned to it. The project cannot be restored.'
+          : `${postCount} post${postCount !== 1 ? 's are' : ' is'} assigned to it. They stay in the library with no project. The project cannot be restored.`,
       confirmLabel: 'Delete',
     }))) return
     try {
       await apiFetch(`/api/projects/${id}`, { method: 'DELETE' })
       invalidateProjects()
+      queryClient.invalidateQueries({ queryKey: ['library'] })
     } catch (e: unknown) { toast.error(e instanceof Error ? e.message : 'Something went wrong') }
   }
 
@@ -96,7 +100,7 @@ export default function ProjectsPage() {
         className="mb-8"
         eyebrow="Organize"
         title="Projects"
-        lead="Organize campaigns under projects with shared brand kits and tones."
+        lead="Group posts under projects that share a briefing, documents, a brand kit and a post style."
         actions={
           <>
             <Button variant="ghost" size="sm" onClick={() => setShowDeleted(v => !v)}>
@@ -170,7 +174,7 @@ export default function ProjectsPage() {
                   {project.name}
                 </Link>
                 <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-ui-xs text-fg-muted">
-                  <span>{project._count.campaigns} campaign{project._count.campaigns !== 1 ? 's' : ''}</span>
+                  <span>{project.postCount} post{project.postCount !== 1 ? 's' : ''}</span>
                   {project.defaultBrandKit && (
                     <span title={`Default brand kit: ${project.defaultBrandKit.name}`} className={TAG}>
                       <Palette {...ICON_SM} aria-hidden className="flex-shrink-0 text-fg-muted" />
@@ -194,7 +198,7 @@ export default function ProjectsPage() {
                   type="button"
                   aria-label={`Delete ${project.name}`}
                   title="Delete"
-                  onClick={() => softDelete(project.id)}
+                  onClick={() => softDelete(project.id, project.postCount)}
                   className={`${ICON_BUTTON} hover:text-status-failed ${FOCUS}`}
                 >
                   <Trash2 {...ICON} />

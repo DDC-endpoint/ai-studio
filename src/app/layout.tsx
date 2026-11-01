@@ -35,7 +35,7 @@ const instrumentSans = Instrument_Sans({
 })
 
 export const metadata: Metadata = {
-  title: 'bistec-studio',
+  title: 'ai-studio',
   description: 'Marketing post generation tool for the Bistec team',
 }
 

@@ -36,8 +36,6 @@ function urlPath(u: string): string {
 async function createExportedDraft(api: ApiClient) {
   const kitRes = await api.post('/api/admin/brandkits', { name: 'T18 Not-Applied Kit', colors: ['#0284c7'] })
   const kit = await kitRes.json()
-  const campRes = await api.post('/api/campaigns', { name: 'T18 Not-Applied Campaign', brandKitId: kit.id })
-  const camp = await campRes.json()
   const briefRes = await api.post('/api/briefs', {
     topic: 'T18 Not-Applied Test',
     goal: 'Test the not-applied poll field',
@@ -45,7 +43,7 @@ async function createExportedDraft(api: ApiClient) {
     channels: ['INSTAGRAM'],
     designMode: 'GENERATE',
     copyProviderKey: 'cli',
-    campaignId: camp.id,
+    brandKitId: kit.id,
   })
   const brief = await briefRes.json()
   // Generation is async: assemble returns 202 { draftId }; poll until EXPORTED.

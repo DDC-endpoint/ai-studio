@@ -93,7 +93,7 @@ export function stripEditingChrome(html: string): string {
 
 export function inlineEditBlockReason(status: string, pendingAction: string | null): string | null {
   if (pendingAction !== null) return 'Another action is already running on this draft'
-  if (status !== 'EXPORTED' && status !== 'PUBLISHED') {
+  if (status !== 'EXPORTED') {
     return 'Only exported drafts can be edited inline'
   }
   return null

@@ -19,7 +19,7 @@ export const DEFAULT_POST_STYLE = 'general'
 export interface WizardStyleInput {
   /** The chosen style key (may be a stale or unknown key; it falls to General). */
   postStyle: string
-  campaign: { defaultPostStyle?: string | null; defaultTone?: string | null } | null
+  project: { defaultPostStyle?: string | null; defaultTone?: string | null } | null
   designMode: 'TEMPLATE' | 'GENERATE'
   aspectRatio: AspectRatio
   /** The user's own tone and whether they changed it. */
@@ -43,21 +43,21 @@ export interface WizardStyleView {
   toneFromStyle: boolean
 }
 
-/** A stored or campaign key that is not in the dataset opens as General. */
+/** A stored or project key that is not in the dataset opens as General. */
 export function knownStyleKey(key: string | null | undefined): string {
   return typeof key === 'string' && key.trim() && getStyle(key.trim()) ? key.trim() : DEFAULT_POST_STYLE
 }
 
-/** The style a campaign selects: its default if it resolves, else General. */
-export function campaignStyleKey(campaign: { defaultPostStyle?: string | null } | null | undefined): string {
-  return knownStyleKey(campaign?.defaultPostStyle)
+/** The style a project selects: its default if it resolves, else General. */
+export function projectStyleKey(project: { defaultPostStyle?: string | null } | null | undefined): string {
+  return knownStyleKey(project?.defaultPostStyle)
 }
 
 export function resolveWizardStyle(i: WizardStyleInput): WizardStyleView {
   const key = knownStyleKey(i.postStyle)
   const r = resolvePostStyle({
     style: key,
-    campaign: i.campaign,
+    project: i.project,
     explicit: {
       tone: i.toneTouched ? i.tone : undefined,
       imageStyle: i.imageStyleTouched ? i.imageStyle : undefined,
@@ -118,7 +118,7 @@ export interface StoredWizardStyle {
  */
 export function resumeWizardStyle(
   stored: StoredWizardStyle,
-  ctx: Pick<WizardStyleInput, 'campaign' | 'designMode' | 'aspectRatio'>,
+  ctx: Pick<WizardStyleInput, 'project' | 'designMode' | 'aspectRatio'>,
 ): { postStyle: string; toneTouched: boolean; imageStyleTouched: boolean; imageStyle: string } {
   const postStyle = knownStyleKey(stored.postStyle)
   const base = resolveWizardStyle({

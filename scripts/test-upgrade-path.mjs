@@ -44,6 +44,18 @@ const CARRYOVER = '20261012130000_legacy_caption_carryover'
 const DROP_LEGACY = '20261013120000_drop_legacy_captions'
 const DROP_TEAM = '20261013130000_drop_empty_default_team'
 const GUARD_PREFIX = '022 legacy_caption_carryover'
+const GUARD_037_PREFIX = '037 remove_scheduling_publishing refused:'
+const PRE_037 = '20261030120000_apply_text_action' // the migration before 037
+const REMOVE_PUBLISHING = '20261031120000_remove_scheduling_publishing' // 037
+const GUARD_038_PREFIX = '038 drop_campaigns refused:'
+const PRE_038 = '20261101120000_project_inputs' // the migration before 038's drop
+const DROP_CAMPAIGNS = '20261101130000_drop_campaigns' // 038
+const GUARD_039_PREFIX = '039 rollback refused:'
+const PRE_039 = '20261101130000_drop_campaigns' // the migration before 039
+const CAPTION_KIND = '20261102120000_caption_kind' // 039
+const CHANNEL_FACEBOOK = '20261102130000_channel_facebook' // 039
+const KIT_WEBSITE = '20261102140000_kit_website' // 039
+const DOWN_039 = 'prisma/rollback/039-general-and-curated-captions.down.sql'
 const PERSONAL_KEY_MIGRATION = '20261028120000_personal_image_key_provider' // 031 C
 
 // Scenario 3's sabotage: one exact replacement in the carry-over's INSERT, so
@@ -111,7 +123,7 @@ const ALL_MIGRATIONS = readdirSync(MIGRATIONS_DIR, { withFileTypes: true })
   .map((d) => d.name)
   .sort()
 
-for (const name of [MAIN_HEAD, PRE_CARRYOVER, CARRYOVER, DROP_LEGACY, DROP_TEAM, PERSONAL_KEY_MIGRATION]) {
+for (const name of [MAIN_HEAD, PRE_CARRYOVER, CARRYOVER, DROP_LEGACY, DROP_TEAM, PERSONAL_KEY_MIGRATION, PRE_037, REMOVE_PUBLISHING, PRE_038, DROP_CAMPAIGNS, PRE_039, CAPTION_KIND, CHANNEL_FACEBOOK, KIT_WEBSITE]) {
   if (!ALL_MIGRATIONS.includes(name)) {
     console.error(`FAIL setup: migration ${name} not found in prisma/migrations`)
     process.exit(1)
@@ -161,6 +173,29 @@ function deployFromTemp(migrations, patch) {
     tempDirs.delete(tmp)
   }
 }
+
+// The operator script, run against the scratch database only (DATABASE_URL is explicit).
+function runClearScript(args) {
+  const res = spawnSync(process.execPath, [join(ROOT, 'scripts', 'clear-publishing-data.mjs'), ...args], {
+    cwd: ROOT,
+    encoding: 'utf8',
+    env: { ...process.env, DATABASE_URL: SCRATCH_URL },
+  })
+  return { status: res.status, output: `${res.stdout ?? ''}${res.stderr ?? ''}` }
+}
+
+// The 038 operator script, run against the scratch database only (DATABASE_URL is explicit).
+function runClearCampaigns(args) {
+  const res = spawnSync(process.execPath, [join(ROOT, 'scripts', 'clear-campaign-data.mjs'), ...args], {
+    cwd: ROOT,
+    encoding: 'utf8',
+    env: { ...process.env, DATABASE_URL: SCRATCH_URL },
+  })
+  return { status: res.status, output: `${res.stdout ?? ''}${res.stderr ?? ''}` }
+}
+
+// A SQL file run against the scratch database only (the URL is explicit).
+const runDbExecute = (file) => runPrisma(['db', 'execute', '--file', file, '--url', SCRATCH_URL])
 
 const deployFull = () => runPrisma(['migrate', 'deploy', '--schema', SCHEMA])
 
@@ -339,7 +374,8 @@ async function scenario1() {
   const keptBefore = json(await captionsOf([CAPTIONED, POST012]))
   const postBefore = json(await db.$queryRaw`SELECT * FROM "Post" WHERE "id" = ${SCHEDULED_POST}`)
 
-  mustDeploy('full deploy to head', deployFull())
+  // 037: today's checks run on the schema before 037 (Post and PUBLISHED still exist).
+  mustDeploy('to the migration before 037', deployFromTemp(upTo(PRE_037)))
 
   // Converted legacy drafts: 3 READY rows each, expected text, null model.
   const rows = await captionsOf(LEGACY.map((d) => d.id))
@@ -374,6 +410,40 @@ async function scenario1() {
   const team = await db.$queryRaw`SELECT 1 FROM "Team" WHERE "id" = ${TEAM}`
   check(team.length === 1, `${TEAM} was deleted although it has rows`)
 
+  // 037 AC-02: head refuses while publishing rows exist, and leaves them alone.
+  const refused = deployFull()
+  check(refused.status !== 0, 'deploying head with a Post row and a PUBLISHED draft exited 0')
+  check(refused.output.includes(GUARD_037_PREFIX), `the failed deploy has no "${GUARD_037_PREFIX}" message:
+${refused.output}`)
+  check(/1 Post, 0 ChannelToken, 0 ScheduledGeneration, 1 PUBLISHED drafts/.test(refused.output), 'the 037 message does not name the counts')
+  check(await tableExists('Post'), 'Post table is gone after the refused deploy')
+  check(json(await db.$queryRaw`SELECT * FROM "Post" WHERE "id" = ${SCHEDULED_POST}`) === postBefore, 'the Post row changed in the refused deploy')
+  const [{ pub }] = await db.$queryRawUnsafe(`SELECT count(*)::int AS pub FROM "Draft" WHERE status::text = 'PUBLISHED'`)
+  check(pub === 1, `${pub} PUBLISHED drafts after the refused deploy, expected 1`)
+
+  // Recovery: mark the failed migration rolled back, clear the data, deploy head.
+  const resolved = runPrisma(['migrate', 'resolve', '--rolled-back', REMOVE_PUBLISHING, '--schema', SCHEMA])
+  check(resolved.status === 0, `migrate resolve --rolled-back exited ${resolved.status}:
+${resolved.output}`)
+  const dry = runClearScript([])
+  check(dry.status === 3, `clear-publishing-data dry run exited ${dry.status}, expected 3:
+${dry.output}`)
+  const cleared = runClearScript(['--yes'])
+  check(cleared.status === 0, `clear-publishing-data --yes exited ${cleared.status}:
+${cleared.output}`)
+  mustDeploy('full deploy to head', deployFull())
+
+  // 037 AC-01: the tables and types are gone; DraftStatus has three values.
+  for (const t of ['Post', 'ChannelToken', 'ScheduledGeneration']) check(!(await tableExists(t)), `${t} still exists at head`)
+  const types = await db.$queryRawUnsafe(`SELECT typname FROM pg_type WHERE typname IN ('PostStatus', 'PostGenerationAction', 'GenerationStatus')`)
+  check(types.length === 0, `types still exist at head: ${json(types)}`)
+  const labels = (await db.$queryRawUnsafe(`SELECT e.enumlabel AS l FROM pg_enum e JOIN pg_type t ON t.oid = e.enumtypid WHERE t.typname = 'DraftStatus' ORDER BY e.enumsortorder`)).map((r) => r.l)
+  check(json(labels) === json(['IN_PROGRESS', 'EXPORTED', 'FAILED']), `DraftStatus is ${json(labels)}`)
+  const [{ st }] = await db.$queryRawUnsafe(`SELECT status::text AS st FROM "Draft" WHERE id = 'upg_headers'`)
+  check(st === 'EXPORTED', `the PUBLISHED draft is ${st} after the clear script, expected EXPORTED`)
+  const [{ def }] = await db.$queryRawUnsafe(`SELECT column_default AS def FROM information_schema.columns WHERE table_name = 'Draft' AND column_name = 'status' AND table_schema = current_schema()`)
+  check(String(def).includes('IN_PROGRESS'), `Draft.status default is ${def}`)
+
   // The head Prisma client reads every draft with its captions.
   try {
     const drafts = await db.draft.findMany({ include: { captions: true } })
@@ -389,7 +459,7 @@ async function scenario1() {
 
   return {
     failures,
-    detail: `${LEGACY.length} legacy drafts converted (${rows.length} rows), ${archive.length} archived, 2 kept drafts unchanged, post untouched, copyText dropped, 016 applied, ${TEAM} kept, head client read OK, migrate diff exit ${diff.status}`,
+    detail: `${LEGACY.length} legacy drafts converted (${rows.length} rows), ${archive.length} archived, 2 kept drafts unchanged, post untouched at 037's predecessor, 037 refused with the counts and recovered through the clear script (tables gone, DraftStatus rebuilt), copyText dropped, 016 applied, ${TEAM} kept, head client read OK, migrate diff exit ${diff.status}`,
   }
 }
 
@@ -504,6 +574,267 @@ async function scenario4() {
   }
 }
 
+async function scenario5() {
+  const failures = []
+  const check = (ok, msg) => {
+    if (!ok) failures.push(msg)
+  }
+
+  await freshScratch()
+  mustDeploy('to the migration before 038', deployFromTemp(upTo(PRE_038)))
+  await seedMainBase()
+  await db.$executeRaw`
+    INSERT INTO "Project" ("id", "teamId", "name") VALUES ('upg_project', ${TEAM}, 'Upgrade project')`
+  await db.$executeRaw`
+    INSERT INTO "Campaign" ("id", "teamId", "name") VALUES ('upg_campaign', ${TEAM}, 'Upgrade campaign')`
+  await db.$executeRaw`
+    INSERT INTO "ProjectCampaign" ("projectId", "campaignId") VALUES ('upg_project', 'upg_campaign')`
+  await db.$executeRaw`
+    INSERT INTO "CampaignBriefing" ("id", "campaignId", "content", "createdBy")
+    VALUES ('upg_cbriefing', 'upg_campaign', 'Briefing text', ${USER})`
+  await db.$executeRaw`
+    INSERT INTO "CampaignDocument" ("id", "teamId", "campaignId", "name", "contentType", "sizeBytes", "objectKey", "parsedText", "createdBy")
+    VALUES ('upg_cdoc', ${TEAM}, 'upg_campaign', 'deck.pdf', 'application/pdf', 10, 'upg_campaign/1-deck.pdf', 'text', ${USER})`
+  await db.$executeRaw`
+    INSERT INTO "Brief" ("id", "teamId", "userId", "campaignId", "topic", "goal", "tone", "channels", "designMode", "copyProviderKey")
+    VALUES ('upg_cbrief', ${TEAM}, ${USER}, 'upg_campaign', 'Campaign post', 'awareness', 'friendly',
+            ARRAY['INSTAGRAM']::"Channel"[], 'GENERATE'::"DesignMode", 'cli')`
+  await db.$executeRaw`
+    INSERT INTO "Draft" ("id", "teamId", "briefId", "headline", "status", "htmlContent", "exportUrl", "currentRevisionNumber")
+    VALUES ('upg_cdraft', ${TEAM}, 'upg_cbrief', 'Campaign post', 'EXPORTED'::"DraftStatus",
+            '<!doctype html><html><body>x</body></html>', 'exports/upg_cdraft.png', 1)`
+  const tables = ['Campaign', 'CampaignBriefing', 'CampaignDocument', 'ProjectCampaign']
+  const readAll = async (t) => json(await db.$queryRawUnsafe(`SELECT * FROM "${t}"`))
+  const before = {}
+  for (const t of tables) before[t] = await readAll(t)
+
+  // 038 AC-16: the head deploy fails closed and changes nothing.
+  const refused = deployFull()
+  check(refused.status !== 0, 'the head deploy succeeded while campaign rows existed')
+  check(refused.output.includes(GUARD_038_PREFIX), `the 038 message is missing:\n${refused.output}`)
+  check(
+    /1 Campaign, 1 CampaignBriefing, 1 CampaignDocument, 1 ProjectCampaign, 1 briefs with a campaign/.test(refused.output),
+    'the 038 message does not name the five counts',
+  )
+  for (const t of tables) {
+    check(await tableExists(t), `${t} is gone after the refused deploy`)
+    if (await tableExists(t)) check((await readAll(t)) === before[t], `${t} changed in the refused deploy`)
+  }
+  check(await columnExists('Brief', 'campaignId'), 'Brief.campaignId is gone after the refused deploy')
+
+  // Recovery: mark the failed migration rolled back, clear the data, deploy head.
+  const resolved = runPrisma(['migrate', 'resolve', '--rolled-back', DROP_CAMPAIGNS, '--schema', SCHEMA])
+  check(resolved.status === 0, `migrate resolve --rolled-back exited ${resolved.status}:\n${resolved.output}`)
+  const dry = runClearCampaigns([])
+  check(dry.status === 3, `clear-campaign-data dry run exited ${dry.status}, expected 3:\n${dry.output}`)
+  const [{ still }] = await db.$queryRawUnsafe(`SELECT count(*)::int AS still FROM "Campaign"`)
+  check(still === 1, `the dry run changed the campaign rows (${still})`)
+  const cleared = runClearCampaigns(['--yes'])
+  check(cleared.status === 0, `clear-campaign-data --yes exited ${cleared.status}:\n${cleared.output}`)
+  mustDeploy('full deploy to head', deployFull())
+
+  // 038 AC-17: the old tables and column are gone; the new ones exist.
+  for (const t of tables) check(!(await tableExists(t)), `${t} still exists at head`)
+  check(!(await columnExists('Brief', 'campaignId')), 'Brief.campaignId still exists at head')
+  for (const t of ['ProjectBriefing', 'ProjectDocument']) check(await tableExists(t), `${t} is missing at head`)
+  check(await columnExists('Brief', 'projectId'), 'Brief.projectId is missing at head')
+  check(await columnExists('Draft', 'generationInputs'), 'Draft.generationInputs is missing at head')
+  check(await columnExists('Project', 'defaultPostStyle'), 'Project.defaultPostStyle is missing at head')
+
+  // The brief survives, unassigned; the head client reads its draft.
+  const [brief] = await db.$queryRawUnsafe(`SELECT "projectId" FROM "Brief" WHERE id = 'upg_cbrief'`)
+  check(brief !== undefined, 'the brief did not survive the clear and the drop')
+  check(brief !== undefined && brief.projectId === null, `the brief's projectId is ${json(brief?.projectId)}, expected null`)
+  try {
+    const draft = await db.draft.findUnique({ where: { id: 'upg_cdraft' }, include: { brief: true } })
+    check(draft !== null && draft.brief.projectId === null, 'head client: the draft or its brief did not read back')
+  } catch (err) {
+    failures.push(`head client read failed: ${err.message}`)
+  }
+
+  // Schema diff: the head database matches schema.prisma (NFR-05).
+  const diff = runPrisma(['migrate', 'diff', '--from-url', SCRATCH_URL, '--to-schema-datamodel', SCHEMA, '--exit-code'])
+  check(diff.status === 0, `prisma migrate diff exited ${diff.status}:\n${diff.output}`)
+
+  return {
+    failures,
+    detail: `038 refused with the five counts and left every row unchanged, recovered through resolve and the clear script (dry run exit ${dry.status}, --yes exit ${cleared.status}), tables and column gone, the brief kept with projectId null, head client read OK, migrate diff exit ${diff.status}`,
+  }
+}
+
+// SQLSTATE of a failed raw statement: Prisma carries it in meta.code (P2010), or
+// in the message text.
+function sqlState(err) {
+  return String(err?.meta?.code ?? err?.message?.match(/\b(2[0-9]{4})\b/)?.[1] ?? '')
+}
+
+// Runs one raw statement that must fail, and returns its SQLSTATE ('' = it did not fail).
+async function failingState(sql, ...params) {
+  try {
+    await db.$executeRawUnsafe(sql, ...params)
+    return ''
+  } catch (err) {
+    return sqlState(err)
+  }
+}
+
+async function scenario6() {
+  const failures = []
+  const check = (ok, msg) => {
+    if (!ok) failures.push(msg)
+  }
+
+  await freshScratch()
+  mustDeploy('to the migration before 039', deployFromTemp(upTo(PRE_039)))
+  await seedMainBase()
+  await db.$executeRaw`
+    INSERT INTO "Brief" ("id", "teamId", "userId", "topic", "goal", "tone", "channels", "designMode", "copyProviderKey")
+    VALUES ('upg_cap_brief', ${TEAM}, ${USER}, 'Caption post', 'awareness', 'friendly',
+            ARRAY['INSTAGRAM']::"Channel"[], 'GENERATE'::"DesignMode", 'cli')`
+  await db.$executeRaw`
+    INSERT INTO "Draft" ("id", "teamId", "briefId", "headline", "status", "htmlContent", "exportUrl", "currentRevisionNumber")
+    VALUES ('upg_cap_draft', ${TEAM}, 'upg_cap_brief', 'Caption post', 'EXPORTED'::"DraftStatus",
+            '<!doctype html><html><body>x</body></html>', 'exports/upg_cap_draft.png', 1)`
+  const seedRows = [
+    ['upg_cap_ig', 'INSTAGRAM', 'IG text', 'READY'],
+    ['upg_cap_li', 'LINKEDIN', '', 'FAILED'],
+    ['upg_cap_wa', 'WHATSAPP', 'WA text', 'READY'],
+  ]
+  for (const [id, channel, text, status] of seedRows) {
+    await db.$executeRawUnsafe(
+      `INSERT INTO "DraftCaption" ("id", "draftId", "channel", "text", "status", "updatedAt")
+       VALUES ($1, 'upg_cap_draft', $2::"Channel", $3, $4::"CaptionStatus", now())`,
+      id,
+      channel,
+      text,
+      status,
+    )
+  }
+  const before = await db.$queryRawUnsafe(
+    `SELECT "id", "channel"::text AS channel, "text", "status"::text AS status FROM "DraftCaption" ORDER BY "id"`,
+  )
+
+  // 039 AC-01: head deploys over the old rows.
+  mustDeploy('full deploy to head', deployFull())
+  const rows = await db.$queryRawUnsafe(
+    `SELECT "id", "kind"::text AS kind, "channel"::text AS channel, "text", "status"::text AS status,
+            "deletedAt", "previous", "generalHash" FROM "DraftCaption" ORDER BY "id"`,
+  )
+  check(rows.length === 3, `expected 3 caption rows at head, got ${rows.length}`)
+  check(rows.every((r) => r.kind === 'CURATED'), 'a migrated row is not CURATED')
+  check(
+    json(rows.map(({ id, channel, text, status }) => ({ id, channel, text, status }))) === json(before),
+    'a migrated row changed its channel, text or status',
+  )
+  check(
+    rows.every((r) => r.deletedAt === null && r.previous === null && r.generalHash === null),
+    'a migrated row has deletedAt, previous or generalHash set',
+  )
+  check(rows.filter((r) => r.kind === 'GENERAL').length === 0, 'a GENERAL row exists for an old post')
+  check(
+    (await failingState(
+      `INSERT INTO "DraftCaption" ("id", "draftId", "kind", "channel", "text", "status", "updatedAt")
+       VALUES ('upg_cap_ig2', 'upg_cap_draft', 'CURATED'::"CaptionKind", 'INSTAGRAM'::"Channel", '', 'READY'::"CaptionStatus", now())`,
+    )) === '23505',
+    'a second CURATED Instagram row did not fail with 23505',
+  )
+  const general = `INSERT INTO "DraftCaption" ("id", "draftId", "kind", "channel", "text", "status", "deletedAt", "updatedAt")
+       VALUES ($1, 'upg_cap_draft', 'GENERAL'::"CaptionKind", $2::"Channel", 'General text', 'READY'::"CaptionStatus", $3::timestamp, now())`
+  check((await failingState(general, 'upg_cap_g_ch', 'INSTAGRAM', null)) === '23514', 'a GENERAL row with a channel did not fail with 23514')
+  check(
+    (await failingState(general, 'upg_cap_g_del', null, '2026-11-02T00:00:00Z')) === '23514',
+    'a GENERAL row with deletedAt did not fail with 23514',
+  )
+  check((await failingState(general, 'upg_cap_g1', null, null)) === '', 'the first GENERAL row failed')
+  check((await failingState(general, 'upg_cap_g2', null, null)) === '23505', 'a second GENERAL row did not fail with 23505')
+  try {
+    const read = await db.draftCaption.findMany({ where: { draftId: 'upg_cap_draft' } })
+    check(read.length === 4, `head client: expected 4 caption rows, read ${read.length}`)
+  } catch (err) {
+    failures.push(`head client read failed: ${err.message}`)
+  }
+  const diff1 = runPrisma(['migrate', 'diff', '--from-url', SCRATCH_URL, '--to-schema-datamodel', SCHEMA, '--exit-code'])
+  check(diff1.status === 0, `prisma migrate diff (head) exited ${diff1.status}:\n${diff1.output}`)
+
+  // 039 T4: a Facebook row and a kit website (the head client takes both).
+  check(
+    (await failingState(
+      `INSERT INTO "DraftCaption" ("id", "draftId", "kind", "channel", "text", "status", "updatedAt")
+       VALUES ('upg_cap_fb', 'upg_cap_draft', 'CURATED'::"CaptionKind", 'FACEBOOK'::"Channel", 'FB text', 'READY'::"CaptionStatus", now())`,
+    )) === '',
+    'the Facebook row failed to insert at head',
+  )
+  await db.$executeRaw`
+    INSERT INTO "BrandKit" ("id", "teamId", "name", "website") VALUES ('upg_cap_kit', ${TEAM}, 'Upgrade kit', 'https://acme.example')`
+  try {
+    const kit = await db.brandKit.findUnique({ where: { id: 'upg_cap_kit' } })
+    check(kit?.website === 'https://acme.example', 'head client: the kit website did not read back')
+    const fb = await db.draftCaption.findMany({ where: { draftId: 'upg_cap_draft', channel: 'FACEBOOK' } })
+    check(fb.length === 1, 'head client: the Facebook row did not read back')
+  } catch (err) {
+    failures.push(`head client read of Facebook or website failed: ${err.message}`)
+  }
+
+  // 039 AC-25: the down script fails closed, then runs with the flag.
+  const snapshot = async () =>
+    json(await db.$queryRawUnsafe(`SELECT * FROM "DraftCaption" ORDER BY "id"`)) +
+    json(await db.$queryRawUnsafe(`SELECT column_name FROM information_schema.columns WHERE table_name = 'DraftCaption' ORDER BY column_name`))
+  const beforeRefusal = await snapshot()
+  const refused = runDbExecute(DOWN_039)
+  check(refused.status !== 0, 'the down script ran while a general caption existed')
+  check(refused.output.includes(GUARD_039_PREFIX), `the 039 message is missing:\n${refused.output}`)
+  check(
+    /1 general captions, 1 Facebook captions, 0 deleted captions, 1 brand kits with a website/.test(refused.output),
+    `the 039 message does not carry the counts:\n${refused.output}`,
+  )
+  check((await snapshot()) === beforeRefusal, 'the refused down script changed a row or a column')
+
+  const tmp = mkdtempSync(join(tmpdir(), 'bistec-down039-'))
+  tempDirs.add(tmp)
+  let flagged
+  try {
+    const file = join(tmp, 'down.sql')
+    writeFileSync(file, `SET app.allow_caption_loss = 'on';\n${readFileSync(join(ROOT, DOWN_039), 'utf8')}`)
+    flagged = runDbExecute(file)
+  } finally {
+    rmSync(tmp, { recursive: true, force: true })
+    tempDirs.delete(tmp)
+  }
+  check(flagged.status === 0, `the flagged down script exited ${flagged.status}:\n${flagged.output}`)
+  const after = await db.$queryRawUnsafe(
+    `SELECT "id", "channel"::text AS channel, "text", "status"::text AS status FROM "DraftCaption" ORDER BY "id"`,
+  )
+  check(json(after) === json(before), 'after the down script the rows are not the three originals')
+  for (const c of ['kind', 'previous', 'deletedAt', 'generalHash']) {
+    check(!(await columnExists('DraftCaption', c)), `DraftCaption.${c} still exists after the down script`)
+  }
+  check(!(await columnExists('BrandKit', 'website')), 'BrandKit.website still exists after the down script')
+  const [{ nullable }] = await db.$queryRawUnsafe(
+    `SELECT is_nullable AS nullable FROM information_schema.columns WHERE table_name = 'DraftCaption' AND column_name = 'channel'`,
+  )
+  check(nullable === 'NO', 'DraftCaption.channel is nullable after the down script')
+  const [{ idx }] = await db.$queryRawUnsafe(
+    `SELECT count(*)::int AS idx FROM pg_indexes WHERE indexname = 'DraftCaption_draftId_channel_key'`,
+  )
+  check(idx === 1, 'DraftCaption_draftId_channel_key is missing after the down script')
+  const migrations = await migrationRows()
+  check(!migrations.has(CAPTION_KIND), 'the caption_kind migration row survived the down script')
+  check(!migrations.has(CHANNEL_FACEBOOK), 'the channel_facebook migration row survived the down script')
+  check(!migrations.has(KIT_WEBSITE), 'the kit_website migration row survived the down script')
+
+  // 039 AC-25 step 4: head deploys again, and the schema still matches.
+  mustDeploy('redeploy of head after the down script', deployFull())
+  check(await columnExists('DraftCaption', 'kind'), 'DraftCaption.kind is missing after the redeploy')
+  check(await columnExists('BrandKit', 'website'), 'BrandKit.website is missing after the redeploy')
+  const diff2 = runPrisma(['migrate', 'diff', '--from-url', SCRATCH_URL, '--to-schema-datamodel', SCHEMA, '--exit-code'])
+  check(diff2.status === 0, `prisma migrate diff (redeploy) exited ${diff2.status}:\n${diff2.output}`)
+
+  return {
+    failures,
+    detail: `039: old rows became CURATED unchanged, the partial indexes and both CHECKs bit (23505, 23514), the head client read OK (Facebook row, kit website), migrate diff exit ${diff1.status}; the down script refused with the counts and changed nothing, ran with the flag (exit ${flagged?.status}), head redeployed, migrate diff exit ${diff2.status}`,
+  }
+}
+
 // ── Main ─────────────────────────────────────────────────────────────────────
 
 async function main() {
@@ -517,6 +848,8 @@ async function main() {
       ['scenario 2 (already dropped: carry-over is a no-op)', scenario2],
       ['scenario 3 (content guard bites, atomically)', scenario3],
       ['scenario 4 (031: a pre-existing personal image key resolves as openai)', scenario4],
+      ['scenario 5 (038: the campaign drop fails closed, then recovers)', scenario5],
+      ['scenario 6 (039: the caption kind, its constraints, and the fail-closed down script)', scenario6],
     ]) {
       const t0 = Date.now()
       let result

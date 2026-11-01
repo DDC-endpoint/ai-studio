@@ -1,7 +1,7 @@
 /**
  * Fork identity guard (change 032, FR-02).
  *
- * This repo is the fork `EnderGuardian25/ai-studio`. It deploys nothing and holds no
+ * This repo is the fork `DDC-endpoint/ai-studio`. It deploys nothing and holds no
  * company registry, Coolify or production-host reference. Each check below is a small pure
  * function, applied to the real files (must find nothing) and to an in-memory bad string
  * (must find something), so a check that silently stops matching fails here.

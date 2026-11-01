@@ -1,3 +1,4 @@
+import { CAPTION_REGISTRY } from '@/lib/channels'
 import type { FactsCheck, FactWhere } from '@/lib/factsCheck/types'
 
 // 027 FR-13: the draft page's facts-check notice, as a pure function of the
@@ -8,15 +9,18 @@ export type FactsNotice =
   | { status: 'flagged'; items: { value: string; where: string }[]; message: string }
   | { status: 'error'; items: []; message: string }
 
+// Built from the registry, so a new caption gets its label with its entry; the
+// Record type makes the table total over FactWhere.
 const WHERE_LABEL: Record<FactWhere, string> = {
   headline: 'headline',
-  INSTAGRAM: 'Instagram caption',
-  LINKEDIN: 'LinkedIn caption',
+  ...(Object.fromEntries(
+    CAPTION_REGISTRY.map((s) => [s.target, s.kind === 'GENERAL' ? 'general caption' : `${s.label} caption`]),
+  ) as Record<Exclude<FactWhere, 'headline'>, string>),
 }
 
-export const FLAGGED_ADVICE = 'These are not in your brief, campaign or brand voice. Check them before publishing.'
+export const FLAGGED_ADVICE = 'These are not in your brief, project or brand voice. Check them before you download it.'
 export const ERROR_MESSAGE =
-  'The facts check could not run for this post. Check the numbers and dates yourself before publishing.'
+  'The facts check could not run for this post. Check the numbers and dates yourself before you download it.'
 
 export function factsNoticeFor(check: FactsCheck | null | undefined): FactsNotice | null {
   if (!check) return null
@@ -28,4 +32,20 @@ export function factsNoticeFor(check: FactsCheck | null | undefined): FactsNotic
     items,
     message: `${items.map(i => `${i.value} (${i.where})`).join(', ')}. ${FLAGGED_ADVICE}`,
   }
+}
+
+// 039 D19/D20: one caption's view of the stored check, for its card and for
+// MCP/ACP. `null` when the post was never checked, `error` when the whole check
+// errored, otherwise `flagged` with this caption's own flags (kind and value,
+// never text) or `clear`.
+export interface CaptionFacts {
+  status: 'clear' | 'flagged' | 'error'
+  flagged: { kind: string; value: string }[]
+}
+
+export function captionFactsFor(check: FactsCheck | null | undefined, target: FactWhere): CaptionFacts | null {
+  if (!check) return null
+  if (check.status === 'error') return { status: 'error', flagged: [] }
+  const flagged = check.flagged.filter((f) => f.where === target).map((f) => ({ kind: f.kind, value: f.value }))
+  return { status: flagged.length > 0 ? 'flagged' : 'clear', flagged }
 }

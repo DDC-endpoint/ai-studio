@@ -1,48 +1,28 @@
 'use client'
 
 import React, { useEffect, useRef, useState } from 'react'
-import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query'
+import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Search } from 'lucide-react'
 import { toast } from 'sonner'
 import { useConfirm } from '@/components/ui/ConfirmDialog'
 import { Button } from '@/components/ui/Button'
 import { inputClasses, fieldEdge } from '@/components/ui/Input'
-import { SegmentedToggle } from '@/components/ui/SegmentedToggle'
+import { Select } from '@/components/ui/Select'
 import { QueryError } from '@/components/ui/QueryError'
 import { PageHead } from '@/components/ui/PageHead'
 import { FieldLabel } from '@/components/ui/FieldLabel'
 import { ICON } from '@/components/ui/atoms'
-import { PostCard } from '@/components/library/PostCard'
-import { PublishDialog } from '@/components/library/PublishDialog'
-import { PublishHistoryDrawer } from '@/components/library/PublishHistoryDrawer'
+import { LibraryCard } from '@/components/library/LibraryCard'
+import { postStyleOptions } from '@/components/projects/postStyleOptions'
 import { cn } from '@/lib/utils'
-import { apiFetch, ApiError } from '@/lib/apiFetch'
-import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
-import type { DraftRecord, PostRecord, LibraryResponse } from '@/lib/api-types'
-
-// ── Types ─────────────────────────────────────────────────────────────────────
-
-type StatusFilter = 'ALL' | 'READY' | 'SCHEDULED' | 'PUBLISHED' | 'FAILED'
-
-// Flatten brandKitName from the brief's campaign for PostCard
-function toBriefCardProps(draft: DraftRecord) {
-  const brandKitName = draft.brief.campaign?.brandKit?.name ?? null
-  return { ...draft, brandKitName }
-}
-
-const STATUS_TABS: { label: string; value: StatusFilter }[] = [
-  { label: 'All', value: 'ALL' },
-  { label: 'Ready', value: 'READY' },
-  { label: 'Scheduled', value: 'SCHEDULED' },
-  { label: 'Published', value: 'PUBLISHED' },
-  { label: 'Failed', value: 'FAILED' },
-]
+import { apiFetch } from '@/lib/apiFetch'
+import type { BrandKitSummary, LibraryResponse, ProjectSummary } from '@/lib/api-types'
 
 const PAGE_SIZE = 20
 
 // ── Skeleton loader ───────────────────────────────────────────────────────────
 
-// The shape of a library tile (PostCard): a thumbnail, a title, a meta line
+// The shape of a library tile (LibraryCard): a thumbnail, a title, a meta line
 // and the action row. No card box (DESIGN_SYSTEM.md §8.12).
 function SkeletonCard() {
   return (
@@ -65,20 +45,13 @@ const GRID = 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-10'
 export default function LibraryPage() {
   const queryClient = useQueryClient()
   const confirm = useConfirm()
-  const [activeStatus, setActiveStatus] = useState<StatusFilter>('ALL')
+  const [brandKitId, setBrandKitId] = useState('')
+  const [postStyle, setPostStyle] = useState('')
+  // '' = all projects, 'none' = posts with no project, else a project id (038 FR-13).
+  const [projectId, setProjectId] = useState('')
   const [searchInput, setSearchInput] = useState('')
   const searchId = React.useId()
   const [search, setSearch] = useState('')
-  const { isTeamAdmin } = useCurrentUser()
-
-  const [selectedDraft, setSelectedDraft] = useState<{
-    id: string
-    posts: PostRecord[]
-  } | null>(null)
-  const [showPublishDialog, setShowPublishDialog] = useState<{
-    draftId: string
-    exportUrl: string
-  } | null>(null)
 
   // Debounce search input
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -102,12 +75,14 @@ export default function LibraryPage() {
     hasNextPage,
     isFetchingNextPage,
   } = useInfiniteQuery({
-    queryKey: ['library', activeStatus, search],
+    queryKey: ['library', brandKitId, postStyle, projectId, search],
     queryFn: ({ pageParam }) => {
       const params = new URLSearchParams({
         page: String(pageParam),
         pageSize: String(PAGE_SIZE),
-        status: activeStatus,
+        ...(brandKitId ? { brandKitId } : {}),
+        ...(postStyle ? { postStyle } : {}),
+        ...(projectId ? { projectId } : {}),
         ...(search ? { search } : {}),
       })
       return apiFetch<LibraryResponse>(`/api/library?${params}`)
@@ -117,45 +92,36 @@ export default function LibraryPage() {
       allPages.length * PAGE_SIZE < lastPage.total ? allPages.length + 1 : undefined,
   })
 
+  const { data: brandKits = [] } = useQuery({
+    queryKey: ['brandkits'],
+    queryFn: () => apiFetch<BrandKitSummary[]>('/api/brandkits'),
+  })
+  const kitOptions = [
+    { value: '', label: 'All kits' },
+    ...brandKits.map((k) => ({ value: k.id, label: k.name })),
+  ]
+  const { data: projects = [] } = useQuery({
+    queryKey: ['projects'],
+    queryFn: () => apiFetch<ProjectSummary[]>('/api/projects'),
+  })
+  const projectOptions = [
+    { value: '', label: 'All projects' },
+    { value: 'none', label: 'No project' },
+    ...projects.map((p) => ({ value: p.id, label: p.name })),
+  ]
+  const styleOptions = postStyleOptions('All styles')
+
   const drafts = data?.pages.flatMap((p) => p.drafts) ?? []
 
   function invalidateLibrary() {
     return queryClient.invalidateQueries({ queryKey: ['library'] })
   }
 
-  // A retry that fails again is a 502 PUBLISH_FAILED (017 FR-04): say so, and
-  // keep the drawer's row FAILED with the new reason. Either way the library
-  // refetches, so the cards reflect the row's real status.
-  async function handleRetry(postId: string) {
-    try {
-      const res = await apiFetch<{ postId: string; status: string }>(`/api/posts/${postId}/publish`, {
-        method: 'POST',
-      })
-      toast.success('Published')
-      patchHistoryRow(postId, { status: res.status, errorReason: null })
-    } catch (e) {
-      const message = e instanceof Error ? e.message : 'Retry failed'
-      toast.error(`Retry failed: ${message}`)
-      if (e instanceof ApiError && e.code === 'PUBLISH_FAILED') {
-        patchHistoryRow(postId, { status: 'FAILED', errorReason: message })
-      }
-    } finally {
-      invalidateLibrary()
-    }
-  }
-
-  // The drawer shows a snapshot of the card's posts; keep it in step with a retry.
-  function patchHistoryRow(postId: string, patch: Partial<PostRecord>) {
-    setSelectedDraft((prev) =>
-      prev ? { ...prev, posts: prev.posts.map((p) => (p.id === postId ? { ...p, ...patch } : p)) } : prev
-    )
-  }
-
   async function handleDelete(draftId: string) {
     const ok = await confirm({
       title: 'Delete this post?',
       description:
-        'This permanently removes the draft, its revisions, its publish history (any scheduled publish is cancelled), and its brief. This cannot be undone.',
+        'This permanently removes the draft, its revisions, and its brief. This cannot be undone.',
       confirmLabel: 'Delete',
     })
     if (!ok) return
@@ -174,7 +140,7 @@ export default function LibraryPage() {
       <PageHead
         eyebrow="Posts"
         title="Library"
-        lead="All exported drafts and published posts."
+        lead="All finished posts."
         className="mb-8"
         actionsClassName="min-w-0"
         actions={
@@ -201,14 +167,32 @@ export default function LibraryPage() {
         }
       />
 
-      {/* Status tabs, over the 2 px --fg rule that opens the sheet */}
-      <div className="pb-4 mb-8 border-b-2 border-fg">
-        <SegmentedToggle
-          options={STATUS_TABS.map(({ label, value }) => ({ value, label }))}
-          value={activeStatus}
-          onChange={(v) => setActiveStatus(v as StatusFilter)}
-          label="Filter by status"
-        />
+      {/* Filters, over the 2 px --fg rule that opens the sheet */}
+      <div className="pb-4 mb-8 border-b-2 border-fg flex flex-col gap-4 sm:flex-row">
+        <div className="sm:w-64">
+          <Select
+            label="Brand kit"
+            options={kitOptions}
+            value={brandKitId}
+            onChange={(e) => setBrandKitId(e.target.value)}
+          />
+        </div>
+        <div className="sm:w-64">
+          <Select
+            label="Post style"
+            options={styleOptions}
+            value={postStyle}
+            onChange={(e) => setPostStyle(e.target.value)}
+          />
+        </div>
+        <div className="sm:w-64">
+          <Select
+            label="Project"
+            options={projectOptions}
+            value={projectId}
+            onChange={(e) => setProjectId(e.target.value)}
+          />
+        </div>
       </div>
 
       {/* Grid */}
@@ -226,16 +210,9 @@ export default function LibraryPage() {
         <>
           <div className={GRID}>
             {drafts.map((draft) => (
-              <PostCard
+              <LibraryCard
                 key={draft.id}
-                draft={toBriefCardProps(draft)}
-                isTeamAdmin={isTeamAdmin}
-                onPublish={(draftId, exportUrl) =>
-                  setShowPublishDialog({ draftId, exportUrl })
-                }
-                onViewHistory={(draftId, posts) =>
-                  setSelectedDraft({ id: draftId, posts: posts as PostRecord[] })
-                }
+                draft={draft}
                 onDelete={handleDelete}
               />
             ))}
@@ -256,32 +233,6 @@ export default function LibraryPage() {
           )}
         </>
       )}
-
-      {/* Publish dialog */}
-      {showPublishDialog && (
-        <PublishDialog
-          draftId={showPublishDialog.draftId}
-          headlineState={drafts.find((d) => d.id === showPublishDialog.draftId)?.headlineState}
-          onClose={() => {
-            // A failed channel leaves a FAILED row; show it once the dialog closes.
-            setShowPublishDialog(null)
-            invalidateLibrary()
-          }}
-          onSuccess={() => {
-            setShowPublishDialog(null)
-            invalidateLibrary()
-          }}
-        />
-      )}
-
-      {/* Publish history drawer */}
-      <PublishHistoryDrawer
-        draftId={selectedDraft?.id ?? null}
-        posts={selectedDraft?.posts ?? []}
-        isTeamAdmin={isTeamAdmin}
-        onClose={() => setSelectedDraft(null)}
-        onRetry={handleRetry}
-      />
     </>
   )
 }

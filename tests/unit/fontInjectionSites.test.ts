@@ -14,10 +14,11 @@ const SRC = join(ROOT, 'src')
 // refine (the refined document, before commitDraftRevision).
 const SITES = ['src/lib/agent/pathA.ts', 'src/lib/agent/pathB.ts', 'src/app/api/drafts/[id]/refine/route.ts']
 
-// Inline edit, restore and export keep the stored CSS (FR-22); they must never inject.
+// Inline edit, restore and download keep the stored CSS (FR-22); they must never inject.
 const NEVER = [
   'src/app/api/drafts/[id]/revisions/[rev]/restore/route.ts',
-  'src/app/api/generate/export/route.ts',
+  'src/lib/drafts/download.ts',
+  'src/app/api/drafts/[id]/download/route.ts',
   'src/lib/drafts/revisions.ts',
   'src/lib/drafts/inlineEdit.ts',
 ]

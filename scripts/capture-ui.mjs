@@ -16,7 +16,7 @@
 //   CAPTURE_TEAM      team to make active when a chooser appears (default Bistec)
 //
 // If the account can see no draft, one is generated through the mock seams
-// (brand kit → campaign → brief → assemble-b), so run it against a MOCK_AI +
+// (brand kit → brief → assemble-b), so run it against a MOCK_AI +
 // MOCK_PUPPETEER server. Without the mocks the draft screen is skipped.
 //
 // After the screens, a `states` pass (change 033 T2) shoots the wizard steps, a
@@ -118,10 +118,6 @@ async function findOrCreateDraft(page) {
       name: `Capture kit ${stamp}`,
       colors: ['#211c18', '#f6f3ed'],
     })
-    const campaign = await postJson(page, '/api/campaigns', {
-      name: `Capture campaign ${stamp}`,
-      brandKitId: kit.id,
-    })
     const brief = await postJson(page, '/api/briefs', {
       topic: SAMPLE_TOPIC,
       goal: 'Show the draft review screen',
@@ -130,7 +126,7 @@ async function findOrCreateDraft(page) {
       designMode: 'GENERATE',
       // The seeded keyless COPY row (scripts/seed-cli-provider.mjs).
       copyProviderKey: 'cli',
-      campaignId: campaign.id,
+      brandKitId: kit.id,
     })
     const { draftId } = await postJson(page, '/api/generate/assemble-b', { briefId: brief.id })
     const deadline = Date.now() + 60_000
@@ -149,7 +145,7 @@ async function findOrCreateDraft(page) {
 async function firstId(page, path) {
   try {
     const rows = await getJson(page, path)
-    const list = Array.isArray(rows) ? rows : (rows.campaigns ?? rows.projects ?? [])
+    const list = Array.isArray(rows) ? rows : (rows.projects ?? [])
     return list[0]?.id ?? null
   } catch {
     return null
@@ -182,7 +178,7 @@ async function shoot(page, file) {
 // ── The states pass (033 T2) ────────────────────────────────────────────────
 
 const KIT_NAME = 'Capture states kit'
-const CAMPAIGN_NAME = 'Capture states campaign'
+const PROJECT_NAME = 'Capture states project'
 // kit-upgrade.test.ts HEARTS_TEXT: four vague phrases the rule panel flags.
 const HEARTS_TEXT = [
   'Hearts Academy posts use a teal-to-green gradient.',
@@ -256,10 +252,10 @@ async function findOrCreateNoticeDraft(page, kitId, spec) {
   return draftId
 }
 
-// The kit, the campaign and the notice drafts the states need, reused by name
+// The kit, the project and the notice drafts the states need, reused by name
 // or topic so reruns do not pile up data. Failures are recorded per item.
 async function prepareStateData(page) {
-  const data = { kit: null, campaignId: null, notices: {} }
+  const data = { kit: null, projectId: null, notices: {} }
   try {
     const kits = await getJson(page, '/api/admin/brandkits')
     data.kit = kits.find((k) => k.name === KIT_NAME) ?? null
@@ -276,20 +272,20 @@ async function prepareStateData(page) {
     return data
   }
   try {
-    const campaigns = await getJson(page, '/api/campaigns')
-    let campaign = campaigns.find((c) => c.name === CAMPAIGN_NAME)
-    if (!campaign) {
-      campaign = await postJson(page, '/api/campaigns', {
-        name: CAMPAIGN_NAME,
-        brandKitId: data.kit.id,
+    const projects = await getJson(page, '/api/projects')
+    let project = projects.find((p) => p.name === PROJECT_NAME)
+    if (!project) {
+      project = await postJson(page, '/api/projects', {
+        name: PROJECT_NAME,
+        defaultBrandKitId: data.kit.id,
       })
-      await postJson(page, `/api/campaigns/${campaign.id}/briefing`, {
-        content: 'A capture campaign for final-year students.',
+      await postJson(page, `/api/projects/${project.id}/briefing`, {
+        content: 'A capture project for final-year students.',
       })
     }
-    data.campaignId = campaign.id
+    data.projectId = project.id
   } catch (err) {
-    skipped.push({ state: 'campaign data', reason: err.message })
+    skipped.push({ state: 'project data', reason: err.message })
   }
   for (const [key, spec] of Object.entries(NOTICE_DRAFTS)) {
     try {
@@ -314,7 +310,7 @@ async function openStatesKit(page) {
 // post-styles.test.ts openStepOne: step 0 -> Size & Design with the kit chosen.
 async function openWizardStepOne(page, data) {
   await page.goto('/brief')
-  await page.getByRole('heading', { name: 'Select a campaign' }).waitFor({ timeout: 20_000 })
+  await page.getByRole('heading', { name: 'Select a project' }).waitFor({ timeout: 20_000 })
   await page.getByRole('button', { name: /continue/i }).click()
   await page.getByRole('heading', { name: 'Size & Design' }).waitFor()
   const kit = page.getByRole('combobox', { name: 'Brand kit' })
@@ -381,17 +377,17 @@ const STATES = [
   },
   {
     name: 'briefing-drawer',
-    ready: (d) => d.campaignId,
+    ready: (d) => d.projectId,
     run: async (page, data, snap) => {
-      await page.goto(`/campaigns/${data.campaignId}`)
-      await page.getByRole('heading', { name: CAMPAIGN_NAME, level: 1 }).waitFor()
-      // surfaces.test.ts (campaign detail): Draft with AI opens the drawer.
+      await page.goto(`/projects/${data.projectId}`)
+      await page.getByRole('heading', { name: PROJECT_NAME, level: 1 }).waitFor()
+      // surfaces.test.ts (project detail): Draft with AI opens the drawer.
       await page.getByRole('button', { name: 'Draft with AI' }).click()
       const drawer = page.getByRole('dialog', { name: 'Draft briefing with AI' })
       await drawer.getByRole('button', { name: 'Add document' }).waitFor()
       await snap('briefing-drawer')
-      const ask = drawer.getByPlaceholder('Tell the assistant about this campaign…')
-      await ask.fill('A capture campaign for final-year students.')
+      const ask = drawer.getByPlaceholder('Tell the assistant about this project…')
+      await ask.fill('A capture project for final-year students.')
       await ask.press('Enter')
       await drawer
         .getByRole('button', { name: 'Apply this draft to the editor' })
@@ -441,6 +437,30 @@ const STATES = [
       await snap(`draft-notice-${key}`)
     },
   })),
+  // 039 T3: the curated caption cards (curate Instagram on the facts-flagged post, so
+  // the flagged-general line and the card's facts line show), then the deleted
+  // card with its Undo. The delete is undone afterwards, so a rerun starts alike.
+  // Mirrors curated-captions.test.ts TC-CUR-07 and TC-CUR-12.
+  {
+    name: 'curated-captions',
+    ready: (d) => d.notices['facts-flagged'],
+    run: async (page, data, snap) => {
+      const id = data.notices['facts-flagged']
+      await page.goto(`/drafts/${id}`)
+      await page.getByRole('heading', { name: 'General caption', level: 3 }).waitFor({ timeout: 20_000 })
+      const field = page.getByRole('textbox', { name: 'Instagram caption', exact: true })
+      if ((await field.count()) === 0) {
+        await page.getByRole('button', { name: 'Curate for Instagram' }).click()
+        await field.waitFor({ timeout: 20_000 })
+      }
+      await snap('draft-captions-curated')
+      await page.getByRole('button', { name: 'Delete Instagram caption' }).click()
+      await page.getByRole('button', { name: 'Undo Instagram caption' }).waitFor({ timeout: 20_000 })
+      await snap('draft-captions-deleted')
+      await page.getByRole('button', { name: 'Undo Instagram caption' }).click()
+      await field.waitFor({ timeout: 20_000 })
+    },
+  },
 ]
 
 async function runStates(browser, data) {
@@ -535,7 +555,6 @@ async function main() {
       await signIn(page)
 
       const draftId = sampleDraftId
-      const campaignId = await firstId(page, '/api/campaigns')
       const projectId = await firstId(page, '/api/projects')
 
       const screens = [
@@ -543,8 +562,6 @@ async function main() {
         ['library', '/library'],
         ['brief', '/brief'],
         draftId && ['draft', `/drafts/${draftId}`],
-        ['campaigns', '/campaigns'],
-        campaignId && ['campaign-detail', `/campaigns/${campaignId}`],
         ['projects', '/projects'],
         projectId && ['project-detail', `/projects/${projectId}`],
         ['brandkits', '/admin/brandkits'],

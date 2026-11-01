@@ -18,7 +18,6 @@ import {
 } from '@/components/ui/atoms'
 import { apiFetch } from '@/lib/apiFetch'
 import type { DraftStatus } from '@prisma/client'
-import { channelLabel as sharedChannelLabel } from '@/lib/channels'
 
 // ─── Recent Drafts card (dashboard) ─────────────────────────────────────────
 // Collapsed it shows the first COLLAPSED_COUNT rows; Expand grows the same
@@ -35,16 +34,11 @@ const TOPIC_LINK = 'font-medium text-fg transition-colors duration-fast ease-sta
 // The small-caps header cell (§8.15).
 const HEAD_CELL = 'py-2 font-semibold'
 
-const DRAFT_CHIP: Record<DraftStatus, 'draft' | 'exported' | 'published' | 'failed'> = {
+// No published state: a finished post is Ready (037).
+const DRAFT_CHIP: Record<DraftStatus, 'draft' | 'exported' | 'failed'> = {
   IN_PROGRESS: 'draft',
   EXPORTED: 'exported',
-  PUBLISHED: 'published',
   FAILED: 'failed',
-}
-
-function channelLabel(channels: string[]): string {
-  if (!channels?.length) return '—'
-  return channels.map(sharedChannelLabel).join(', ')
 }
 
 export interface RecentDraftRow {
@@ -56,8 +50,7 @@ export interface RecentDraftRow {
   brief: {
     topic: string | null
     designMode: string | null
-    channels: string[]
-    campaign: { name: string } | null
+    project: { name: string } | null
   } | null
 }
 
@@ -151,8 +144,7 @@ export function RecentDraftsCard({
             <thead>
               <tr className={TABLE_HEAD_ROW}>
                 <th scope="col" className={`${HEAD_CELL} pr-3`}>Topic</th>
-                <th scope="col" className={`${HEAD_CELL} pr-3`}>Campaign</th>
-                <th scope="col" className={`${HEAD_CELL} pr-3`}>Channels</th>
+                <th scope="col" className={`${HEAD_CELL} pr-3`}>Project</th>
                 <th scope="col" className={`${HEAD_CELL} pr-3`}>Design mode</th>
                 <th scope="col" className={`${HEAD_CELL} pr-3`}>Status</th>
                 <th scope="col" className={HEAD_CELL}>Created</th>
@@ -166,7 +158,6 @@ export function RecentDraftsCard({
                       {u.topic || 'Untitled post'}
                     </Link>
                   </td>
-                  <td className="py-2.5 pr-3 text-fg-muted">—</td>
                   <td className="py-2.5 pr-3 text-fg-muted">—</td>
                   <td className="py-2.5 pr-3 text-fg-muted">—</td>
                   <td className="py-2.5 pr-3">
@@ -198,8 +189,7 @@ export function RecentDraftsCard({
                       {d.brief?.topic ?? 'Untitled'}
                     </Link>
                   </td>
-                  <td className="py-2.5 pr-3 text-fg-muted">{d.brief?.campaign?.name ?? '—'}</td>
-                  <td className="py-2.5 pr-3 text-fg-muted">{channelLabel(d.brief?.channels ?? [])}</td>
+                  <td className="py-2.5 pr-3 text-fg-muted">{d.brief?.project?.name ?? '—'}</td>
                   <td className="py-2.5 pr-3 text-fg-muted">
                     {d.brief?.designMode === 'TEMPLATE' ? 'Template' : 'Freeform'}
                   </td>

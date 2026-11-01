@@ -13,9 +13,9 @@ import type { PostStyle } from '@/lib/postStyles/types'
 import { archetypes, type ArchetypeMap } from '@/lib/designData'
 import { TONE_OPTIONS } from '@/components/brief/constants'
 
-const SURFACES: Surface[] = ['wizard', 'briefs-api', 'queue', 'mcp', 'acp', 'regenerate']
+const SURFACES: Surface[] = ['wizard', 'briefs-api', 'mcp', 'acp', 'regenerate']
 const ATTENDED: Surface[] = ['wizard', 'briefs-api', 'regenerate']
-const UNATTENDED: Surface[] = ['queue', 'mcp', 'acp']
+const UNATTENDED: Surface[] = ['mcp', 'acp']
 
 const base = (over: Partial<ResolveInput> = {}): ResolveInput => ({
   style: null,
@@ -49,18 +49,18 @@ describe.each(SURFACES)('resolvePostStyle on surface %s', (surface) => {
     expect(r.tone).toBe(styles.hiring.versions[1].defaultTone)
   })
 
-  it('the campaign default style applies when no style is given, and an explicit one beats it', () => {
-    expect(ok(base({ surface, campaign: { defaultPostStyle: 'event' } })).key).toBe('event')
-    expect(ok(base({ surface, style: 'tip', campaign: { defaultPostStyle: 'event' } })).key).toBe(
+  it('the project default style applies when no style is given, and an explicit one beats it', () => {
+    expect(ok(base({ surface, project: { defaultPostStyle: 'event' } })).key).toBe('event')
+    expect(ok(base({ surface, style: 'tip', project: { defaultPostStyle: 'event' } })).key).toBe(
       'tip',
     )
   })
 
-  it('tone: explicit (trimmed) beats the campaign tone, which beats the style default', () => {
-    const campaign = { defaultTone: 'We like a BOLD voice' }
-    expect(ok(base({ surface, style: 'tip', campaign })).tone).toBe('bold')
+  it('tone: explicit (trimmed) beats the project tone, which beats the style default', () => {
+    const project = { defaultTone: 'We like a BOLD voice' }
+    expect(ok(base({ surface, style: 'tip', project })).tone).toBe('bold')
     expect(
-      ok(base({ surface, style: 'tip', campaign, explicit: { tone: '  warm and friendly  ' } }))
+      ok(base({ surface, style: 'tip', project, explicit: { tone: '  warm and friendly  ' } }))
         .tone,
     ).toBe('warm and friendly')
     expect(ok(base({ surface, style: 'tip', explicit: { tone: '   ' } })).tone).toBe(
@@ -68,10 +68,10 @@ describe.each(SURFACES)('resolvePostStyle on surface %s', (surface) => {
     )
   })
 
-  it('campaign free-text tone with no match is ignored, with a note', () => {
-    const r = ok(base({ surface, style: 'tip', campaign: { defaultTone: 'quirky' } }))
+  it('project free-text tone with no match is ignored, with a note', () => {
+    const r = ok(base({ surface, style: 'tip', project: { defaultTone: 'quirky' } }))
     expect(r.tone).toBe(styles.tip.versions[1].defaultTone)
-    expect(r.notes).toContain('campaign-tone-ignored')
+    expect(r.notes).toContain('project-tone-ignored')
   })
 
   it('an unknown style key is UNKNOWN_POST_STYLE, never general', () => {
@@ -79,8 +79,8 @@ describe.each(SURFACES)('resolvePostStyle on surface %s', (surface) => {
     expect(r).toMatchObject({ ok: false, code: 'UNKNOWN_POST_STYLE' })
   })
 
-  it('an unknown campaign default is UNKNOWN_POST_STYLE, never general', () => {
-    const r = resolvePostStyle(base({ surface, campaign: { defaultPostStyle: 'gone' } }))
+  it('an unknown project default is UNKNOWN_POST_STYLE, never general', () => {
+    const r = resolvePostStyle(base({ surface, project: { defaultPostStyle: 'gone' } }))
     expect(r).toMatchObject({ ok: false, code: 'UNKNOWN_POST_STYLE' })
   })
 
@@ -100,13 +100,13 @@ describe.each(SURFACES)('resolvePostStyle on surface %s', (surface) => {
     expect(ok(base({ surface, legacyGoal: 'ANNOUNCEMENT' })).key).toBe('announcement')
     for (const g of ['awareness', 'engagement', 'conversion', 'free text', '', 'constructor'])
       expect(ok(base({ surface, legacyGoal: g })).key, g).toBe('general')
-    // fall-through goes to the campaign default first
+    // fall-through goes to the project default first
     expect(
-      ok(base({ surface, legacyGoal: 'engagement', campaign: { defaultPostStyle: 'event' } })).key,
+      ok(base({ surface, legacyGoal: 'engagement', project: { defaultPostStyle: 'event' } })).key,
     ).toBe('event')
-    // a mapped goal beats the campaign default
+    // a mapped goal beats the project default
     expect(
-      ok(base({ surface, legacyGoal: 'hiring', campaign: { defaultPostStyle: 'event' } })).key,
+      ok(base({ surface, legacyGoal: 'hiring', project: { defaultPostStyle: 'event' } })).key,
     ).toBe('hiring')
   })
 
@@ -277,7 +277,7 @@ describe('resolvePostStyle: look fixtures (size-classic, retired-classic)', () =
   })
 
   it('retired-classic comes after the unattended and Path A checks', () => {
-    const q = run(base({ surface: 'queue', explicit: { imageStyle: 'editorial-split' } }), retired)
+    const q = run(base({ surface: 'mcp', explicit: { imageStyle: 'editorial-split' } }), retired)
     expect(q.notes).toContain('unattended-classic')
     expect(q.notes).not.toContain('retired-classic')
     const a = run(base({ path: 'A', explicit: { imageStyle: 'editorial-split' } }), retired)
@@ -312,8 +312,8 @@ describe('resolvePostStyle: retired style (a fixture dataset)', () => {
     expect(r.checklist).toEqual(styles.tip.versions[1].checklist)
   })
 
-  it('a retired key stored as the campaign default still resolves', () => {
-    expect(ok(base({ campaign: { defaultPostStyle: 'tip' } }), dataset).key).toBe('tip')
+  it('a retired key stored as the project default still resolves', () => {
+    expect(ok(base({ project: { defaultPostStyle: 'tip' } }), dataset).key).toBe('tip')
   })
 
   it('a key absent from the fixture dataset is still unknown', () => {
@@ -324,7 +324,7 @@ describe('resolvePostStyle: retired style (a fixture dataset)', () => {
 
 describe('resolvePostStyle: purity', () => {
   it('returns equal results for equal input and does not mutate it', () => {
-    const input = base({ style: 'event', campaign: { defaultTone: 'casual' } })
+    const input = base({ style: 'event', project: { defaultTone: 'casual' } })
     const copy = JSON.parse(JSON.stringify(input))
     expect(resolvePostStyle(input)).toEqual(resolvePostStyle(input))
     expect(input).toEqual(copy)
@@ -395,7 +395,7 @@ describe('resolvePostStyle: missing-input-classic (025 FR-08)', () => {
     expect(kept.notes).not.toContain('missing-input-classic')
   })
 
-  it('unattended-classic still wins for queue, mcp and acp', () => {
+  it('unattended-classic still wins for mcp and acp', () => {
     for (const surface of UNATTENDED) {
       const r = pick({ surface })
       expect(r.notes).toContain('unattended-classic')

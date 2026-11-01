@@ -16,6 +16,7 @@ import {
   FunnelSection,
   HealthSection,
   PostStylesSection,
+  CaptionsSection,
   RefineSection,
   StylesSection,
   TeamsSection,
@@ -67,6 +68,7 @@ export default function AdminInsightsPage() {
           <FailuresSection data={data.failures} />
           <StylesSection data={data.styles} />
           <PostStylesSection data={data.postStyles} />
+          <CaptionsSection data={data.captions} />
           <DurationsSection data={data.durations} />
           <FunnelSection data={data.funnel} />
           <TeamsSection data={data.teams} />

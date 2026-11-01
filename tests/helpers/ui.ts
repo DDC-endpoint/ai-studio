@@ -99,31 +99,14 @@ export async function tabThreeFromMain(page: Page): Promise<string[]> {
   return tabThreeWithVisibleFocus(page)
 }
 
-// A project, a campaign under it with two briefing versions, and two queue
-// entries (one PENDING, one CANCELLED), made through the API.
-export async function mintCampaignFixture(api: ApiClient) {
+// A project with two briefing versions, made through the API.
+export async function mintProjectFixture(api: ApiClient) {
   const stamp = `${Date.now()}`
   const project = await (await api.post('/api/projects', { name: `T10 Project ${stamp}` })).json()
-  const camp = await (
-    await api.post('/api/campaigns', { name: `T10 Campaign ${stamp}`, projectId: project.id })
-  ).json()
   for (const content of ['T10 briefing v1', 'T10 briefing v2, the active one']) {
-    expect((await api.post(`/api/campaigns/${camp.id}/briefing`, { content })).status()).toBe(201)
+    expect((await api.post(`/api/projects/${project.id}/briefing`, { content })).status()).toBe(201)
   }
-  const entry = (topic: string) => ({
-    topic,
-    goal: 'Awareness',
-    tone: 'professional',
-    channels: ['INSTAGRAM', 'LINKEDIN'],
-    designMode: 'GENERATE',
-    generateAt: new Date(Date.now() + 7 * 24 * 3600_000).toISOString(),
-    postAction: 'HOLD',
-  })
-  const pending = await api.post(`/api/campaigns/${camp.id}/queue`, entry(`T10 pending ${stamp}`))
-  expect(pending.status()).toBe(201)
-  const cancelled = await (await api.post(`/api/campaigns/${camp.id}/queue`, entry(`T10 cancelled ${stamp}`))).json()
-  expect((await api.del(`/api/campaigns/${camp.id}/queue/${cancelled.id}`)).status()).toBe(204)
-  return { project, camp }
+  return { project }
 }
 
 // A kit with colours, fonts, two voice-prompt versions, a logo, a template, a
@@ -172,9 +155,6 @@ export async function mintExportedDraft(api: ApiClient, topic: string): Promise<
   const kit = await (
     await api.post('/api/admin/brandkits', { name: `Surfaces Kit ${topic}`, colors: ['#8c4812'] })
   ).json()
-  const camp = await (
-    await api.post('/api/campaigns', { name: `Surfaces Camp ${topic}`, brandKitId: kit.id })
-  ).json()
   const brief = await (
     await api.post('/api/briefs', {
       topic,
@@ -183,7 +163,7 @@ export async function mintExportedDraft(api: ApiClient, topic: string): Promise<
       channels: ['INSTAGRAM'],
       designMode: 'GENERATE',
       copyProviderKey: 'cli',
-      campaignId: camp.id,
+      brandKitId: kit.id,
     })
   ).json()
   const res = await api.post('/api/generate/assemble-b', { briefId: brief.id })

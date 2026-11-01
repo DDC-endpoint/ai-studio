@@ -1,5 +1,5 @@
 // The core of POST /api/admin/brandkits/[id]/prompts/upgrade (007 FR-05, FR-06,
-// FR-10, FR-11, FR-17) and of POST /api/campaigns/[id]/briefing/upgrade (031
+// FR-10, FR-11, FR-17) and of POST /api/projects/[id]/briefing/upgrade (031
 // FR-28, FR-29). The route loads the host's record and checks the base version;
 // this module takes the role kit as an argument, so it imports no loader. One
 // model call, no retry. The model proposes wording only: quote, kind, entry key
@@ -18,7 +18,7 @@ import {
 } from '@/lib/designData/authoring'
 import { extractFencedJson } from '@/lib/agent/fencedBlock'
 import { pipelineMode } from '@/lib/agent/config'
-import { resolveAssistantModel, runBriefingModel } from '@/lib/campaign/briefingAssistant'
+import { resolveAssistantModel, runBriefingModel } from '@/lib/projects/briefingAssistant'
 import { modelCallFor, recordModelCall } from '@/lib/models/modelCalls'
 import type { ResolvedModel } from '@/lib/models/resolve'
 import { MOCK_AI, buildMockKitUpgradeReply } from '@/lib/testHooks'

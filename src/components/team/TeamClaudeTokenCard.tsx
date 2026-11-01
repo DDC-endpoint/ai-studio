@@ -66,7 +66,7 @@ export function TeamClaudeTokenCard({ numeral }: { numeral?: string }) {
   const handleDisconnect = async () => {
     const ok = await confirm({
       title: 'Disconnect the team Claude account?',
-      description: 'Members without a personal Claude token will have no Claude account to generate with until this is reconnected, and scheduled posts, MCP and ACP runs will fail.',
+      description: 'Members without a personal Claude token will have no Claude account to generate with until this is reconnected, and MCP and ACP runs will fail.',
       confirmLabel: 'Disconnect',
     })
     if (ok) disconnectMutation.mutate()
@@ -82,7 +82,7 @@ export function TeamClaudeTokenCard({ numeral }: { numeral?: string }) {
 
       <div className={`${BLOCK} flex flex-col gap-5`}>
         <p className="text-ui-sm text-fg-muted">
-          Shared fallback used by members who haven&apos;t connected their own Claude account. It is also the only credential scheduled posts, MCP and ACP runs can use.
+          Shared fallback used by members who haven&apos;t connected their own Claude account. It is also the only credential MCP and ACP runs can use.
         </p>
 
         {info.connected && (

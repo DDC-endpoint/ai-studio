@@ -79,7 +79,7 @@ const envSchema = z.object({
   MINIO_BUCKET_IMAGES: z.string().default('generated-images'),
   MINIO_BUCKET_EXPORTS: z.string().default('exported-designs'),
   MINIO_BUCKET_BRANDKITS: z.string().default('brand-kits'),
-  // Campaign source documents (briefing assistant) — private bucket.
+  // Project source documents (briefing assistant) — private bucket. The default name predates 038 (campaign documents).
   MINIO_BUCKET_DOCS: z.string().default('campaign-docs'),
 
   // --- AI providers ---
@@ -126,8 +126,6 @@ const envSchema = z.object({
   // src/lib/testHooks.ts (see the note at the top of this file).
   MOCK_AI: z.string().optional(),
   MOCK_PUPPETEER: z.string().optional(),
-  MOCK_SOCIAL: z.string().optional(),
-  MOCK_SOCIAL_FAIL: z.string().optional(),
 
   // --- App (server-side reads only; the client bundle inlines its own copy) ---
   NEXT_PUBLIC_APP_URL: z.string().optional(),

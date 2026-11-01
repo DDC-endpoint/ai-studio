@@ -58,8 +58,8 @@ export function CaptionRouteCard({ numeral }: { numeral?: string }) {
 
       <div className={BLOCK}>
         <p className="text-ui-sm text-fg-muted">
-          Which credential this team&apos;s captions run on. Post design, scheduled posts and MCP/ACP runs use the
-          Claude account, not this route; scheduled runs need a team Claude token.
+          Which credential this team&apos;s captions run on. Post design and MCP/ACP runs use the
+          Claude account, not this route.
         </p>
 
         <div className="mt-4 space-y-4">

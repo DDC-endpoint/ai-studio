@@ -85,11 +85,10 @@ const db = fake.db
 vi.mock('@/lib/prisma', () => ({ prisma: fake.client }))
 vi.mock('@/lib/renderer/fontSet', () => ({ getFontSetId: () => 'fonts-test' }))
 vi.mock('@/lib/brandkit/resolve', () => ({ resolveBrandKit: async () => ({ id: 'kit', name: 'Kit' }) }))
-vi.mock('@/lib/campaign/briefing', () => ({ getActiveCampaignBriefing: async () => null }))
 vi.mock('@/providers/registry', () => ({
   resolveCopyProvider: async () => ({
     generateCaptions: async (_b: unknown, _t: unknown, model: { arg: string }) => ({
-      raw: JSON.stringify({ headline: 'the headline', instagram: 'ig', linkedin: 'li' }),
+      raw: JSON.stringify({ headline: 'the headline', general: 'gen' }),
       modelId: model.arg,
       route: null,
     }),
@@ -144,7 +143,7 @@ vi.mock('@/lib/api/handler', () => ({
     (req: unknown, ctx: { params: unknown }) =>
       handler(req, { params: ctx.params }, { userId: 'u1', teamId: 'team1' }),
 }))
-vi.mock('@/lib/authz/visibility', () => ({ canAccessContent: () => true }))
+vi.mock('@/lib/authz/visibility', () => ({ canView: () => true, canEditPost: () => true, NOT_AUTHOR: { code: 'not-author' } }))
 // Run the claimed action's work inline so the test can observe its writes.
 vi.mock('@/lib/drafts/draftActions', () => ({
   claimDraftAction: async () => ({ action: 'REGENERATE_DESIGN', claimId: 'c1' }),
@@ -171,7 +170,6 @@ const brief = {
   id: 'b1',
   teamId: 'team1',
   userId: 'u1',
-  campaignId: null,
   brandKitId: null,
   designMode: 'GENERATE',
   aspectRatio: 'SQUARE',
@@ -190,7 +188,7 @@ beforeEach(() => {
 
 describe('generation v1 "Original design" revision', () => {
   it('sync path (MCP/ACP, scheduler): the v1 row and the draft carry the same stamp', async () => {
-    await generateDraftForBrief(brief, { userId: null, teamId: 'team1', source: 'scheduler' })
+    await generateDraftForBrief(brief, { userId: null, teamId: 'team1', source: 'mcp' })
     expect(db.revisionCreates).toHaveLength(1)
     expect(db.revisionCreates[0]).toMatchObject({ revisionNumber: 1, instruction: 'Original design', ...STAMP, ...FREEFORM })
     expect(db.draftWrites.find((w) => w.op === 'create')!.data).toMatchObject({ ...STAMP, ...DRAFT_FREEFORM })
@@ -228,7 +226,7 @@ describe('030 rendered-text stamp: generation', () => {
   const painted = { headline: { text: 'the headline', verified: true } }
 
   it('sync and async generation stamp the revision and the draft from the check', async () => {
-    await generateDraftForBrief(brief, { userId: null, teamId: 'team1', source: 'scheduler' })
+    await generateDraftForBrief(brief, { userId: null, teamId: 'team1', source: 'mcp' })
     expect(db.revisionCreates[0].renderedText).toEqual(painted)
     expect(db.draftWrites.find((w) => w.op === 'create')!.data.renderedText).toEqual(painted)
 
@@ -242,7 +240,7 @@ describe('030 rendered-text stamp: generation', () => {
 
   it('a failed check is stamped unverified with its reason, on both rows', async () => {
     db.check = 'not-found'
-    await generateDraftForBrief(brief, { userId: null, teamId: 'team1', source: 'scheduler' })
+    await generateDraftForBrief(brief, { userId: null, teamId: 'team1', source: 'mcp' })
     const want = { headline: { text: 'the headline', verified: false, reason: 'not-found' } }
     expect(db.revisionCreates[0].renderedText).toEqual(want)
     expect(db.draftWrites.find((w) => w.op === 'create')!.data.renderedText).toEqual(want)
@@ -263,7 +261,7 @@ describe('030 rendered-text stamp: generation', () => {
 describe('031 render notes: generation', () => {
   it('sync and async generation stamp the revision and the draft from the font check', async () => {
     db.fontsMissing = ['Abhaya Libre']
-    await generateDraftForBrief(brief, { userId: null, teamId: 'team1', source: 'scheduler' })
+    await generateDraftForBrief(brief, { userId: null, teamId: 'team1', source: 'mcp' })
     expect(db.revisionCreates[0].renderNotes).toEqual({ fontsMissing: ['Abhaya Libre'] })
     expect(db.draftWrites.find((w) => w.op === 'create')!.data.renderNotes).toEqual({ fontsMissing: ['Abhaya Libre'] })
 

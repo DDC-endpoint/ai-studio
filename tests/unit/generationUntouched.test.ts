@@ -4,6 +4,7 @@
 import { describe, it, expect } from 'vitest'
 import { buildBrandKitSystemContext } from '@/lib/brandkit/systemContext'
 import { PROMPT_VERSION } from '@/lib/agent/prompts/shared'
+import { CAPTION_PROMPT_VERSION } from '@/lib/agent/prompts/caption'
 import { POST_STYLES_REVISION } from '@/lib/postStyles'
 import type { ResolvedBrandKit } from '@/lib/brandkit/resolve'
 
@@ -21,6 +22,7 @@ const kit: ResolvedBrandKit = {
     { label: 'Reversed', url: 'https://cdn.example/logo-w.png', primary: false },
   ],
   voicePrompt: 'Warm and direct. Keep clear space of 1.5 wordmark letters.',
+  website: null,
   source: 'explicit',
 }
 
@@ -39,7 +41,11 @@ describe('generation is untouched by 007', () => {
       ].join('\n'),
     )
   })
-  it('PROMPT_VERSION moved only by 027 (the derived post-styles suffix) and 031 (the base bump)', () => {
-    expect(PROMPT_VERSION).toBe(`2026-10-29.1+ps${POST_STYLES_REVISION}`)
+  it('PROMPT_VERSION moved only by 027 (the derived post-styles suffix), 031 and 039 (the base bumps)', () => {
+    // 2026-11-02.1: the Path B user message lost its "Channels:" line (039 D21).
+    expect(PROMPT_VERSION).toBe(`2026-11-02.1+ps${POST_STYLES_REVISION}`)
+  })
+  it('CAPTION_PROMPT_VERSION is pinned (039 T4: the Facebook rules and the website line)', () => {
+    expect(CAPTION_PROMPT_VERSION).toBe(`2026-11-02.3+ps${POST_STYLES_REVISION}`)
   })
 })

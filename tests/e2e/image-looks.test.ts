@@ -19,11 +19,10 @@ import { archetypes } from '../../src/lib/designData/composition'
 // at 9:16, v1 for the two new ones).
 //
 // Generation cases run in their OWN fresh team (disposed afterwards), with one
-// enabled non-default IMAGE row, as §AA does. The wizard and queue cases run in
+// enabled non-default IMAGE row, as §AA does. The wizard cases run in
 // the seeded Bistec team and clean up after themselves.
 
 const MOCKED = () => !!(process.env.MOCK_AI && process.env.MOCK_PUPPETEER)
-const MOCKED_ALL = () => !!(process.env.MOCK_AI && process.env.MOCK_PUPPETEER && process.env.MOCK_SOCIAL)
 const SIZES = ['SQUARE', 'PORTRAIT', 'STORY'] as const
 const tag = () => `${Date.now()}${Math.floor(Math.random() * 1000)}`
 
@@ -291,102 +290,8 @@ test.describe('§AF — image looks, generation and the stamp', () => {
   })
 })
 
-// ── TC-LOOK-11: unattended surfaces stay classic (the seeded team) ───────────
-
-test.describe('§AF — unattended surfaces are unchanged', () => {
-  let admin: ApiClient
-  let campaignId = ''
-  test.beforeEach(async ({ request }) => {
-    test.skip(!MOCKED_ALL() || !dbAvailable, 'needs the mock seams and test DB access (the generation tick)')
-    admin = await loginAs(request, ADMIN_EMAIL, ADMIN_PASSWORD)
-    // Stale due entries from earlier suites would be claimed by the tick's small batch.
-    await prisma!.scheduledGeneration.updateMany({ where: { status: 'PENDING' }, data: { status: 'CANCELLED' } })
-    const kitId = (await (await admin.post('/api/admin/brandkits', { name: `Look Q Kit ${tag()}`, colors: ['#0284c7'] })).json()).id
-    campaignId = (await (await admin.post('/api/campaigns', { name: `Look Q Camp ${tag()}`, brandKitId: kitId })).json()).id
-  })
-  test.afterEach(async () => {
-    if (campaignId) {
-      await prisma!.scheduledGeneration.updateMany({ where: { campaignId, status: 'PENDING' }, data: { status: 'CANCELLED' } })
-    }
-    await admin?.dispose()
-  })
-
-  test('TC-LOOK-11: a queue entry with postStyle launch at 9:16 runs classic: the brief stores classic and the stamp is a classic one', async () => {
-    const res = await admin.post(`/api/campaigns/${campaignId}/queue`, {
-      topic: `Look queue launch ${tag()}`,
-      channels: ['INSTAGRAM'],
-      designMode: 'GENERATE',
-      aspectRatio: 'STORY',
-      postStyle: 'launch',
-      generateAt: new Date(Date.now() + 24 * 3600_000).toISOString(),
-      postAction: 'HOLD',
-    })
-    expect(res.status(), await res.text()).toBe(201)
-    const entryId = (await res.json()).id as string
-
-    let row = await prisma!.scheduledGeneration.findUnique({ where: { id: entryId } })
-    for (let i = 0; i < 6; i++) {
-      await prisma!.scheduledGeneration.update({
-        where: { id: entryId },
-        data: { generateAt: new Date(Date.now() - 1000), nextRetryAt: null },
-      })
-      expect((await admin.post('/api/test/generation-tick', {})).status()).toBe(200)
-      row = await prisma!.scheduledGeneration.findUnique({ where: { id: entryId } })
-      if (row && (row.status !== 'PENDING' || row.retryCount > 0)) break
-    }
-    expect(row!.status, String(row!.errorReason)).toBe('COMPLETED')
-    expect(row!.heldReason).toBeNull()
-
-    const brief = await prisma!.brief.findUnique({ where: { id: row!.briefId! } })
-    expect(brief!.imageStyle).toBe('classic')
-    expect(brief!.aspectRatio).toBe('STORY')
-    const draft = await prisma!.draft.findUnique({ where: { id: row!.draftId! }, select: { composition: true } })
-    expect(draft!.composition).toEqual(stamp({ requestedArchetype: 'classic', appliedArchetype: 'classic' }))
-  })
-
-  // T7 (FR-16, AC-20): Event and Hiring now default to Full-bleed scene in the wizard;
-  // an unattended entry for either still resolves classic (unattended-classic).
-  for (const [id, postStyle] of [
-    ['TC-LOOK-15', 'event'],
-    ['TC-LOOK-16', 'hiring'],
-    ['TC-LOOK-19', 'promotion'], // 031 T18
-    ['TC-LOOK-20', 'milestone'], // 031 T18
-  ] as const) {
-    test(`${id}: a queue entry with postStyle ${postStyle} at 9:16 runs classic although the style now defaults to a look`, async () => {
-      const res = await admin.post(`/api/campaigns/${campaignId}/queue`, {
-        topic: `Look queue ${postStyle} ${tag()}`,
-        channels: ['INSTAGRAM'],
-        designMode: 'GENERATE',
-        aspectRatio: 'STORY',
-        postStyle,
-        generateAt: new Date(Date.now() + 24 * 3600_000).toISOString(),
-        postAction: 'HOLD',
-      })
-      expect(res.status(), await res.text()).toBe(201)
-      const entryId = (await res.json()).id as string
-
-      let row = await prisma!.scheduledGeneration.findUnique({ where: { id: entryId } })
-      for (let i = 0; i < 6; i++) {
-        await prisma!.scheduledGeneration.update({
-          where: { id: entryId },
-          data: { generateAt: new Date(Date.now() - 1000), nextRetryAt: null },
-        })
-        expect((await admin.post('/api/test/generation-tick', {})).status()).toBe(200)
-        row = await prisma!.scheduledGeneration.findUnique({ where: { id: entryId } })
-        if (row && (row.status !== 'PENDING' || row.retryCount > 0)) break
-      }
-      expect(row!.status, String(row!.errorReason)).toBe('COMPLETED')
-      expect(row!.heldReason).toBeNull()
-
-      const brief = await prisma!.brief.findUnique({ where: { id: row!.briefId! } })
-      expect(brief!.postStyle).toBe(postStyle)
-      expect(brief!.imageStyle).toBe('classic')
-      expect(brief!.aspectRatio).toBe('STORY')
-      const draft = await prisma!.draft.findUnique({ where: { id: row!.draftId! }, select: { composition: true } })
-      expect(draft!.composition).toEqual(stamp({ requestedArchetype: 'classic', appliedArchetype: 'classic' }))
-    })
-  }
-})
+// ── TC-LOOK-11, 15, 16, 19, 20 (a queue entry runs classic) were removed with the
+// campaign queue (037 T2). ACP and MCP stay unattended-classic (unit: postStylesResolve).
 
 // ── TC-LOOK-10: the wizard (the seeded Bistec team) ──────────────────────────
 
@@ -424,7 +329,7 @@ test.describe('§AF — the wizard picker', () => {
   test('TC-LOOK-10: five cards, none disabled at any size; Launch and Announcement at 9:16 pre-fill their look; Spotlight at 9:16 is sent, shown on Review and resumed; axe on step 1', async ({ page }) => {
     await pageLogin(page)
     await page.goto('/brief')
-    await expect(page.getByRole('heading', { name: 'Select a campaign' })).toBeVisible({ timeout: 20_000 })
+    await expect(page.getByRole('heading', { name: 'Select a project' })).toBeVisible({ timeout: 20_000 })
     const cont = page.getByRole('button', { name: /continue/i })
     await cont.click()
     await expect(page.getByRole('heading', { name: 'Size & Design' })).toBeVisible()
@@ -510,7 +415,7 @@ test.describe('§AF — the wizard picker', () => {
     test(`${id}: the ${postStyle} post style pre-fills ${look} at 1:1 and at 9:16, with the hint`, async ({ page }) => {
       await pageLogin(page)
       await page.goto('/brief')
-      await expect(page.getByRole('heading', { name: 'Select a campaign' })).toBeVisible({ timeout: 20_000 })
+      await expect(page.getByRole('heading', { name: 'Select a project' })).toBeVisible({ timeout: 20_000 })
       await page.getByRole('button', { name: /continue/i }).click()
       await expect(page.getByRole('heading', { name: 'Size & Design' })).toBeVisible()
       const kit = page.getByRole('combobox', { name: 'Brand kit' })

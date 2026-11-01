@@ -11,10 +11,10 @@ import {
 //
 // Fixtures (scripts/seed-teams.mjs, run by test:e2e:db): two teams —
 // "Bistec" (adminBTG=ADMIN, editor=EDITOR) and "ClientX" (clientx.admin=ADMIN,
-// fixed test password) — each with one BrandKit ("<Team> Kit"), one Campaign
-// ("<Team> Campaign"), one uncategorized EXPORTED brief+draft
-// ("<Team> Uncategorized Post"), and one campaign-linked EXPORTED brief+draft
-// ("<Team> Campaign Post"). This suite asserts NOTHING from one team is ever
+// fixed test password) — each with one BrandKit ("<Team> Kit"), one Project
+// ("<Team> Project", default kit "<Team> Kit"), one unassigned EXPORTED brief+draft
+// ("<Team> Uncategorized Post"), and one project-assigned EXPORTED brief+draft
+// ("<Team> Project Post"). This suite asserts NOTHING from one team is ever
 // visible, readable, or writable from the other — by id-absence, not counts
 // (other suites/dev-machine data may add unrelated rows to either team), and
 // every test is independent (no shared mutable state across test bodies —
@@ -55,10 +55,10 @@ async function findByTopic(api: ApiClient, topic: string): Promise<string> {
   return hit.id
 }
 
-async function findCampaignByName(api: ApiClient, name: string): Promise<string> {
-  const campaigns = await (await api.get('/api/campaigns')).json()
-  const hit = (campaigns as { id: string; name: string }[]).find((c) => c.name === name)
-  if (!hit) throw new Error(`team-isolation fixture missing: campaign "${name}"`)
+async function findProjectByName(api: ApiClient, name: string): Promise<string> {
+  const projects = await (await api.get('/api/projects')).json()
+  const hit = (projects as { id: string; name: string }[]).find((p) => p.name === name)
+  if (!hit) throw new Error(`team-isolation fixture missing: project "${name}"`)
   return hit.id
 }
 
@@ -77,8 +77,8 @@ test.describe('Cross-tenant isolation (D7)', () => {
   // Bistec fixture ids, resolved once (from the seed's well-known names) or
   // created once, and reused read-only by every independent test below.
   let bistecUncategorizedDraftId: string
-  let bistecCampaignDraftId: string
-  let bistecCampaignId: string
+  let bistecProjectPostDraftId: string
+  let bistecSeedProjectId: string
   let bistecKitId: string
   let bistecProjectId: string
 
@@ -88,8 +88,8 @@ test.describe('Cross-tenant isolation (D7)', () => {
     clientxAdmin = await loginAs(request, CLIENTX_EMAIL, CLIENTX_PASSWORD, { team: 'ClientX' })
 
     bistecUncategorizedDraftId = await findByTopic(bistecAdmin, 'Bistec Uncategorized Post')
-    bistecCampaignDraftId = await findByTopic(bistecAdmin, 'Bistec Campaign Post')
-    bistecCampaignId = await findCampaignByName(bistecAdmin, 'Bistec Campaign')
+    bistecProjectPostDraftId = await findByTopic(bistecAdmin, 'Bistec Project Post')
+    bistecSeedProjectId = await findProjectByName(bistecAdmin, 'Bistec Project')
     bistecKitId = await findKitByName(bistecAdmin, 'Bistec Kit')
 
     const project = await (
@@ -105,14 +105,14 @@ test.describe('Cross-tenant isolation (D7)', () => {
   })
 
   // ── List routes: zero Bistec rows visible from ClientX ─────────────────────
-  test('/api/library, /api/campaigns, /api/admin/brandkits, /api/brandkits as ClientX contain zero Bistec ids', async () => {
+  test('/api/library, /api/projects, /api/admin/brandkits, /api/brandkits as ClientX contain zero Bistec ids', async () => {
     const library = await (await clientxAdmin.get('/api/library?pageSize=50')).json()
     const libraryIds = (library.drafts as { id: string }[]).map((d) => d.id)
     expect(libraryIds).not.toContain(bistecUncategorizedDraftId)
-    expect(libraryIds).not.toContain(bistecCampaignDraftId)
+    expect(libraryIds).not.toContain(bistecProjectPostDraftId)
 
-    const campaigns = await (await clientxAdmin.get('/api/campaigns')).json()
-    expect((campaigns as { id: string }[]).map((c) => c.id)).not.toContain(bistecCampaignId)
+    const projects = await (await clientxAdmin.get('/api/projects')).json()
+    expect((projects as { id: string }[]).map((p) => p.id)).not.toContain(bistecSeedProjectId)
 
     const kits = await (await clientxAdmin.get('/api/admin/brandkits')).json()
     expect((kits as { id: string }[]).map((k) => k.id)).not.toContain(bistecKitId)
@@ -124,24 +124,6 @@ test.describe('Cross-tenant isolation (D7)', () => {
   test('/api/projects as ClientX contains zero Bistec ids', async () => {
     const clientxProjects = await (await clientxAdmin.get('/api/projects')).json()
     expect((clientxProjects as { id: string }[]).map((p) => p.id)).not.toContain(bistecProjectId)
-  })
-
-  test('/api/posts as ClientX contains zero Bistec ids', async () => {
-    // Mint a Bistec post so /api/posts has a real Bistec row to prove absent.
-    // Read the id straight off the create response (201) / the conflict body
-    // (409, if a prior run already created one) rather than scanning the
-    // list — /api/posts caps pageSize at 50 and the whole catalog can leave
-    // Bistec with far more than 50 posts by the time this suite runs.
-    const publish = await bistecAdmin.post('/api/posts', {
-      draftId: bistecUncategorizedDraftId,
-      channel: 'LINKEDIN',
-    })
-    expect([201, 409]).toContain(publish.status())
-    const bistecPostId = (await publish.json()).postId as string
-    expect(bistecPostId).toBeTruthy()
-
-    const clientxPosts = await (await clientxAdmin.get('/api/posts?pageSize=50')).json()
-    expect((clientxPosts.posts as { id: string }[]).map((p) => p.id)).not.toContain(bistecPostId)
   })
 
   test('/api/templates as ClientX contains zero Bistec ids', async () => {
@@ -157,11 +139,22 @@ test.describe('Cross-tenant isolation (D7)', () => {
     expect((clientxTemplates as { id: string }[]).map((t) => t.id)).not.toContain(heartsTemplateId)
   })
 
+  test('GET /api/templates/<id> is 404 across the team boundary, 200 for the owner (040 AC-05)', async () => {
+    const bistecTemplates = await (await bistecAdmin.get('/api/templates')).json()
+    const heartsTemplateId = (bistecTemplates as { id: string; name: string }[]).find((t) =>
+      t.name.includes('Hearts Talk'),
+    )?.id
+    expect(heartsTemplateId).toBeTruthy()
+
+    expect((await bistecAdmin.get(`/api/templates/${heartsTemplateId}`)).status()).toBe(200)
+    expect((await clientxAdmin.get(`/api/templates/${heartsTemplateId}`)).status()).toBe(404)
+  })
+
   // ── By-id routes across the boundary → 404 (GET/PATCH/DELETE) ──────────────
   test('draft by-id (GET/PATCH/DELETE) 404s across the team boundary', async () => {
     expect((await clientxAdmin.get(`/api/drafts/${bistecUncategorizedDraftId}`)).status()).toBe(404)
     expect(
-      (await clientxAdmin.patch(`/api/drafts/${bistecUncategorizedDraftId}`, { channel: 'INSTAGRAM', text: 'hijacked' })).status(),
+      (await clientxAdmin.patch(`/api/drafts/${bistecUncategorizedDraftId}`, { kind: 'GENERAL', text: 'hijacked' })).status(),
     ).toBe(404)
     expect((await clientxAdmin.del(`/api/drafts/${bistecUncategorizedDraftId}`)).status()).toBe(404)
 
@@ -176,13 +169,20 @@ test.describe('Cross-tenant isolation (D7)', () => {
     expect(res.status()).toBe(404)
   })
 
-  test('campaign by-id (GET/PATCH/DELETE) 404s across the team boundary', async () => {
-    expect((await clientxAdmin.get(`/api/campaigns/${bistecCampaignId}`)).status()).toBe(404)
-    expect(
-      (await clientxAdmin.patch(`/api/campaigns/${bistecCampaignId}`, { name: 'hijacked' })).status(),
-    ).toBe(404)
-    expect((await clientxAdmin.del(`/api/campaigns/${bistecCampaignId}`)).status()).toBe(404)
-    expect((await bistecAdmin.get(`/api/campaigns/${bistecCampaignId}`)).status()).toBe(200)
+  // 038 AC-05 (assign and library): the assign route and the library filter keep the team boundary.
+  test('assigning a post to a project 404s across the team boundary, in both directions', async () => {
+    const own = await (await clientxAdmin.post('/api/projects', { name: `Isolation ClientX project ${Date.now()}` })).json()
+    // ClientX cannot touch a Bistec post, even with its own project.
+    expect((await clientxAdmin.put(`/api/drafts/${bistecUncategorizedDraftId}/project`, { projectId: own.id })).status()).toBe(404)
+    expect((await clientxAdmin.put(`/api/drafts/${bistecUncategorizedDraftId}/project`, { projectId: null })).status()).toBe(404)
+    // A Bistec member cannot assign to a ClientX project.
+    const foreign = await bistecAdmin.put(`/api/drafts/${bistecUncategorizedDraftId}/project`, { projectId: own.id })
+    expect(foreign.status()).toBe(404)
+    expect(await foreign.json()).toEqual({ error: 'Project not found', code: 'PROJECT_NOT_FOUND' })
+    // The apply route is a 404 for another team too, and the library filter is the same 404.
+    expect((await clientxAdmin.post(`/api/drafts/${bistecUncategorizedDraftId}/apply-project`)).status()).toBe(404)
+    expect((await bistecAdmin.get(`/api/library?projectId=${own.id}`)).status()).toBe(404)
+    expect((await bistecAdmin.get(`/api/drafts/${bistecUncategorizedDraftId}`)).status()).toBe(200)
   })
 
   test('project by-id (GET/PATCH/DELETE) 404s across the team boundary', async () => {
@@ -203,9 +203,9 @@ test.describe('Cross-tenant isolation (D7)', () => {
     expect((await bistecAdmin.get(`/api/admin/brandkits/${bistecKitId}`)).status()).toBe(200)
   })
 
-  // ── Editor visibility matrix inside Bistec (D6) ─────────────────────────────
-  test('editor sees own + campaign-shared drafts, not the admin\'s private one; team admin sees all three', async () => {
-    // Admin-owned, uncategorized (private) draft — MOCK_AI generation, no campaign.
+  // ── Editor visibility matrix inside Bistec (038 D10) ─────────────────────────────
+  test('editor and team admin both see every team post, an uncategorized one included (038 D10)', async () => {
+    // Admin-owned, unassigned draft — MOCK_AI generation, no project.
     const brief = await (
       await bistecAdmin.post('/api/briefs', {
         topic: `Bistec Admin Private ${Date.now()}`,
@@ -229,13 +229,13 @@ test.describe('Cross-tenant isolation (D7)', () => {
     expect((await findDraftBySearch(bistecEditor, 'Bistec Uncategorized Post'))?.id).toBe(
       bistecUncategorizedDraftId,
     ) // own
-    expect((await findDraftBySearch(bistecEditor, 'Bistec Campaign Post'))?.id).toBe(bistecCampaignDraftId) // campaign-shared
-    expect(await findDraftBySearch(bistecEditor, adminPrivateTopic)).toBeUndefined() // admin's private draft
+    expect((await findDraftBySearch(bistecEditor, 'Bistec Project Post'))?.id).toBe(bistecProjectPostDraftId)
+    expect((await findDraftBySearch(bistecEditor, adminPrivateTopic))?.id).toBe(adminPrivateDraftId) // admin's uncategorized draft: visible to the whole team
 
     expect((await findDraftBySearch(bistecAdmin, 'Bistec Uncategorized Post'))?.id).toBe(
       bistecUncategorizedDraftId,
     )
-    expect((await findDraftBySearch(bistecAdmin, 'Bistec Campaign Post'))?.id).toBe(bistecCampaignDraftId)
+    expect((await findDraftBySearch(bistecAdmin, 'Bistec Project Post'))?.id).toBe(bistecProjectPostDraftId)
     expect((await findDraftBySearch(bistecAdmin, adminPrivateTopic))?.id).toBe(adminPrivateDraftId)
   })
 
@@ -349,9 +349,8 @@ test.describe('Cross-tenant isolation (D7)', () => {
       // Bistec admin cannot.
       expect((await bistecAdmin.get(`/api/drafts/${newDraftId}`)).status()).toBe(404)
 
-      // The same key must not surface Bistec data: publish_post against a
-      // Bistec draft id is treated as "not found" (team-bound machine caller,
-      // Task 13) — surfaced as ACP's generic 422 failure envelope.
+      // The same key must not surface Bistec data. publish_post is gone (037),
+      // so it is refused as an unknown capability whatever draft id it names.
       const crossTeamPublish = await request.post('/api/acp/run', {
         headers: { 'x-bistec-api-key': plaintextKey },
         data: {
@@ -359,18 +358,66 @@ test.describe('Cross-tenant isolation (D7)', () => {
           input: { draftId: bistecUncategorizedDraftId, channel: 'INSTAGRAM' },
         },
       })
-      expect(crossTeamPublish.status()).toBe(422)
-      expect((await crossTeamPublish.json()).error).toContain('not found')
+      expect(crossTeamPublish.status()).toBe(400)
+      expect((await crossTeamPublish.json()).error).toContain('Unknown capability')
     } finally {
       await clientxAdmin.del(`/api/team/api-keys/${created.id}`)
     }
+  })
+
+  // ── A project id from another team (038 D12, AC-05) ─────────────────────────
+  test('a Bistec project id is a 404 PROJECT_NOT_FOUND from the brief route, the post-brief enhance and ACP generate_post', async ({ request }) => {
+    const body = {
+      topic: `Isolation project probe ${Date.now()}`,
+      goal: 'g',
+      tone: 'professional',
+      channels: ['INSTAGRAM'],
+      designMode: 'GENERATE',
+      copyProviderKey: 'cli',
+      projectId: bistecProjectId,
+    }
+    const brief = await clientxAdmin.post('/api/briefs', body)
+    expect(brief.status()).toBe(404)
+    expect((await brief.json()).code).toBe('PROJECT_NOT_FOUND')
+
+    const enhance = await clientxAdmin.post('/api/briefs/enhance', {
+      topic: 'probe',
+      content: 'a rough brief',
+      projectId: bistecProjectId,
+    })
+    expect(enhance.status()).toBe(404)
+    expect((await enhance.json()).code).toBe('PROJECT_NOT_FOUND')
+
+    const created = await (
+      await clientxAdmin.post('/api/team/api-keys', { label: `isolation-project ${Date.now()}` })
+    ).json()
+    try {
+      const acp = await request.post('/api/acp/run', {
+        headers: { 'x-bistec-api-key': created.plaintext as string },
+        data: {
+          capability: 'generate_post',
+          input: { topic: body.topic, channels: ['INSTAGRAM'], designMode: 'GENERATE', projectId: bistecProjectId },
+        },
+      })
+      expect(acp.status()).toBe(404)
+      expect((await acp.json()).code).toBe('PROJECT_NOT_FOUND')
+    } finally {
+      await clientxAdmin.del(`/api/team/api-keys/${created.id}`)
+    }
+
+    // The same answer as an id that does not exist, so the route is no existence oracle (NFR-07).
+    const unknown = await clientxAdmin.post('/api/briefs', { ...body, projectId: 'proj_does_not_exist' })
+    expect(unknown.status()).toBe(404)
+    expect(await unknown.json()).toEqual(await (await clientxAdmin.post('/api/briefs', body)).json())
+    // The project is unchanged.
+    expect((await bistecAdmin.get(`/api/projects/${bistecProjectId}`)).status()).toBe(200)
   })
 
   // ── Brief-draft autosaves stay owner-only, no admin override (unchanged) ───
   test('Bistec team admin GET of the editor\'s brief-draft id is 404 (no admin override)', async () => {
     const payload = {
       step: 1,
-      campaignId: '',
+      projectId: '',
       aspectRatio: 'SQUARE',
       brandKitId: '',
       designMode: 'GENERATE',
@@ -397,7 +444,7 @@ test.describe('Cross-tenant isolation (D7)', () => {
   // ── Final whole-branch review guardrails (D7) ──────────────────────────────
   // Brand kits and templates were teamId-stamped but never fully brought
   // inside the tenant boundary (resolveBrandKit's default tier, MCP brand-kit
-  // tools, Path A/B template lookups, campaign/project FK injection). These
+  // tools, Path A/B template lookups, project FK injection). These
   // cases reproduce each named attack shape from the review.
 
   test('foreign templateId on assemble-a (Path A) is rejected — cannot render another team\'s template (I1)', async () => {
@@ -450,28 +497,7 @@ test.describe('Cross-tenant isolation (D7)', () => {
     expect((await res.json()).error).toBe('Reference template not found')
   })
 
-  test('foreign brandKitId/projectId injection on campaign create/patch and project create/patch is rejected (I3)', async () => {
-    // Create: campaign with another team's brandKitId.
-    const campaignByKit = await clientxAdmin.post('/api/campaigns', {
-      name: `Isolation campaign kit-injection ${Date.now()}`,
-      brandKitId: bistecKitId,
-    })
-    expect(campaignByKit.status()).toBe(400)
-
-    // Create: campaign with another team's projectId.
-    const campaignByProject = await clientxAdmin.post('/api/campaigns', {
-      name: `Isolation campaign project-injection ${Date.now()}`,
-      projectId: bistecProjectId,
-    })
-    expect(campaignByProject.status()).toBe(400)
-
-    // Patch: a real ClientX campaign, injecting Bistec's brandKitId.
-    const ownCampaign = await (
-      await clientxAdmin.post('/api/campaigns', { name: `Isolation own campaign ${Date.now()}` })
-    ).json()
-    const patchByKit = await clientxAdmin.patch(`/api/campaigns/${ownCampaign.id}`, { brandKitId: bistecKitId })
-    expect(patchByKit.status()).toBe(400)
-
+  test('foreign brandKitId/projectId injection on project create/patch is rejected (I3)', async () => {
     // Create: project with another team's defaultBrandKitId.
     const projectByKit = await clientxAdmin.post('/api/projects', {
       name: `Isolation project kit-injection ${Date.now()}`,
@@ -495,7 +521,7 @@ test.describe('Cross-tenant isolation (D7)', () => {
     // NoBrandKitError is thrown by resolveGenerationInputs BEFORE any model
     // call (createPendingDraft validates synchronously), so this assertion
     // holds regardless of MOCK_AI. NoKitCo (scripts/seed-teams.mjs) has a
-    // real 'cli' COPY provider but deliberately no BrandKit, campaign, or
+    // real 'cli' COPY provider but deliberately no BrandKit, project, or
     // project — before the C1 fix, resolveBrandKit's unscoped last-resort
     // tier would have silently handed this team Bistec's real
     // isDefault=true kit instead of failing.

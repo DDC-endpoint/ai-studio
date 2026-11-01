@@ -9,14 +9,13 @@ import {
   NORMALISE_HEADLINE_SOURCE,
   MOCK_HEADLINE_HIDDEN,
   evaluateHeadlineFacts,
-  formatScheduledDate,
   headlineImageFor,
   headlineNoticeText,
   headlineState,
   mockHeadlineCheck,
   normaliseHeadline,
   parseRenderedText,
-  publishLineFor,
+  downloadLineFor,
   renderedTextColumn,
   renderedTextSchema,
   stampFromCheck,
@@ -288,40 +287,33 @@ describe('headlineState (FR-11, AC-09)', () => {
 })
 
 describe('headlineImageFor (FR-12)', () => {
-  const sched = { count: 2, nextAt: '2026-11-03T09:00:00.000Z' }
-
   it('fills only the fields each state names', () => {
-    expect(headlineImageFor({ headline: { text: 'Old', verified: true } }, 'New', sched)).toEqual({
+    expect(headlineImageFor({ headline: { text: 'Old', verified: true } }, 'New')).toEqual({
       state: 'stale',
       renderedHeadline: 'Old',
       reason: null,
-      scheduledPosts: sched,
     })
     expect(
       headlineImageFor(
         { headline: { text: 'Old', verified: false, reason: 'not-found' } },
         'New',
-        sched,
       ),
     ).toEqual({
       state: 'unconfirmed',
       renderedHeadline: null,
       reason: 'not-found',
-      scheduledPosts: sched,
     })
-    expect(headlineImageFor({ headline: { text: 'Same', verified: true } }, 'same', sched)).toEqual(
+    expect(headlineImageFor({ headline: { text: 'Same', verified: true } }, 'same')).toEqual(
       {
         state: 'fresh',
         renderedHeadline: null,
         reason: null,
-        scheduledPosts: null,
       },
     )
-    expect(headlineImageFor(null, 'New', sched)).toEqual({
+    expect(headlineImageFor(null, 'New')).toEqual({
       state: 'unknown',
       renderedHeadline: null,
       reason: null,
-      scheduledPosts: null,
     })
   })
 })
@@ -332,12 +324,10 @@ describe('notice text (FR-13, FR-14)', () => {
       state: 'stale',
       renderedHeadline: 'Old one',
       reason: null,
-      scheduledPosts: null,
     })
     expect(n).toEqual({
       headline: 'The image still shows the previous headline “Old one”.',
       reasonLine: null,
-      scheduledLine: null,
     })
   })
 
@@ -353,52 +343,25 @@ describe('notice text (FR-13, FR-14)', () => {
         state: 'unconfirmed',
         renderedHeadline: null,
         reason,
-        scheduledPosts: null,
       })
       expect(n?.headline).toBe("We couldn't confirm that the image shows the current headline.")
       expect(n?.reasonLine).toBe(lines[reason])
     }
   })
 
-  it('resolves the plural of the scheduled line', () => {
-    const one = headlineNoticeText({
-      state: 'stale',
-      renderedHeadline: 'Old',
-      reason: null,
-      scheduledPosts: { count: 1, nextAt: '2026-11-03T09:00:00.000Z' },
-    })
-    expect(one?.scheduledLine).toBe(
-      '1 scheduled post will publish this image, the next on 3 Nov 2026.',
-    )
-    const two = headlineNoticeText({
-      state: 'unconfirmed',
-      renderedHeadline: null,
-      reason: 'not-found',
-      scheduledPosts: { count: 2, nextAt: '2026-12-25T23:30:00.000Z' },
-    })
-    expect(two?.scheduledLine).toBe(
-      '2 scheduled posts will publish this image, the next on 25 Dec 2026.',
-    )
-  })
-
   it('shows nothing for fresh and unknown', () => {
     for (const state of ['fresh', 'unknown'] as const) {
       expect(
-        headlineNoticeText({ state, renderedHeadline: null, reason: null, scheduledPosts: null }),
+        headlineNoticeText({ state, renderedHeadline: null, reason: null }),
       ).toBeNull()
-      expect(publishLineFor(state)).toBeNull()
+      expect(downloadLineFor(state)).toBeNull()
     }
   })
 
-  it('the publish lines', () => {
-    expect(publishLineFor('stale')).toBe('The image shows an older headline.')
-    expect(publishLineFor('unconfirmed')).toBe(
+  it('the download lines', () => {
+    expect(downloadLineFor('stale')).toBe('The image shows an older headline.')
+    expect(downloadLineFor('unconfirmed')).toBe(
       "We couldn't confirm the image shows the current headline.",
     )
-  })
-
-  it('formats the date in UTC, locale-free', () => {
-    expect(formatScheduledDate('2026-01-01T00:00:00.000Z')).toBe('1 Jan 2026')
-    expect(formatScheduledDate('not a date')).toBe('not a date')
   })
 })

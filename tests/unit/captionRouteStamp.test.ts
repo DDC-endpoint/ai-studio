@@ -27,6 +27,18 @@ const { OpenAICopyProvider } = await import('@/providers/implementations/copy/op
 const { writeCaptions } = await import('@/lib/captions/generate')
 const { captionRowsFromFields, headlineStampFields } = await import('@/lib/captions/store')
 const { settleCaptionRow } = await import('@/lib/captions/actionTargets')
+
+// A stored caption row as the settle rule reads it (039: kind, deletedAt, the
+// stamp and the source hash come with the text).
+const rowOf = (text: string) => ({
+  kind: 'CURATED' as const,
+  text,
+  deletedAt: null,
+  model: null,
+  modelSubstitutedFrom: null,
+  route: null,
+  generalHash: null,
+})
 const { decideModel } = await import('@/lib/models/resolve')
 
 const decided = decideModel('CAPTION', {
@@ -90,20 +102,20 @@ describe('the writers put route beside model, and only with validated text', () 
   })
 
   it('settleCaptionRow: a stamp writes both; no stamp writes neither', () => {
-    expect(settleCaptionRow({ text: '' }, { ok: true, text: 'new' }, stamp)).toMatchObject({
+    expect(settleCaptionRow(rowOf(''), { ok: true, text: 'new' }, stamp)).toMatchObject({
       model: stamp.model,
       route: 'CLI',
     })
-    const bare = settleCaptionRow({ text: '' }, { ok: true, text: 'new' })
+    const bare = settleCaptionRow(rowOf(''), { ok: true, text: 'new' })
     expect(bare).not.toHaveProperty('model')
     expect(bare).not.toHaveProperty('route')
   })
 
   it('a failed regenerate keeps the route of the text it keeps (writes no route key)', () => {
-    const kept = settleCaptionRow({ text: 'old' }, { ok: false, reason: 'empty' }, stamp)
+    const kept = settleCaptionRow(rowOf('old'), { ok: false, reason: 'empty' }, stamp)
     expect(kept).toMatchObject({ status: 'READY', text: 'old' })
     expect(kept).not.toHaveProperty('route')
-    const failed = settleCaptionRow({ text: '' }, { ok: false, reason: 'empty' }, stamp)
+    const failed = settleCaptionRow(rowOf(''), { ok: false, reason: 'empty' }, stamp)
     expect(failed).not.toHaveProperty('route')
   })
 

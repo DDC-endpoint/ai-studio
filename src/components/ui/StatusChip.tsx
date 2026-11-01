@@ -45,7 +45,7 @@ type StatusChipProps = StatusChipStatusProps | StatusChipToneProps
 // spells its utilities out.
 const statusConfig: Record<PostStatus, { label: string; classes: string }> = {
   draft: { label: 'Draft', classes: 'bg-status-draft/10 text-status-draft' },
-  exported: { label: 'Exported', classes: 'bg-status-exported/10 text-status-exported' },
+  exported: { label: 'Ready', classes: 'bg-status-exported/10 text-status-exported' },
   scheduled: { label: 'Scheduled', classes: 'bg-status-scheduled/10 text-status-scheduled' },
   published: { label: 'Published', classes: 'bg-status-published/10 text-status-published' },
   failed: { label: 'Failed', classes: 'bg-status-failed/10 text-status-failed' },

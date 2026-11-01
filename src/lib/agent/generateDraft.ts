@@ -1,7 +1,6 @@
 import type { Brief, Draft } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
-import { resolveBrandKit } from '@/lib/brandkit/resolve'
-import { getActiveCampaignBriefing } from '@/lib/campaign/briefing'
+import { newPostContext, postContext, type PostContext } from '@/lib/projects/context'
 import { resolveCopyProvider } from '@/providers/registry'
 import { briefPostStyleStamp, buildBriefInput } from '@/lib/agent/briefInput'
 import { runPathADesign, assertTemplateMatchesBrief } from '@/lib/agent/pathA'
@@ -16,21 +15,21 @@ import { generationImageSource, type ImageSourceWrite } from '@/lib/drafts/image
 import type { GenerationActor, GenerationRunActor } from '@/lib/agent/types'
 import { track } from '@/lib/analytics/track'
 import { newUsage, usageFields, withUsage, type UsageStore } from '@/lib/analytics/trace'
-import { CAPTION_CHANNELS } from '@/lib/channels'
+import { CAPTION_REGISTRY } from '@/lib/channels'
 import { GENERATION_TARGETS, requireHeadline, writeCaptions } from '@/lib/captions/generate'
 import { captionRowsFromFields, headlineStampFields, saveGenerationCaptions, type CaptionStamp } from '@/lib/captions/store'
 import { resolveModel } from '@/lib/models/policy'
 import type { ResolvedModel } from '@/lib/models/resolve'
 import { touchGeneration } from '@/lib/drafts/draftActions'
 import { computeFactsCheck } from '@/lib/factsCheck/refresh'
-import { parseFactsCheck, type CheckText, type FactWhere, type FactsCheck } from '@/lib/factsCheck'
+import { parseFactsCheck, type CheckText, type FactsCheck } from '@/lib/factsCheck'
 import { isStyleKey } from '@/lib/postStyles'
 import type { Prisma } from '@prisma/client'
 
 // Path B needs a resolvable brand kit; thrown before any model call is paid for.
 export class NoBrandKitError extends Error {
   constructor() {
-    super('No brand kit found — configure a brand kit for this campaign, project, or ask a team admin to set a team default.')
+    super('No brand kit found — configure a brand kit for this project, pick one for the post, or ask a team admin to set a team default.')
     this.name = 'NoBrandKitError'
   }
 }
@@ -88,8 +87,8 @@ export interface GenerateDraftResult {
 }
 
 interface ResolvedInputs {
-  kit: Awaited<ReturnType<typeof resolveBrandKit>>
-  campaignBriefing: Awaited<ReturnType<typeof getActiveCampaignBriefing>>
+  // 038 D6: the kit and the project briefing live in the context.
+  ctx: PostContext
   template: Awaited<ReturnType<typeof prisma.brandKitTemplate.findUnique>>
 }
 
@@ -100,12 +99,9 @@ interface ResolvedInputs {
 async function resolveGenerationInputs(
   brief: Brief,
   templateId: string | null | undefined,
+  ctx: PostContext,
 ): Promise<ResolvedInputs> {
-  // Brand kit precedence: explicit brief kit → campaign → project → team default.
-  const kit = await resolveBrandKit(brief.teamId, brief.campaignId ?? undefined, brief.brandKitId ?? undefined)
-  // Campaign-level briefing (when the brief's campaign has an active one) —
-  // injected into copy and design prompts alongside the brand voice.
-  const campaignBriefing = await getActiveCampaignBriefing(brief.campaignId)
+  const kit = ctx.kit
 
   let template = null
   if (brief.designMode === 'TEMPLATE') {
@@ -122,7 +118,7 @@ async function resolveGenerationInputs(
   } else if (!kit) {
     throw new NoBrandKitError()
   }
-  return { kit, campaignBriefing, template }
+  return { ctx, template }
 }
 
 interface ProducedDesign {
@@ -144,7 +140,7 @@ interface ProducedDesign {
 // headline only, never a caption (012 FR-09).
 async function produceDesign(
   brief: Brief,
-  { kit, campaignBriefing, template }: ResolvedInputs,
+  { ctx, template }: ResolvedInputs,
   headline: string,
   actor: GenerationActor,
   // 008: the design surface's model (resolveGenerationModels); it is also the
@@ -156,7 +152,7 @@ async function produceDesign(
 ): Promise<ProducedDesign> {
   if (template) {
     await onBeforeDesign?.()
-    const result = await runPathADesign(brief, kit, template, headline, campaignBriefing, actor, model)
+    const result = await runPathADesign(brief, ctx, template, headline, actor, model)
     return {
       htmlContent: result.htmlContent,
       exportUrl: result.exportUrl,
@@ -176,7 +172,7 @@ async function produceDesign(
       ),
     }
   }
-  const result = await runPathBDesign(brief, kit!, headline, campaignBriefing, actor, model, { onBeforeDesign })
+  const result = await runPathBDesign(brief, ctx, headline, actor, model, { onBeforeDesign })
   return {
     htmlContent: result.htmlContent,
     exportUrl: result.exportUrl,
@@ -314,9 +310,9 @@ async function emitGenerationFinished(
 // reply is not stored, so it is not checked.
 function checkTexts(headline: string, fields: Awaited<ReturnType<typeof writeCaptions>>['fields']): CheckText[] {
   const texts: CheckText[] = [{ where: 'headline', text: headline }]
-  for (const { channel } of CAPTION_CHANNELS) {
-    const field = fields[channel]
-    if (field?.ok && field.text) texts.push({ where: channel as FactWhere, text: field.text })
+  for (const { target } of CAPTION_REGISTRY) {
+    const field = fields[target]
+    if (field?.ok && field.text) texts.push({ where: target, text: field.text })
   }
   return texts
 }
@@ -362,12 +358,14 @@ async function generateDraftForBriefInner(
   // model call is paid for (a sync failure creates no draft).
   const models = await resolveGenerationModels(brief, actor)
   trace.models = models
-  const inputs = await resolveGenerationInputs(brief, opts?.templateId)
+  // 038 D3: resolved live from the brief; its stamp is written in the draft's own create.
+  const ctx = await newPostContext(brief)
+  const inputs = await resolveGenerationInputs(brief, opts?.templateId, ctx)
 
   const copyProvider = await resolveCopyProvider(brief.teamId, brief.copyProviderKey ?? undefined)
   const { fields, stamp: captionStamp } = await writeCaptions(
     copyProvider,
-    buildBriefInput(brief, inputs.kit, inputs.campaignBriefing),
+    buildBriefInput(brief, ctx),
     GENERATION_TARGETS,
     models.caption,
   )
@@ -381,7 +379,7 @@ async function generateDraftForBriefInner(
   const factsCheck = await computeFactsCheck({
     brief,
     texts: checkTexts(headline, fields),
-    preloaded: { campaignBriefing: inputs.campaignBriefing ?? null, voicePrompt: inputs.kit?.voicePrompt ?? null },
+    ctx,
   })
 
   trace.factsCheck = factsCheck
@@ -401,6 +399,7 @@ async function generateDraftForBriefInner(
         factsCheck: factsCheck as unknown as Prisma.InputJsonValue,
         htmlContent: design.htmlContent,
         templateId: inputs.template?.id ?? null,
+        generationInputs: ctx.inputs,
         exportUrl: design.exportUrl,
         imageUrl: design.backgroundImageUrl,
         ...design.backgroundSkip,
@@ -433,8 +432,8 @@ async function generateDraftForBriefInner(
 // and never awaited by the request). The draft page polls while IN_PROGRESS.
 
 // Validate inputs and create an IN_PROGRESS placeholder draft (no headline, no
-// image yet) with one PENDING caption row per registry channel, in one
-// transaction (the nested create). Throws the same typed errors as the sync
+// image yet) with its one PENDING general caption row, in one transaction (the
+// nested create; 039 D10). Throws the same typed errors as the sync
 // path BEFORE any draft exists, so the route can return a 4xx for bad input.
 // A PENDING row is the "caption not written yet" state the preview page
 // renders as a skeleton.
@@ -442,20 +441,25 @@ export async function createPendingDraft(
   brief: Brief,
   opts?: { templateId?: string | null },
 ): Promise<Draft> {
-  const inputs = await resolveGenerationInputs(brief, opts?.templateId)
+  const ctx = await newPostContext(brief)
+  const inputs = await resolveGenerationInputs(brief, opts?.templateId, ctx)
   return prisma.draft.create({
     data: {
       teamId: brief.teamId,
       briefId: brief.id,
       templateId: inputs.template?.id ?? null,
+      // 038 D3: written once, here; retry reuses it and never re-resolves.
+      generationInputs: ctx.inputs,
       status: 'IN_PROGRESS',
-      captions: { create: CAPTION_CHANNELS.map(({ channel }) => ({ channel, status: 'PENDING' as const })) },
+      captions: {
+        create: [{ kind: 'GENERAL' as const, channel: null, status: 'PENDING' as const }],
+      },
     },
   })
 }
 
 // Run the heavy generation for an existing IN_PROGRESS draft: one caption call
-// for every channel and the headline, written the moment it's ready (rows +
+// for the headline and the general caption, written the moment it's ready (rows +
 // headline in one transaction, so the caption skeletons resolve independently
 // of the image) → design + render from the headline → finalize as EXPORTED
 // with a v1 revision. No valid headline fails the draft (A6) and keeps the
@@ -481,12 +485,14 @@ async function runGenerationForDraftInner(draftId: string, actor: GenerationRunA
     // never an explicit request. NO_ALLOWED_MODEL fails the draft with its message.
     const models = await resolveGenerationModels(draft.brief, actor)
     trace.models = models
-    const inputs = await resolveGenerationInputs(draft.brief, draft.templateId)
+    // 038 D3: the recorded stamp, not the brief's current assignment.
+    const ctx = await postContext(draft)
+    const inputs = await resolveGenerationInputs(draft.brief, draft.templateId, ctx)
 
     const copyProvider = await resolveCopyProvider(draft.brief.teamId, draft.brief.copyProviderKey ?? undefined)
     const { fields, stamp: captionStamp } = await writeCaptions(
       copyProvider,
-      buildBriefInput(draft.brief, inputs.kit, inputs.campaignBriefing),
+      buildBriefInput(draft.brief, ctx),
       GENERATION_TARGETS,
       models.caption,
     )
@@ -513,11 +519,11 @@ async function runGenerationForDraftInner(draftId: string, actor: GenerationRunA
           failureReason: reason,
           // A row still PENDING here was never written (the caption call
           // itself failed); PENDING must mean "work is running", so it fails
-          // with the draft. Rows that were written are kept, and so is a row
-          // for a channel outside the registry (a hidden WhatsApp row, 026).
+          // with the draft. A written row is kept, and so is every curated row
+          // (an old post's, or a hidden WhatsApp row, 026).
           captions: {
             updateMany: {
-              where: { status: 'PENDING', channel: { in: CAPTION_CHANNELS.map((s) => s.channel) } },
+              where: { status: 'PENDING', kind: 'GENERAL' },
               data: { status: 'FAILED', text: '', failureReason: 'generation failed' },
             },
           },

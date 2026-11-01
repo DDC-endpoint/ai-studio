@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import { withTeamAuth, parseBody, type TeamAuthedUser } from '@/lib/api/handler'
-import { canAccessContent } from '@/lib/authz/visibility'
+import { canView, canEditPost, NOT_AUTHOR } from '@/lib/authz/visibility'
 import { dimensionsFor } from '@/lib/aspectRatio'
 import { resolveExportUrl } from '@/lib/storage/minio'
 import { track } from '@/lib/analytics/track'
@@ -25,24 +25,20 @@ function compositeNotPlaced(err: CompositePlacementError) {
 // Permissive schema + manual check so the error message stays stable.
 const bodySchema = z.object({}).passthrough()
 
-// The draft if it exists AND the caller can see it; null otherwise (the route
-// answers 404 either way — no existence leak).
-async function findVisibleDraft(id: string, user: TeamAuthedUser) {
+// The draft, or the 404 / 403 response: 404 when it is missing or in another
+// team (no existence leak), 403 `not-author` when the caller cannot edit it.
+async function findEditableDraft(id: string, user: TeamAuthedUser) {
   const draft = await prisma.draft.findUnique({
     where: { id },
     include: { brief: true },
   })
-  if (
-    !draft ||
-    !canAccessContent(user, {
-      teamId: draft.teamId,
-      ownerId: draft.brief.userId,
-      campaignId: draft.brief.campaignId,
-    })
-  ) {
-    return null
+  if (!draft || !canView(user, { teamId: draft.teamId })) {
+    return { response: NextResponse.json({ error: 'Draft not found' }, { status: 404 }) }
   }
-  return draft
+  if (!canEditPost(user, { teamId: draft.teamId, ownerId: draft.brief.userId })) {
+    return { response: NextResponse.json(NOT_AUTHOR, { status: 403 }) }
+  }
+  return { draft }
 }
 
 // Manual inline edit — two modes, one writer (commitDraftRevision):
@@ -66,8 +62,9 @@ export const POST = withTeamAuth<{ id: string }>(async (req, { params }, user) =
     return NextResponse.json({ error: 'html is required' }, { status: 400 })
   }
 
-  const draft = await findVisibleDraft(params.id, user)
-  if (!draft) return NextResponse.json({ error: 'Draft not found' }, { status: 404 })
+  const found = await findEditableDraft(params.id, user)
+  if (!found.draft) return found.response
+  const draft = found.draft
 
   // Deliberately does NOT claim Draft.pendingAction (unlike regenerate/refine):
   // this is a sub-second synchronous render with no AI call, so the tiny
@@ -175,8 +172,9 @@ async function handleElementEdit(raw: unknown, draftId: string, user: TeamAuthed
     )
   }
 
-  const draft = await findVisibleDraft(draftId, user)
-  if (!draft) return NextResponse.json({ error: 'Draft not found' }, { status: 404 })
+  const found = await findEditableDraft(draftId, user)
+  if (!found.draft) return found.response
+  const draft = found.draft
 
   // Same single-flight rule as mode 1: a running refine/regenerate 409s this.
   const blocked = inlineEditBlockReason(draft.status, draft.pendingAction)

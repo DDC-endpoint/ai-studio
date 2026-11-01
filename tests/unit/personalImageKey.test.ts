@@ -4,6 +4,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { NextRequest } from 'next/server'
 import type { Brief } from '@prisma/client'
 import type { ResolvedBrandKit } from '@/lib/brandkit/resolve'
+import { ctxFor } from '../helpers/postContext'
 
 const h = vi.hoisted(() => ({
   upsert: vi.fn(),
@@ -88,7 +89,7 @@ const brief = {
 } as unknown as Brief
 
 const gen = (userId: string | null) =>
-  generateBackgroundForBrief(brief, kit, 'Headline', null, { userId, teamId: 'team-1' } as never)
+  generateBackgroundForBrief(brief, ctxFor(kit), 'Headline', { userId, teamId: 'team-1' } as never)
 
 function provider(name: 'openai' | 'gemini', impl: () => Promise<{ url: string }>) {
   return { providerName: name, generateImage: vi.fn(impl) }

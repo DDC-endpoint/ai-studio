@@ -1,6 +1,6 @@
 # bistec-studio
 
-An internal marketing post generation tool for the Bistec marketing team. bistec-studio turns a brief into a finished, on-brand, ready-to-publish social media post for Instagram and LinkedIn. It offers two generation paths: **Path A** uses HTML/CSS brand templates stored in the database filled by a Claude agent, while **Path B** generates freeform HTML/CSS designs directly. Both paths use a Claude agent harness and Puppeteer to render the final PNG output.
+An internal marketing post generation tool for the Bistec marketing team. bistec-studio turns a brief into a finished, on-brand social media post image: generate it, download the PNG, and copy a caption. Every post gets a general caption, and a member can curate Instagram, LinkedIn and Facebook captions on demand. It offers two generation paths: **Path A** uses HTML/CSS brand templates stored in the database filled by a Claude agent, while **Path B** generates freeform HTML/CSS designs directly. Both paths use a Claude agent harness and Puppeteer to render the final PNG output.
 
 ## Tech Stack
 
@@ -65,7 +65,7 @@ To run it on a server, see [`docs/deploy.md`](docs/deploy.md).
 | `npm run test:render`    | Render-fidelity harness through real Chromium (Vitest)                  |
 | `npm run test:e2e:db`    | Set up the dedicated test database (`-- --reset` drops and rebuilds it) |
 | `npm run test:e2e:serve` | Start the test-mode dev server on `http://localhost:3001`               |
-| `npm run test:e2e:mock`  | Run the E2E suite with mocked AI, Puppeteer and social publishing       |
+| `npm run test:e2e:mock`  | Run the E2E suite with mocked AI and Puppeteer                          |
 | `npm run test:e2e`       | Run Playwright E2E tests without the mock flags                         |
 | `npm run test:e2e:reg`   | Run Playwright with `.env.test` loaded                                  |
 | `npm run test:upgrade`   | Upgrade-path check from `main`'s schema on a scratch database           |

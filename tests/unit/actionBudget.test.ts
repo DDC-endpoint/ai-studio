@@ -2,7 +2,7 @@
 //
 // Every long action writes liveness at fixed points; the time between two of
 // them must stay under the 15-minute bound that would otherwise declare the
-// work dead (the draft sweep, or the scheduler lease), with a 60 s margin.
+// work dead (the draft sweep), with a 60 s margin.
 // actionBudgetViolations sums each segment with the largest timeout of every
 // model eligible for its surface, in both modes. The real catalogue must have
 // no violation; a planted slow model must be caught in exactly the segments
@@ -28,7 +28,6 @@ type Catalogue = import('@/lib/models/catalogue').Catalogue
 const { STEP_BUDGETS, MARGIN_MS, RENDER_ALLOWANCE_MS, actionSegments, actionBudgetViolations, segmentWorstCase } =
   await import('@/lib/models/budget')
 const { STUCK_GENERATION_MS } = await import('@/lib/drafts/recovery')
-const { GENERATION_LEASE_MS } = await import('@/lib/scheduler/generationRunner')
 const { SET_CONTENT_TIMEOUT_MS, HERO_CHECK_TIMEOUT_MS } = await import('@/lib/renderer/puppeteer')
 const { LAYOUT_OBSERVE_TIMEOUT_MS } = await import('@/lib/renderer/layoutFacts')
 const { TX_MAX_WAIT_MS } = await import('@/lib/drafts/revisions')
@@ -52,12 +51,9 @@ describe('the real catalogue fits every segment (design §5)', () => {
     expect(actionBudgetViolations(CATALOGUE, STEP_BUDGETS)).toEqual([])
   })
 
-  // design §5's "worst case at the placeholders" column, in seconds. One
-  // departure: the scheduler's last segment is 830 here (design 820 + post-
-  // action 0 + the completing write 10), which the table rounds to ≈ 840.
+  // design §5's "worst case at the placeholders" column, in seconds.
   // 009 T4: a hero image adds its pixel check (20 s) to the two background
-  // segments and its layout observation (15 s) to the two design segments;
-  // the scheduler's rows are unchanged (its briefs are always classic).
+  // segments and its layout observation (15 s) to the two design segments.
   it('each segment’s worst case is the one design §5 states', () => {
     const worst = Object.fromEntries(
       actionSegments().map((s) => {
@@ -76,8 +72,6 @@ describe('the real catalogue fits every segment (design §5)', () => {
       'Refine: attempt-2 touch → pre-commit touch': '810 api',
       'Refine: pre-commit touch → settle': '100 api',
       'Regenerate copy: claim → settle': '250 api',
-      'Scheduled generation: lease renew at entry start → renew before design': '450 api',
-      'Scheduled generation: renew before design → complete': '830 api',
     })
   })
 
@@ -89,11 +83,10 @@ describe('the real catalogue fits every segment (design §5)', () => {
 })
 
 describe('a planted slow model is caught where it runs (AC-09)', () => {
-  it('Opus DESIGN_FREEFORM at 800 s: the async-generation and regenerate-design design segments, and the scheduler’s', () => {
+  it('Opus DESIGN_FREEFORM at 800 s: the async-generation and regenerate-design design segments', () => {
     expect(names(actionBudgetViolations(planted('OPUS', 'DESIGN_FREEFORM', 800), STEP_BUDGETS))).toEqual([
       'Async generation: pre-design touch → finalize',
       'Regenerate design: pre-design touch → settle',
-      'Scheduled generation: renew before design → complete',
     ])
   })
 
@@ -126,23 +119,24 @@ describe('a planted slow model is caught where it runs (AC-09)', () => {
   })
 
   it('exactly at the limit passes (worst + margin > limit is the rule)', () => {
-    // 840 + 60 = 900: the scheduler's last segment with 10 s more design time.
-    const steps = { ...STEP_BUDGETS, postActionMs: 10_000 }
+    // 835 + 60 = 895: the design segments have 5 s of slack, taken up by the transaction wait.
+    const steps = { ...STEP_BUDGETS, txMs: STEP_BUDGETS.txMs + 5_000 }
     expect(actionBudgetViolations(CATALOGUE, steps)).toEqual([])
-    expect(names(actionBudgetViolations(CATALOGUE, { ...steps, postActionMs: 10_001 }))).toEqual([
-      'Scheduled generation: renew before design → complete',
+    expect(names(actionBudgetViolations(CATALOGUE, { ...steps, txMs: steps.txMs + 1 }))).toEqual([
+      'Async generation: pre-design touch → finalize',
+      'Regenerate design: pre-design touch → settle',
     ])
   })
 
   it('a slower fixed step is caught as well', () => {
-    expect(actionBudgetViolations(CATALOGUE, { ...STEP_BUDGETS, imageMs: 700_000 })).not.toEqual([])
+    expect(actionBudgetViolations(CATALOGUE, { ...STEP_BUDGETS, imageMs: 800_000 })).not.toEqual([])
   })
 })
 
 describe('every bound is imported from where it is enforced, never copied', () => {
-  it('the limits are STUCK_GENERATION_MS (draft actions) and GENERATION_LEASE_MS (the scheduler)', () => {
+  it('the limit is STUCK_GENERATION_MS (draft actions)', () => {
     for (const s of actionSegments()) {
-      expect(s.limitMs).toBe(s.action === 'Scheduled generation' ? GENERATION_LEASE_MS : STUCK_GENERATION_MS)
+      expect(s.limitMs).toBe(STUCK_GENERATION_MS)
     }
   })
 
@@ -155,7 +149,6 @@ describe('every bound is imported from where it is enforced, never copied', () =
       txMs: TX_MAX_WAIT_MS,
       apiToolTailDesignMs: IMAGE_GENERATION_TIMEOUT_MS + SET_CONTENT_TIMEOUT_MS + RENDER_ALLOWANCE_MS,
       apiToolTailRefineMs: IMAGE_GENERATION_TIMEOUT_MS,
-      postActionMs: 0,
       marginMs: MARGIN_MS,
     })
     expect([IMAGE_GENERATION_TIMEOUT_MS, SET_CONTENT_TIMEOUT_MS, TX_MAX_WAIT_MS, MARGIN_MS]).toEqual([
@@ -169,7 +162,6 @@ describe('every bound is imported from where it is enforced, never copied', () =
     const budget = src('src/lib/models/budget.ts')
     for (const [name, home] of [
       ['STUCK_GENERATION_MS', '@/lib/drafts/recovery'],
-      ['GENERATION_LEASE_MS', '@/lib/scheduler/generationRunner'],
       ['HERO_CHECK_TIMEOUT_MS, SET_CONTENT_TIMEOUT_MS', '@/lib/renderer/puppeteer'],
       ['LAYOUT_OBSERVE_TIMEOUT_MS', '@/lib/renderer/layoutFacts'],
       ['TX_MAX_WAIT_MS', '@/lib/drafts/revisions'],

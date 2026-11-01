@@ -1,0 +1,7 @@
+exit=0
+duration_s=23
+log=.specclaw/changes/039-general-and-curated-captions/logs/build-npm-run-build-140561.log
+head=1e0ab2d8f9f10309c508bda81b38c8c8f39671f9
+dirty=true
+cmd=npm run build
+interrupted=false

@@ -3,7 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { withTeamAdmin } from '@/lib/api/handler'
 import { draftBrandVoice } from '@/lib/brandkit/voiceDraft'
 import { withClaudeAuth } from '@/lib/agent/userToken'
-import { AssistantModelError } from '@/lib/campaign/briefingAssistant'
+import { AssistantModelError } from '@/lib/projects/briefingAssistant'
 
 type Params = { id: string }
 

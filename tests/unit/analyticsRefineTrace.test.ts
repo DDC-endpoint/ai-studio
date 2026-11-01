@@ -35,7 +35,7 @@ vi.mock('@/lib/api/handler', () => ({
     (req: unknown, ctx: { params: unknown }) =>
       handler(req, { params: ctx.params }, { userId: 'u1', teamId: 'team1' }),
 }))
-vi.mock('@/lib/authz/visibility', () => ({ canAccessContent: () => true }))
+vi.mock('@/lib/authz/visibility', () => ({ canView: () => true, canEditPost: () => true, NOT_AUTHOR: { code: 'not-author' } }))
 vi.mock('@/lib/brandkit/resolve', () => ({ resolveBrandKit: async () => ({ id: 'kit', name: 'Kit', colors: [], fonts: [], logos: [], artifacts: [] }) }))
 vi.mock('@/lib/storage/minio', () => ({ resolveExportUrl: async (k: string | null) => k }))
 vi.mock('@/lib/agent/config', async (importOriginal) => {
@@ -107,7 +107,7 @@ function draft() {
     designModel: null,
     designModelSubstitutedFrom: null,
     pendingConflict: null,
-    brief: { id: 'b1', userId: 'u1', campaignId: null, brandKitId: null, aspectRatio: 'SQUARE', designMode: 'GENERATE' },
+    brief: { id: 'b1', userId: 'u1', brandKitId: null, aspectRatio: 'SQUARE', designMode: 'GENERATE' },
   }
 }
 

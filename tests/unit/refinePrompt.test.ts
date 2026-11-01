@@ -19,7 +19,8 @@ const kit: ResolvedBrandKit = {
   logoUrl: 'https://cdn.example.com/logo.svg',
   logos: [{ label: 'Primary logo', url: 'https://cdn.example.com/logo.svg', primary: true }],
   voicePrompt: 'Warm, confident, human.',
-  source: 'system',
+  website: null,
+  source: 'team',
 }
 const base = { kit, width: 1080, height: 1350, hasInlineAssets: false }
 

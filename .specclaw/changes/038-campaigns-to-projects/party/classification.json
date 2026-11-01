@@ -1,0 +1,10 @@
+{
+  "tier": "deep",
+  "domains": ["security", "data"],
+  "rationale": "Removes the campaign model and its visibility rule, so every post becomes visible to the whole team with edit rights split by author and admin, while a migration drops Campaign, CampaignBriefing, CampaignDocument, ProjectCampaign and Brief.campaignId and moves kit, briefing, documents and post-style resolution to projects.",
+  "signals": {
+    "blast_radius": "About 80 files, including visibility.ts used by about 24 routes, the kit and post-style resolver tiers, the Path A/B, caption and facts-check inputs, MCP and ACP generate_post with a manifest bump, analytics schema bump, and the dashboard and library UI",
+    "unresolved": "Whether projectId belongs on Brief or Draft is open and changes the schema and file list, and the new edit permissions for author versus admin are a sharing-model decision that the plan must implement",
+    "irreversibility": "Dropping campaign tables and Brief.campaignId and changing the visibility model is not a git revert; it needs the manual down script and a migrated schema, and the new visibility rule changes who can see existing posts"
+  }
+}

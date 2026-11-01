@@ -28,7 +28,7 @@ const secretAccessKey = env.MINIO_SECRET_KEY
 export const BUCKET_IMAGES = env.MINIO_BUCKET_IMAGES
 export const BUCKET_EXPORTS = env.MINIO_BUCKET_EXPORTS
 export const BUCKET_BRANDKITS = env.MINIO_BUCKET_BRANDKITS
-// Campaign source documents (briefing assistant) — private, like EXPORTS.
+// Project source documents (briefing assistant) — private, like EXPORTS.
 export const BUCKET_DOCS = env.MINIO_BUCKET_DOCS
 
 // Public-read buckets: objects are served via a stable, non-expiring URL. These

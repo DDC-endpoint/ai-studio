@@ -4,7 +4,7 @@ import React from 'react'
 import { Loader2 } from 'lucide-react'
 import type { AspectRatio } from '@prisma/client'
 import { ASPECT_LABELS, dimensionsLabel } from '@/lib/aspectRatio'
-import type { Campaign, TemplateSummary, BrandKitSummary } from '@/lib/api-types'
+import type { ProjectSummary, TemplateSummary, BrandKitSummary } from '@/lib/api-types'
 import type { ModelKey } from '@/lib/models/catalogue'
 import { useModels } from '@/lib/hooks/useModels'
 import {
@@ -26,7 +26,7 @@ import { ICON } from '@/components/ui/atoms'
 // ─── Step 4 — Review ─────────────────────────────────────────────────────────
 
 interface ReviewStepProps {
-  selectedCampaign: Campaign | null
+  selectedProject: ProjectSummary | null
   selectedBrandKit: BrandKitSummary | null
   aspectRatio: AspectRatio
   postStyle: string
@@ -58,7 +58,7 @@ interface ReviewStepProps {
 }
 
 export function ReviewStep({
-  selectedCampaign,
+  selectedProject,
   selectedBrandKit,
   aspectRatio,
   postStyle,
@@ -97,7 +97,7 @@ export function ReviewStep({
   // for one) is one more entry, in the order it should read.
   const rows: ReviewRowProps[] = [
     { label: 'Topic', value: topic || '—' },
-    { label: 'Campaign', value: selectedCampaign?.name ?? 'Uncategorized' },
+    { label: 'Project', value: selectedProject?.name ?? 'No project' },
     { label: 'Brand kit', value: selectedBrandKit?.name ?? '—' },
     { label: 'Size', value: `${ASPECT_LABELS[aspectRatio]} · ${dimensionsLabel(aspectRatio)} px` },
     { label: 'Design mode', value: designMode === 'TEMPLATE' ? 'Template fill' : 'Freeform design' },

@@ -11,6 +11,9 @@ import type { BackgroundSkipped } from '@/lib/drafts/backgroundNotice'
 import type { ImageSourceNotice } from '@/lib/drafts/imageSourceNotice'
 import type { FontNotice } from '@/lib/drafts/fontNotice'
 import type { CompositionNotice } from '@/lib/drafts/compositionNotice'
+import type { CaptionTarget } from '@/lib/channels'
+import type { RuleMiss } from '@/lib/captions/rules'
+import type { CaptionFacts } from '@/lib/drafts/factsCheckNotice'
 import type { FactsCheck } from '@/lib/factsCheck/types'
 import type { CompositionStamp } from '@/lib/designData'
 import type { ModelKey, ModelSpeed, ModelTier, UserSurface } from '@/lib/models/catalogue'
@@ -96,34 +99,10 @@ export interface ProjectRef {
   name: string
 }
 
-export interface CampaignRef {
+// GET /api/projects/[id]/briefing — versioned project briefing rows
+export interface ProjectBriefing {
   id: string
-  name: string
-  isDeleted?: boolean
-}
-
-// ── Campaigns ────────────────────────────────────────────────────────────
-
-// GET /api/campaigns, GET /api/campaigns/[id] — both `include` the same
-// shape (brandKit, projects, _count.briefs); the list additionally relies
-// on `isDeleted`, which Prisma returns on both since neither route uses a
-// narrowing `select`.
-export interface Campaign {
-  id: string
-  name: string
-  defaultTone: string | null
-  // 027 FR-08: a post style key, or null (the wizard then falls to General).
-  defaultPostStyle: string | null
-  isDeleted: boolean
-  brandKit: BrandKitRef | null
-  projects: Array<{ project: ProjectRef }>
-  _count: { briefs: number }
-}
-
-// GET /api/campaigns/[id]/briefing — versioned campaign briefing rows
-export interface CampaignBriefing {
-  id: string
-  campaignId: string
+  projectId: string
   content: string
   version: number
   isActive: boolean
@@ -131,91 +110,38 @@ export interface CampaignBriefing {
   createdAt: string
 }
 
-// GET/POST /api/campaigns/[id]/queue — scheduled-generation queue entries
-export type GenerationStatus = 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELLED'
-export type PostGenerationAction = 'HOLD' | 'SCHEDULE_PUBLISH' | 'PUBLISH_NOW'
-
-export interface ScheduledGeneration {
-  id: string
-  campaignId: string
-  createdById: string
-  topic: string
-  description: string | null
-  goal: string
-  tone: string
-  // 027 FR-06: the resolved key (null = a pre-027 entry).
-  postStyle: string | null
-  channels: Channel[]
-  aspectRatio: AspectRatio
-  designMode: DesignMode
-  templateId: string | null
-  template: { id: string; name: string } | null
-  generateAt: string
-  postAction: PostGenerationAction
-  publishAt: string | null
-  status: GenerationStatus
-  errorReason: string | null
-  // 027 FR-12: why an auto-publish action was not run (null = nothing held).
-  heldReason: string | null
-  retryCount: number
-  nextRetryAt: string | null
-  briefId: string | null
-  draftId: string | null
-  createdAt: string
-  updatedAt: string
-}
-
-// GET /api/scheduler/status
-export interface SchedulerLoopStatus {
-  loop: 'scheduler' | 'generation'
-  state: 'online' | 'offline' | 'never'
-  lastSeenAt: string | null
-}
-
-export interface SchedulerStatus {
-  loops: SchedulerLoopStatus[]
-  offline: boolean
-}
-
-// GET /api/campaigns/[id]/brandkit
-export type BrandKitSource = 'explicit' | 'campaign' | 'project' | 'system'
-
-export interface ResolvedBrandKit {
+// GET /api/projects/[id]/documents — a project source document's metadata
+export interface ProjectDocumentMeta {
   id: string
   name: string
-  colors: string[]
-  fonts: Array<{ name: string; url: string }>
-  logoUrl: string | null
-  voicePrompt: string | null
-  source: BrandKitSource
-}
-
-export interface ResolvedBrandKitResponse {
-  kit: ResolvedBrandKit | null
-  source: BrandKitSource | null
+  contentType: string
+  sizeBytes: number
+  truncated: boolean
+  createdAt: string
 }
 
 // ── Projects ─────────────────────────────────────────────────────────────
 
-// GET /api/projects (list) — defaultBrandKit + _count.campaigns, no
-// `campaigns` relation array.
+// GET /api/projects (list) — defaultBrandKit + postCount (assigned posts).
 export interface ProjectSummary {
   id: string
   name: string
   defaultTone: string | null
+  // 038 FR-05: a post style key, or null (the wizard then falls to General).
+  defaultPostStyle: string | null
   isDeleted: boolean
   defaultBrandKit: BrandKitRef | null
-  _count: { campaigns: number }
+  postCount: number
 }
 
-// GET /api/projects/[id] (detail) — defaultBrandKit + campaigns relation,
-// no `_count`.
+// GET /api/projects/[id] (detail) — the same fields as the list row.
 export interface ProjectDetail {
   id: string
   name: string
   defaultTone: string | null
+  defaultPostStyle: string | null
   defaultBrandKit: BrandKitRef | null
-  campaigns: Array<{ campaign: CampaignRef }>
+  postCount: number
 }
 
 // ── Brand kits (public, non-admin) ──────────────────────────────────────
@@ -238,6 +164,14 @@ export interface TemplateSummary {
   aspectRatio: AspectRatio
   brandKitName: string | null
   previewColor: string
+}
+
+// GET /api/templates/[id]
+export interface TemplateDetail {
+  id: string
+  name: string
+  aspectRatio: AspectRatio
+  htmlTemplate: string
 }
 
 // ── AI providers (public, non-admin) ────────────────────────────────────
@@ -337,10 +271,18 @@ export interface DraftNotApplied {
 // server-side pendingHtml. `notApplied` is a SEPARATE outcome channel (FR-14)
 // — distinct from both a settled success and `pendingActionError` (a crashed
 // run): it means the run completed cleanly but the edit itself was rejected.
-// One channel's caption (012 FR-13). `failureReason` is set when the last write
+// One caption (012 FR-13, 039 FR-15). `failureReason` is set when the last write
 // failed, including a failed regenerate that kept good text READY (A7).
 export interface DraftCaptionDetail {
-  channel: Channel
+  // 039 D1: the general caption has no channel; `target` is its registry key.
+  kind: 'GENERAL' | 'CURATED'
+  channel: Channel | null
+  target: Exclude<CaptionTarget, 'HEADLINE'>
+  // The registry label: General, Instagram, LinkedIn.
+  label: string
+  // 039 D14, D15: a soft-deleted curated caption, and a readable undo snapshot.
+  deleted: boolean
+  canUndo: boolean
   text: string
   status: 'PENDING' | 'READY' | 'FAILED'
   failureReason: string | null
@@ -351,6 +293,10 @@ export interface DraftCaptionDetail {
   modelSubstitutedFrom: string | null
   // 024 FR-04: the credential route that wrote it (null = before 024 / none).
   route: string | null
+  // 039 FR-15: the channel rules this text misses, checked when read.
+  rules: { met: boolean; unmet: RuleMiss[] }
+  // This caption's own flags from the stored facts check (null = never checked).
+  facts: CaptionFacts | null
 }
 
 // 030 FR-12: what the image shows of the headline, derived from the stamp at
@@ -361,12 +307,13 @@ export interface HeadlineImage {
   renderedHeadline: string | null
   // Why the check could not confirm, when the state is 'unconfirmed'.
   reason: UnverifiedReason | null
-  // SCHEDULED posts of this draft, when the state is 'stale' or 'unconfirmed'.
-  scheduledPosts: { count: number; nextAt: string } | null
 }
 
 export interface DraftDetail {
   id: string
+  // 038 D11: true for the post's author and for a team admin; false hides the
+  // edit controls on the post page (the routes enforce it either way).
+  canEdit: boolean
   briefId: string
   // The on-image headline; null until the caption call writes a valid one.
   headline: string | null
@@ -377,7 +324,8 @@ export interface DraftDetail {
   headlineModelSubstitutedFrom: string | null
   designModel: string | null
   designModelSubstitutedFrom: string | null
-  // Always one per registry channel, in registry order.
+  // The general caption first (absent on a post made before 039), then the
+  // curated captions in registry order.
   captions: DraftCaptionDetail[]
   // 008 FR-20 / spec open question 1: whether THIS draft's caption provider
   // (the brief's own key, else the team default) is Claude — the provider a
@@ -387,7 +335,7 @@ export interface DraftDetail {
   imageUrl: string | null
   htmlContent: string | null
   exportUrl: string | null
-  status: 'IN_PROGRESS' | 'EXPORTED' | 'PUBLISHED' | 'FAILED'
+  status: 'IN_PROGRESS' | 'EXPORTED' | 'FAILED'
   failureReason: string | null
   pendingAction: DraftAction | null
   pendingActionError: string | null
@@ -414,36 +362,31 @@ export interface DraftDetail {
   revisionCount: number
   currentRevisionNumber: number | null
   brandKitName: string | null
+  // 039 FR-15: the brand kit's website, for the Facebook link (null when the kit has none).
+  kitWebsite: string | null
+  // 038 FR-12: the post's current project (null = none).
+  project: { id: string; name: string } | null
+  // False when the recorded inputs differ from what the current assignment
+  // resolves to; read as true unless the draft is EXPORTED and idle.
+  inputsCurrent: boolean
+  // What the post was generated with (null = made before 038).
+  inputs: {
+    project: { id: string; name: string } | null
+    briefingVersion: number | null
+    kitName: string | null
+    kitSource: 'explicit' | 'project' | 'team' | null
+  } | null
   brief: {
     id: string
     topic: string
     goal: string
     tone: string
-    channels: Channel[]
     aspectRatio: AspectRatio
     designMode: DesignMode
   }
-  posts: Array<{
-    id: string
-    channel: string
-    status: string
-    scheduledAt: string | null
-    publishedAt: string | null
-  }>
 }
 
 // ── Library (drafts + posts) ────────────────────────────────────────────
-
-// PostRecord as embedded in a library draft tile.
-export interface PostRecord {
-  id: string
-  channel: string
-  status: string
-  scheduledAt: string | null
-  publishedAt: string | null
-  platformId: string | null
-  errorReason: string | null
-}
 
 // GET /api/library — one row of the `drafts` array.
 export interface DraftRecord {
@@ -455,11 +398,15 @@ export interface DraftRecord {
   headlineState: HeadlineState
   brief: {
     topic: string
-    channels: string[]
     aspectRatio: AspectRatio
-    campaign: { name: string; brandKit: { name: string } | null } | null
+    // Stored key (null = none); the card shows its label.
+    postStyle: string | null
+    brandKitName: string | null
   }
-  posts: PostRecord[]
+  // 038 FR-13: the post's project (null = none), and whether the caller may
+  // edit the post (its author or a team admin), which shows Delete.
+  project: { id: string; name: string } | null
+  canEdit: boolean
 }
 
 export interface LibraryResponse {
@@ -520,18 +467,6 @@ export interface AdminProvider {
   createdAt: string
 }
 
-// ── Admin: social channels ──────────────────────────────────────────────
-
-export interface ChannelStatus {
-  connected: boolean
-  updatedAt?: string
-}
-
-export interface ChannelMap {
-  INSTAGRAM: ChannelStatus
-  LINKEDIN: ChannelStatus
-}
-
 // ── Admin: brand kits ────────────────────────────────────────────────────
 
 export interface BrandKitPrompt {
@@ -585,6 +520,8 @@ export interface AdminBrandKitDetail {
   fontCatalogueDate?: string
   typographyFindings?: Array<{ code: string; detail: string }>
   logoUrl: string | null
+  // 039 D6: the kit's https website, inserted into a Facebook caption; null = none.
+  website?: string | null
   isDefault: boolean
   prompts: BrandKitPrompt[]
   templates: BrandKitTemplateFull[]

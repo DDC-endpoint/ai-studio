@@ -38,7 +38,7 @@ vi.mock('@/lib/api/handler', () => ({
     (req: unknown, ctx: { params: unknown }) =>
       handler(req, { params: ctx.params }, { userId: 'u1', teamId: 'team1' }),
 }))
-vi.mock('@/lib/authz/visibility', () => ({ canAccessContent: () => true }))
+vi.mock('@/lib/authz/visibility', () => ({ canView: () => true, canEditPost: () => true, NOT_AUTHOR: { code: 'not-author' } }))
 vi.mock('@/lib/brandkit/resolve', () => ({ resolveBrandKit: async () => ({ id: 'kit', name: 'Kit', colors: [], fonts: [], logos: [], artifacts: [] }) }))
 vi.mock('@/lib/storage/minio', () => ({ resolveExportUrl: async (k: string | null) => k }))
 // API mode, deterministically (the local .env may set CLI mode).
@@ -102,7 +102,7 @@ function draft(over: Record<string, unknown> = {}) {
     designModel: 'claude-opus-5-5',
     designModelSubstitutedFrom: null,
     pendingConflict: null,
-    brief: { id: 'b1', userId: 'u1', campaignId: null, brandKitId: null, aspectRatio: 'SQUARE', designMode: 'GENERATE' },
+    brief: { id: 'b1', userId: 'u1', brandKitId: null, aspectRatio: 'SQUARE', designMode: 'GENERATE' },
     ...over,
   }
 }
@@ -324,7 +324,7 @@ describe('refine and the hero contract (009 FR-13, AC-17)', () => {
   it('a PORTRAIT draft resolves its own size: the top region, not the left one', async () => {
     h.draft = draft({
       composition: { ...KEPT, requestedArchetype: 'product-showcase', appliedArchetype: 'product-showcase' },
-      brief: { id: 'b1', userId: 'u1', campaignId: null, brandKitId: null, aspectRatio: 'PORTRAIT', designMode: 'GENERATE' },
+      brief: { id: 'b1', userId: 'u1', brandKitId: null, aspectRatio: 'PORTRAIT', designMode: 'GENERATE' },
     })
     await post({ instruction: 'darker' })
     expect(systemPrompt()).toContain('the top 38% of the frame')

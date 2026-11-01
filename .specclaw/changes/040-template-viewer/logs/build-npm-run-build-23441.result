@@ -1,0 +1,7 @@
+exit=0
+duration_s=25
+log=.specclaw/changes/040-template-viewer/logs/build-npm-run-build-23441.log
+head=e91088bd7134c5727beec81ed3763b7270814569
+dirty=true
+cmd=npm run build
+interrupted=false

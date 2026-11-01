@@ -24,7 +24,6 @@ const input = (over: Record<string, unknown> = {}) => ({
 const draft = (over: Record<string, unknown> = {}) => ({
   headline: 'New line',
   renderedText: stamp('Old line'),
-  _count: { posts: 0 },
   ...over,
 })
 
@@ -35,22 +34,18 @@ beforeEach(() => {
 })
 
 describe('trackHeadlineEdited (030 FR-15)', () => {
-  it('reads headline, stamp and the SCHEDULED post count in one query', async () => {
+  it('reads headline and stamp in one query', async () => {
     h.findUnique.mockResolvedValue(draft())
     await trackHeadlineEdited(input())
     expect(h.findUnique).toHaveBeenCalledTimes(1)
     expect(h.findUnique).toHaveBeenCalledWith({
       where: { id: 'd1' },
-      select: {
-        headline: true,
-        renderedText: true,
-        _count: { select: { posts: { where: { status: 'SCHEDULED' } } } },
-      },
+      select: { headline: true, renderedText: true },
     })
   })
 
-  it('tracks via, the state after the write and scheduledPending, as a web event with no outcome', async () => {
-    h.findUnique.mockResolvedValue(draft({ _count: { posts: 2 } }))
+  it('tracks via and the state after the write, as a web event with no outcome', async () => {
+    h.findUnique.mockResolvedValue(draft())
     await trackHeadlineEdited(input())
     expect(h.track).toHaveBeenCalledTimes(1)
     expect(h.track).toHaveBeenCalledWith('draft.headline_edited', {
@@ -58,14 +53,14 @@ describe('trackHeadlineEdited (030 FR-15)', () => {
       teamId: 'team1',
       userId: 'u1',
       draftId: 'd1',
-      payload: { via: 'edit', state: 'stale', scheduledPending: true },
+      payload: { via: 'edit', state: 'stale' },
     })
   })
 
   it('the regenerate path carries via regenerate, and a fresh state when the stamp matches the new headline', async () => {
     h.findUnique.mockResolvedValue(draft({ renderedText: stamp('new line') }))
     await trackHeadlineEdited(input({ via: 'regenerate' }))
-    expect(h.track.mock.calls[0][1].payload).toEqual({ via: 'regenerate', state: 'fresh', scheduledPending: false })
+    expect(h.track.mock.calls[0][1].payload).toEqual({ via: 'regenerate', state: 'fresh' })
   })
 
   it('a draft from before 030 reports unknown', async () => {

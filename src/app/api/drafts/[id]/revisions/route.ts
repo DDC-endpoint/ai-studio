@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { getDraftAccessInfo } from '@/lib/auth'
 import { withTeamAuth } from '@/lib/api/handler'
-import { canAccessContent } from '@/lib/authz/visibility'
+import { canView } from '@/lib/authz/visibility'
 import { resolveExportUrl } from '@/lib/storage/minio'
 import { listCommittedRevisions } from '@/lib/drafts/revisions'
 
@@ -9,7 +9,7 @@ type Params = { id: string }
 
 export const GET = withTeamAuth<Params>(async (_req, { params }, user) => {
   const info = await getDraftAccessInfo(params.id)
-  if (!info || !canAccessContent(user, info)) {
+  if (!info || !canView(user, info)) {
     return NextResponse.json({ error: 'Draft not found' }, { status: 404 })
   }
 

@@ -13,9 +13,12 @@ const h = vi.hoisted(() => ({
   teamFindUnique: vi.fn(),
   copyProviderIsClaude: vi.fn(),
   resolveBrandKit: vi.fn(),
-  postAggregate: vi.fn(),
+  projectFindFirst: vi.fn(),
+  briefingFindFirst: vi.fn(),
   saveHeadlineEdit: vi.fn(),
+  canEditPost: vi.fn(() => true),
   trackHeadlineEdited: vi.fn(),
+  loaded: vi.fn(() => ({ general: null, curated: [] }) as unknown),
   renderBoom: vi.fn(() => {
     throw new Error('the GET must not render or parse')
   }),
@@ -26,7 +29,8 @@ vi.mock('@/lib/prisma', () => ({
     draft: { findUnique: h.draftFindUnique, updateMany: h.draftUpdateMany },
     availableProvider: { findMany: h.providerFindMany },
     team: { findUnique: h.teamFindUnique },
-    post: { aggregate: h.postAggregate },
+    project: { findFirst: h.projectFindFirst },
+    projectBriefing: { findFirst: h.briefingFindFirst },
   },
 }))
 // 030 AC-10: the renderer and the mock check throw if reached, to show the read
@@ -42,7 +46,11 @@ vi.mock('@/lib/api/handler', () => {
   const parseBody = async (req: Request) => ({ data: await req.json() })
   return { parseBody, withTeamAuth: wrap, withTeamAdmin: wrap }
 })
-vi.mock('@/lib/authz/visibility', () => ({ canAccessContent: () => true }))
+vi.mock('@/lib/authz/visibility', () => ({
+  canView: () => true,
+  canEditPost: h.canEditPost,
+  NOT_AUTHOR: { error: 'not author', code: 'not-author' },
+}))
 // The real copyProviderIsClaude behind a spy: the call-argument cases stub it,
 // and the select case (018 FR-04) lets it run against the faked Prisma row.
 vi.mock('@/providers/registry', async (importOriginal) => {
@@ -62,7 +70,7 @@ vi.mock('@/lib/drafts/revisions', async () => {
   }
 })
 vi.mock('@/lib/captions/store', () => ({
-  loadDraftCaptions: async () => ({ captions: [] }),
+  loadDraftCaptions: async () => h.loaded(),
   saveCaptionEdit: vi.fn(),
   saveHeadlineEdit: h.saveHeadlineEdit,
   settlePendingCaptions: vi.fn(),
@@ -98,19 +106,16 @@ function exportedDraft(copyProviderKey: string | null) {
     imageUrl: null,
     backgroundSkipReason: null,
     backgroundSkipDetail: null,
-    posts: [],
     _count: { revisions: 1 },
     brief: {
       id: 'b1',
       userId: 'u1',
       teamId: 'team1',
-      campaignId: null,
       brandKitId: null,
       copyProviderKey,
       topic: 'T',
       goal: null,
       tone: null,
-      channels: [],
       aspectRatio: 'SQUARE',
       designMode: 'GENERATE',
     },
@@ -132,10 +137,13 @@ beforeEach(() => {
   h.copyProviderIsClaude.mockImplementation(realCopyProviderIsClaude)
   h.resolveBrandKit.mockReset()
   h.resolveBrandKit.mockResolvedValue(null)
-  h.postAggregate.mockReset().mockResolvedValue({ _count: 0, _min: { scheduledAt: null } })
+  h.projectFindFirst.mockReset().mockResolvedValue(null)
+  h.briefingFindFirst.mockReset().mockResolvedValue(null)
   h.saveHeadlineEdit.mockReset().mockResolvedValue(true)
   h.trackHeadlineEdited.mockReset().mockResolvedValue(undefined)
   h.renderBoom.mockClear()
+  h.loaded.mockReset().mockReturnValue({ general: null, curated: [] })
+  h.canEditPost.mockReset().mockReturnValue(true)
 })
 
 describe("GET /api/drafts/[id] — captionProviderIsClaude is the draft's own", () => {
@@ -154,6 +162,29 @@ describe("GET /api/drafts/[id] — captionProviderIsClaude is the draft's own", 
     const { body } = await get()
     expect(h.copyProviderIsClaude).toHaveBeenCalledWith('team1', undefined)
     expect(body.captionProviderIsClaude).toBe(true)
+  })
+
+  it('carries canEdit from canEditPost (038 D11)', async () => {
+    h.draftFindUnique.mockResolvedValue(exportedDraft(null))
+    h.copyProviderIsClaude.mockResolvedValue(true)
+    expect((await get()).body.canEdit).toBe(true)
+    h.canEditPost.mockReturnValue(false)
+    const { status, body } = await get()
+    expect(status).toBe(200)
+    expect(body.canEdit).toBe(false)
+    expect(h.canEditPost).toHaveBeenLastCalledWith(expect.anything(), { teamId: 'team1', ownerId: 'u1' })
+  })
+
+  it('PATCH by a member who cannot edit is 403 not-author and saves nothing', async () => {
+    h.draftFindUnique.mockResolvedValue(exportedDraft(null))
+    h.canEditPost.mockReturnValue(false)
+    const res = (await PATCH(
+      new Request('http://test/x', { method: 'PATCH', body: JSON.stringify({ headline: 'New' }) }) as never,
+      { params: { id: 'd1' } } as never,
+    )) as Response
+    expect(res.status).toBe(403)
+    expect((await res.json()).code).toBe('not-author')
+    expect(h.saveHeadlineEdit).not.toHaveBeenCalled()
   })
 
   it('a missing draft is 404 and asks nothing', async () => {
@@ -309,7 +340,6 @@ describe('GET /api/drafts/[id] — headlineImage (030 FR-12, AC-10)', () => {
     renderedText,
     headline,
   })
-  const NEXT = new Date('2026-11-03T09:30:00.000Z')
 
   async function image(draft: unknown) {
     h.draftFindUnique.mockResolvedValue(draft)
@@ -318,66 +348,38 @@ describe('GET /api/drafts/[id] — headlineImage (030 FR-12, AC-10)', () => {
     return body.headlineImage as Record<string, unknown>
   }
 
-  it('fresh: only the state, and the scheduled read never runs', async () => {
+  it('fresh: only the state', async () => {
     expect(await image(withStamp(verified('h')))).toEqual({
       state: 'fresh',
       renderedHeadline: null,
       reason: null,
-      scheduledPosts: null,
     })
-    expect(h.postAggregate).not.toHaveBeenCalled()
   })
 
   it.each([
     ['a null stamp (a draft from before 030)', null, 'H'],
     ['a stamp with no headline key', {}, 'H'],
     ['a null headline', verified('H'), null],
-  ])('unknown for %s: only the state, and the scheduled read never runs', async (_n, stamp, headline) => {
+  ])('unknown for %s: only the state', async (_n, stamp, headline) => {
     const img = await image(withStamp(stamp, headline))
-    expect(img).toEqual({ state: 'unknown', renderedHeadline: null, reason: null, scheduledPosts: null })
-    expect(h.postAggregate).not.toHaveBeenCalled()
+    expect(img).toEqual({ state: 'unknown', renderedHeadline: null, reason: null })
   })
 
   it('an unreadable stored value reads as unknown, never a throw', async () => {
     expect((await image(withStamp({ headline: 'nope' }))).state).toBe('unknown')
   })
 
-  it('stale: renderedHeadline is the stamped text, no reason, and the scheduled read runs', async () => {
-    h.postAggregate.mockResolvedValue({ _count: 2, _min: { scheduledAt: NEXT } })
+  it('stale: renderedHeadline is the stamped text, and no reason', async () => {
     const img = await image(withStamp(verified('Old line'), 'New line'))
-    expect(img).toEqual({
-      state: 'stale',
-      renderedHeadline: 'Old line',
-      reason: null,
-      scheduledPosts: { count: 2, nextAt: NEXT.toISOString() },
-    })
-    expect(h.postAggregate).toHaveBeenCalledTimes(1)
-    expect(h.postAggregate).toHaveBeenCalledWith({
-      where: { draftId: 'd1', status: 'SCHEDULED' },
-      _count: true,
-      _min: { scheduledAt: true },
-    })
+    expect(img).toEqual({ state: 'stale', renderedHeadline: 'Old line', reason: null })
   })
 
-  it('stale with no SCHEDULED post: scheduledPosts is null', async () => {
-    expect((await image(withStamp(verified('Old line'), 'New line'))).scheduledPosts).toBeNull()
-    expect(h.postAggregate).toHaveBeenCalledTimes(1)
-  })
-
-  it('unconfirmed: the reason, no renderedHeadline, and the scheduled read runs', async () => {
-    h.postAggregate.mockResolvedValue({ _count: 1, _min: { scheduledAt: NEXT } })
+  it('unconfirmed: the reason, and no renderedHeadline', async () => {
     const img = await image(withStamp(unverified('H', 'not-visible')))
-    expect(img).toEqual({
-      state: 'unconfirmed',
-      renderedHeadline: null,
-      reason: 'not-visible',
-      scheduledPosts: { count: 1, nextAt: NEXT.toISOString() },
-    })
-    expect(h.postAggregate).toHaveBeenCalledTimes(1)
+    expect(img).toEqual({ state: 'unconfirmed', renderedHeadline: null, reason: 'not-visible' })
   })
 
   it('answers with the renderer and the mock check set to throw: nothing is rendered or parsed', async () => {
-    h.postAggregate.mockResolvedValue({ _count: 1, _min: { scheduledAt: NEXT } })
     await image(withStamp(verified('Old line'), 'New line'))
     expect(h.renderBoom).not.toHaveBeenCalled()
   })
@@ -414,5 +416,166 @@ describe('PATCH { headline } — draft.headline_edited (030 FR-15)', () => {
     h.saveHeadlineEdit.mockResolvedValue(false)
     expect((await patchHeadline('New line')).status).toBe(409)
     expect(h.trackHeadlineEdited).not.toHaveBeenCalled()
+  })
+})
+
+
+// 038 FR-12, NFR-06: `project` and `inputsCurrent`. The live comparison runs only
+// for an EXPORTED draft with nothing running.
+describe('GET /api/drafts/[id] — project and inputsCurrent (038)', () => {
+  const stamp = (projectId: string | null, briefingId: string | null, kitId: string | null) => ({
+    v: 1,
+    projectId,
+    briefingId,
+    briefingVersion: briefingId ? 1 : null,
+    kitId,
+    kitSource: kitId ? 'team' : null,
+  })
+  const kit = { id: 'kit1', name: 'Kit', source: 'team' }
+
+  it('is true when the recorded inputs match the current assignment', async () => {
+    h.resolveBrandKit.mockResolvedValue(kit)
+    h.draftFindUnique.mockResolvedValue({ ...exportedDraft(null), generationInputs: stamp(null, null, 'kit1') })
+    const { body } = await get()
+    expect(body.inputsCurrent).toBe(true)
+    expect(body.project).toBeNull()
+  })
+
+  it('is false after a move: the brief points at project A, the stamp records B', async () => {
+    h.resolveBrandKit.mockResolvedValue(kit)
+    h.projectFindFirst.mockResolvedValue({ id: 'pA', name: 'A' })
+    const d = exportedDraft(null)
+    h.draftFindUnique.mockResolvedValue({
+      ...d,
+      generationInputs: stamp('pB', 'bB', 'kit1'),
+      brief: { ...d.brief, projectId: 'pA' },
+    })
+    const { body } = await get()
+    expect(body.inputsCurrent).toBe(false)
+    expect(body.project).toEqual({ id: 'pA', name: 'A' })
+  })
+
+  it('a draft with no stamp reads as no project and the brief kit: current when nothing changed', async () => {
+    h.resolveBrandKit.mockResolvedValue(kit)
+    h.draftFindUnique.mockResolvedValue({ ...exportedDraft(null), generationInputs: null })
+    expect((await get()).body.inputsCurrent).toBe(true)
+  })
+
+  it('is true without a comparison while an action runs (no extra reads)', async () => {
+    const d = exportedDraft(null)
+    h.draftFindUnique.mockResolvedValue({
+      ...d,
+      pendingAction: 'REFINE',
+      updatedAt: new Date(),
+      generationInputs: stamp('pB', 'bB', 'kit1'),
+      brief: { ...d.brief, projectId: 'pA' },
+    })
+    const { body } = await get()
+    expect(body.inputsCurrent).toBe(true)
+    expect(h.briefingFindFirst).not.toHaveBeenCalled()
+    // Two project reads: the recorded project (the stamp) and the current assignment's name.
+    expect(h.projectFindFirst).toHaveBeenCalledTimes(2)
+  })
+})
+
+// 039 FR-15 / AC-23: the captions on the draft GET.
+describe('GET /api/drafts/[id] — captions (039 FR-15)', () => {
+  const capRow = (target: string, text: string, over: Record<string, unknown> = {}) => ({
+    kind: target === 'GENERAL' ? 'GENERAL' : 'CURATED',
+    channel: target === 'GENERAL' ? null : target,
+    target,
+    text,
+    status: 'READY',
+    failureReason: null,
+    updatedAt: new Date('2026-11-02T00:00:00Z'),
+    model: null,
+    modelSubstitutedFrom: null,
+    route: null,
+    deleted: false,
+    canUndo: false,
+    ...over,
+  })
+
+  it('each item carries the FR-15 keys, the general caption first, with rules and its own facts', async () => {
+    h.draftFindUnique.mockResolvedValue({
+      ...exportedDraft(null),
+      factsCheck: {
+        v: 1,
+        status: 'flagged',
+        checkedAt: '2026-11-02T00:00:00.000Z',
+        flagged: [{ kind: 'cur', value: '$49', where: 'INSTAGRAM' }],
+      },
+    })
+    h.copyProviderIsClaude.mockResolvedValue(true)
+    h.loaded.mockReturnValue({
+      general: capRow('GENERAL', 'General text'),
+      curated: [capRow('INSTAGRAM', 'Hook\n#a #b'), capRow('LINKEDIN', 'Line #x\nMore')],
+    })
+    const { body } = await get()
+    const items = body.captions as Array<Record<string, unknown>>
+    expect(items.map((c) => c.target)).toEqual(['GENERAL', 'INSTAGRAM', 'LINKEDIN'])
+    for (const item of items) {
+      expect(Object.keys(item).sort()).toEqual(
+        ['canUndo', 'channel', 'deleted', 'facts', 'failureReason', 'kind', 'label', 'model', 'modelSubstitutedFrom', 'route', 'rules', 'status', 'target', 'text', 'updatedAt'].sort(),
+      )
+    }
+    expect(items.map((c) => c.label)).toEqual(['General', 'Instagram', 'LinkedIn'])
+    expect(items[0]).toMatchObject({ kind: 'GENERAL', channel: null, rules: { met: true, unmet: [] }, facts: { status: 'clear', flagged: [] } })
+    expect(items[1].facts).toEqual({ status: 'flagged', flagged: [{ kind: 'cur', value: '$49' }] })
+    // Instagram's hashtags must all be on the last line; LinkedIn's mid-text hashtag is within its rule.
+    expect(items[1].rules).toEqual({ met: true, unmet: [] })
+    expect(items[2].rules).toEqual({ met: true, unmet: [] })
+  })
+
+  it('a rule miss is reported when read, from the stored text (an edit clears it at once)', async () => {
+    h.draftFindUnique.mockResolvedValue(exportedDraft(null))
+    h.copyProviderIsClaude.mockResolvedValue(true)
+    h.loaded.mockReturnValue({ general: null, curated: [capRow('INSTAGRAM', '#early\nand then text')] })
+    expect(((await get()).body.captions as Array<{ rules: unknown }>)[0].rules).toEqual({
+      met: false,
+      unmet: ['hashtags-not-at-end'],
+    })
+  })
+
+  it('a post made before 039 has no general item, and an empty row reads with met rules', async () => {
+    h.draftFindUnique.mockResolvedValue(exportedDraft(null))
+    h.copyProviderIsClaude.mockResolvedValue(true)
+    h.loaded.mockReturnValue({ general: null, curated: [capRow('INSTAGRAM', '', { status: 'FAILED', failureReason: 'missing' })] })
+    const items = (await get()).body.captions as Array<Record<string, unknown>>
+    expect(items).toHaveLength(1)
+    expect(items[0]).toMatchObject({ kind: 'CURATED', rules: { met: true, unmet: [] }, facts: null })
+  })
+
+  it('kitWebsite is null when the post has no kit, and brief.channels is gone', async () => {
+    h.draftFindUnique.mockResolvedValue(exportedDraft(null))
+    h.copyProviderIsClaude.mockResolvedValue(true)
+    const { body } = await get()
+    expect(body.kitWebsite).toBeNull()
+    expect(body.brief).not.toHaveProperty('channels')
+  })
+
+  it("kitWebsite comes from the post's context kit, and the Facebook link rule reads it (039 D17)", async () => {
+    h.draftFindUnique.mockResolvedValue(exportedDraft(null))
+    h.copyProviderIsClaude.mockResolvedValue(true)
+    const fifty = Array.from({ length: 50 }, (_, i) => `w${i}`).join(' ')
+    h.resolveBrandKit.mockResolvedValue({ id: 'kit1', name: 'Kit', source: 'team', website: 'https://acme.example' })
+    h.loaded.mockReturnValue({ general: null, curated: [capRow('FACEBOOK', fifty)] })
+    const { body } = await get()
+    expect(body.kitWebsite).toBe('https://acme.example')
+    expect((body.captions as Array<{ rules: { unmet: string[] } }>)[0].rules.unmet).toEqual(['link-missing'])
+    h.loaded.mockReturnValue({ general: null, curated: [capRow('FACEBOOK', `${fifty}\nhttps://acme.example`)] })
+    expect(((await get()).body.captions as Array<{ rules: { met: boolean } }>)[0].rules.met).toBe(true)
+  })
+
+  it('issues the queries it issued before 039 and no more (NFR-06): one draft read, one provider list', async () => {
+    h.draftFindUnique.mockResolvedValue(exportedDraft(null))
+    h.copyProviderIsClaude.mockResolvedValue(true)
+    h.loaded.mockReturnValue({ general: capRow('GENERAL', 'g'), curated: [capRow('INSTAGRAM', 'i')] })
+    await get()
+    expect(h.draftFindUnique).toHaveBeenCalledTimes(1)
+    expect(h.draftUpdateMany).not.toHaveBeenCalled()
+    expect(h.projectFindFirst).not.toHaveBeenCalled()
+    expect(h.briefingFindFirst).not.toHaveBeenCalled()
+    expect(h.providerFindMany).not.toHaveBeenCalled()
   })
 })

@@ -20,11 +20,7 @@ export async function trackHeadlineEdited(input: HeadlineEditedInput): Promise<v
   try {
     const draft = await prisma.draft.findUnique({
       where: { id: input.draftId },
-      select: {
-        headline: true,
-        renderedText: true,
-        _count: { select: { posts: { where: { status: 'SCHEDULED' } } } },
-      },
+      select: { headline: true, renderedText: true },
     })
     if (!draft) return
     // No change, no event.
@@ -37,7 +33,6 @@ export async function trackHeadlineEdited(input: HeadlineEditedInput): Promise<v
       payload: {
         via: input.via,
         state: headlineState(parseRenderedText(draft.renderedText), draft.headline),
-        scheduledPending: draft._count.posts > 0,
       },
     })
   } catch (err) {

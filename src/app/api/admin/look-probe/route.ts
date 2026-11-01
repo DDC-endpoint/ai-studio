@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto'
 import { z } from 'zod'
 import type { Brief } from '@prisma/client'
 import { withTeamAuth, parseBody } from '@/lib/api/handler'
-import { resolveBrandKit } from '@/lib/brandkit/resolve'
+import { newPostContext } from '@/lib/projects/context'
 import { generateBackgroundForBrief } from '@/lib/agent/background'
 import { withClaudeAuth } from '@/lib/agent/userToken'
 import { planComposition, BLANK_STDDEV_MAX, archetypes } from '@/lib/designData'
@@ -50,8 +50,9 @@ export const POST = withTeamAuth(async (req, _ctx, user) => {
     return NextResponse.json({ error: `Not a hero look at this size (${plan.fallbackReason ?? 'classic'})` }, { status: 400 })
   }
 
-  const kit = await resolveBrandKit(user.teamId)
-  if (!kit) return NextResponse.json({ error: 'The team has no brand kit' }, { status: 409 })
+  // The team default kit, no project (the probe belongs to no post).
+  const ctx = await newPostContext({ teamId: user.teamId })
+  if (!ctx.kit) return NextResponse.json({ error: 'The team has no brand kit' }, { status: 409 })
 
   // Under MOCK_AI the background seam only runs for a __MOCK_BG__ sentinel in the topic.
   const topic = MOCK_AI ? `${PROBE_TOPIC} __MOCK_BG__` : PROBE_TOPIC
@@ -72,9 +73,8 @@ export const POST = withTeamAuth(async (req, _ctx, user) => {
   const outcome = await withClaudeAuth(user.userId, user.teamId, () =>
     generateBackgroundForBrief(
       brief,
-      kit,
+      ctx,
       PROBE_TOPIC,
-      null,
       { userId: user.userId, teamId: user.teamId },
       plan,
       (p) => {

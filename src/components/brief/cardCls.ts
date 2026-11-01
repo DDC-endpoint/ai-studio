@@ -20,7 +20,7 @@ export function cardCls(selected: boolean, extra = '') {
   ].join(' ')
 }
 
-// A ruled list row (the campaign list): no box, a --line-subtle rule beneath.
+// A ruled list row (the project list): no box, a --line-subtle rule beneath.
 // Selected: paper fill, --fg weight and a 2 px --accent bar at the left edge,
 // as the sidebar marks the current page (§8.6).
 export function rowCls(selected: boolean, extra = '') {

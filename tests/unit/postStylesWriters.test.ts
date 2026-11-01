@@ -17,7 +17,7 @@ const fake = vi.hoisted(() => {
     providerCalls: [] as Array<Record<string, unknown>>,
     reply: {} as Record<string, string>,
     sources: [] as string[] | Error,
-    sourceCalls: [] as Array<{ brief: unknown; preloaded: unknown }>,
+    sourceCalls: [] as Array<{ brief: unknown; ctx: unknown }>,
   }
   const tx = {
     teamModelPolicy: { findUnique: async () => null },
@@ -66,7 +66,6 @@ const db = fake.db
 vi.mock('@/lib/prisma', () => ({ prisma: fake.client }))
 vi.mock('@/lib/renderer/fontSet', () => ({ getFontSetId: () => 'fonts-test' }))
 vi.mock('@/lib/brandkit/resolve', () => ({ resolveBrandKit: async () => ({ id: 'kit', name: 'Kit' }) }))
-vi.mock('@/lib/campaign/briefing', () => ({ getActiveCampaignBriefing: async () => null }))
 vi.mock('@/providers/registry', () => ({
   resolveCopyProvider: async () => ({
     generateCaptions: async (brief: Record<string, unknown>, _t: unknown, model: { arg: string }) => {
@@ -77,8 +76,8 @@ vi.mock('@/providers/registry', () => ({
 }))
 // The real facts check runs; only the database reads of its sources are faked.
 vi.mock('@/lib/factsCheck/sources', () => ({
-  loadFactsSources: async (brief: unknown, preloaded: unknown) => {
-    db.sourceCalls.push({ brief, preloaded })
+  loadFactsSources: async (brief: unknown, ctx: unknown) => {
+    db.sourceCalls.push({ brief, ctx })
     if (db.sources instanceof Error) throw db.sources
     return db.sources
   },
@@ -107,7 +106,7 @@ vi.mock('@/lib/api/handler', () => ({
     (req: unknown, ctx: { params: unknown }) =>
       handler(req, { params: ctx.params }, { userId: 'u1', teamId: 'team1' }),
 }))
-vi.mock('@/lib/authz/visibility', () => ({ canAccessContent: () => true }))
+vi.mock('@/lib/authz/visibility', () => ({ canView: () => true, canEditPost: () => true, NOT_AUTHOR: { code: 'not-author' } }))
 vi.mock('@/lib/drafts/draftActions', () => ({
   claimDraftAction: async () => ({ action: 'REGENERATE_DESIGN', claimId: 'c1' }),
   touchGeneration: async () => {},
@@ -122,14 +121,13 @@ import { POST as regenerateDesign } from '@/app/api/drafts/[id]/regenerate-desig
 import { checklistPromptText, POST_STYLES_REVISION } from '@/lib/postStyles'
 
 const STAMP = { key: 'promotion', version: 2, revision: POST_STYLES_REVISION }
-const CLEAN = { headline: 'the headline', instagram: 'ig caption', linkedin: 'li caption' }
+const CLEAN = { headline: 'the headline', general: 'gen caption' }
 
 const brief = (over: Record<string, unknown> = {}) =>
   ({
     id: 'b1',
     teamId: 'team1',
     userId: 'u1',
-    campaignId: null,
     brandKitId: null,
     topic: 'Spring sale',
     description: 'Two weeks only',
@@ -143,7 +141,7 @@ const brief = (over: Record<string, unknown> = {}) =>
     ...over,
   }) as never
 
-const actor = { userId: null, teamId: 'team1', source: 'scheduler' } as const
+const actor = { userId: null, teamId: 'team1', source: 'mcp' } as const
 
 beforeEach(() => {
   db.draftWrites = []
@@ -226,17 +224,17 @@ describe('NFR-04: a stored key that does not resolve fails closed, before any mo
 })
 
 describe('FR-11: the facts check is written in the draft’s own create (sync)', () => {
-  it('a clean reply stores status clear and reads the headline and both captions with the preloaded sources', async () => {
+  it('a clean reply stores status clear and reads the headline and the general caption with the generation’s own context', async () => {
     await generateDraftForBrief(brief(), actor)
     const created = db.draftWrites.find((w) => w.op === 'create')!.data
     expect(created.factsCheck).toMatchObject({ v: 1, status: 'clear', flagged: [] })
-    // The loader is handed the brief's own fields and what the run already resolved (the kit has no voice).
+    // The loader is handed the brief's own fields and the context the run already resolved (038 D6).
     expect(db.sourceCalls).toHaveLength(1)
-    expect(db.sourceCalls[0].preloaded).toEqual({ campaignBriefing: null, voicePrompt: null })
+    expect(db.sourceCalls[0].ctx).toMatchObject({ briefing: null, kit: { id: 'kit' } })
   })
 
   it('an invented value is flagged, with where it was found and no text', async () => {
-    db.reply = { headline: 'Only $49 today', instagram: 'Save 35% now', linkedin: 'li caption' }
+    db.reply = { headline: 'Only $49 today', general: 'Save 35% now' }
     await generateDraftForBrief(brief(), actor)
     const check = db.draftWrites.find((w) => w.op === 'create')!.data.factsCheck as {
       status: string
@@ -245,14 +243,14 @@ describe('FR-11: the facts check is written in the draft’s own create (sync)',
     expect(check.status).toBe('flagged')
     expect(check.flagged.map((f) => [f.where, f.kind])).toEqual([
       ['headline', 'cur'],
-      ['INSTAGRAM', 'pct'],
+      ['GENERAL', 'pct'],
     ])
     expect(JSON.stringify(check)).not.toContain('Save')
   })
 
   it('a value the brief states is not flagged (the support rule over the sources)', async () => {
     db.sources = ['Spring sale', 'Only $49 today']
-    db.reply = { headline: 'Only $49 today', instagram: 'ig', linkedin: 'li' }
+    db.reply = { headline: 'Only $49 today', general: 'gen' }
     await generateDraftForBrief(brief(), actor)
     expect(db.draftWrites.find((w) => w.op === 'create')!.data.factsCheck).toMatchObject({ status: 'clear' })
   })
@@ -269,7 +267,7 @@ describe('FR-11: the facts check is written in the draft’s own create (sync)',
   })
 
   it('the check runs for a brief with no style too (the guard does not depend on the thing that might be missing)', async () => {
-    db.reply = { headline: 'Only $49 today', instagram: 'ig', linkedin: 'li' }
+    db.reply = { headline: 'Only $49 today', general: 'gen' }
     await generateDraftForBrief(brief({ postStyle: null }), actor)
     expect(db.draftWrites.find((w) => w.op === 'create')!.data.factsCheck).toMatchObject({ status: 'flagged' })
   })

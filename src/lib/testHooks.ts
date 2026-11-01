@@ -7,12 +7,8 @@
  *
  *   MOCK_AI         — stub copy provider + design agent (no Anthropic/OpenAI calls)
  *   MOCK_PUPPETEER  — skip Chromium, return a fixed PNG
- *   MOCK_SOCIAL     — skip the Instagram/LinkedIn HTTP calls, return a fake platformId
- *   MOCK_SOCIAL_FAIL — make the mock publishers throw (for FAILED/retry coverage)
  */
 
-import { createHash } from 'node:crypto'
-import type { Channel } from '@prisma/client'
 import type { ConstrainTarget, InstructionClass } from '@/lib/agent/instructionClasses'
 // Type-only — erased at compile time (tsconfig isolatedModules), so this does
 // not create a runtime import cycle with refineVerify.ts, which imports this
@@ -25,20 +21,17 @@ import type { CanvasPx, LuminanceGrid, Rect, Region, RegionSample, TextTone } fr
 import { LAYOUT_TOLERANCE_PCT } from '@/lib/designData/layout'
 import { MOCK_HEADLINE_HIDDEN } from '@/lib/renderedText/mockCheck'
 import { GRID_STEP_PX } from '@/lib/designData/composite'
-import { CAPTION_CHANNELS, type CaptionTarget } from '@/lib/channels'
+import { CAPTION_REGISTRY, type CaptionTarget } from '@/lib/channels'
 import { HEADLINE_MAX } from '@/lib/captions/headline'
 
 export const MOCK_AI = process.env.MOCK_AI === 'true'
 export const MOCK_PUPPETEER = process.env.MOCK_PUPPETEER === 'true'
-export const MOCK_SOCIAL = process.env.MOCK_SOCIAL === 'true'
-export const MOCK_SOCIAL_FAIL = process.env.MOCK_SOCIAL_FAIL === 'true'
 
 // ── 012 FR-21: the mock caption reply seam ──────────────────────────────────
 
 const DROP_CAPTION_SENTINELS: Partial<Record<CaptionTarget, string>> = {
   HEADLINE: '__DROP_CAPTION_HEADLINE__',
-  INSTAGRAM: '__DROP_CAPTION_INSTAGRAM__',
-  LINKEDIN: '__DROP_CAPTION_LINKEDIN__',
+  GENERAL: '__DROP_CAPTION_GENERAL__',
 }
 
 // ── 027 FR-15: the facts-check seams ────────────────────────────────────────
@@ -55,6 +48,27 @@ const FACT_VALUE_SENTINELS: ReadonlyArray<readonly [sentinel: string, value: str
 const FACT_HEADLINE_SENTINEL = '__MOCK_FACT_HEADLINE__'
 const FACT_HEADLINE_VALUE = '$49'
 const FACT_ERROR_SENTINEL = '__MOCK_FACT_ERROR__'
+const FAIL_CURATED_SENTINEL = '__FAIL_CURATED__'
+// 039 FR-21: the Facebook body sentinels (the default body meets every Facebook rule).
+const CURATE_LINK_SENTINEL = '__MOCK_CURATE_LINK__'
+const CURATE_SHORT_SENTINEL = '__MOCK_CURATE_SHORT__'
+const CURATE_HASHTAGS_SENTINEL = '__MOCK_CURATE_HASHTAGS__'
+const MOCK_LINK = 'https://example.invalid/x'
+const FILLER = 'Come and see what we have been working on and tell us what you think of it'.split(' ')
+
+// The mock Facebook caption: an exact word count (hashtags and links do not count)
+// whatever the topic, so a test can state it. The default is 50 words and 2
+// hashtags with no link; a sentinel in the topic makes it short (12 words), put a
+// link in it or give it 5 hashtags. Fact values go before the hashtag line.
+function mockFacebookBody(topic: string, fromGeneral: boolean, values: string[]): string {
+  const words = topic.includes(CURATE_SHORT_SENTINEL) ? 12 : 50
+  const lead = ['Mock', 'Facebook', 'caption', ...(fromGeneral ? ['[from', 'general]'] : [])]
+  const filler = Array.from({ length: words - lead.length }, (_, i) => FILLER[i % FILLER.length])
+  const body = [...lead, ...filler]
+  if (topic.includes(CURATE_LINK_SENTINEL)) body.splice(lead.length, 0, MOCK_LINK)
+  const hashtags = topic.includes(CURATE_HASHTAGS_SENTINEL) ? '#one #two #three #four #five' : '#mock #facebook'
+  return `${body.join(' ')}${values.length > 0 ? ` ${values.join(' ')}` : ''}\n\n${hashtags}`
+}
 
 /**
  * Whether the facts check must fail for this topic (MOCK_AI only): the check's
@@ -71,24 +85,30 @@ export function shouldMockFactError(topic: string): boolean {
  * and a sign-off — the shape a real model drifts into — so the REAL extractor
  * (extractCaptionReply) parses every mock reply.
  *
- * Each caption embeds the brief topic, so the existing topic sentinels still
- * reach whatever reads a caption (__FAIL_ALWAYS__ / __FAIL_ONCE__ for the
- * publishers).
+ * Each caption embeds the brief topic, so the topic sentinels still reach
+ * whatever reads a caption.
  *
- * A "__DROP_CAPTION_<TARGET>__" sentinel in the topic omits that key, ONLY in
- * a reply that requests every channel (a generation or "Regenerate all"). So
- * a single-channel regenerate of the dropped channel succeeds, with no stored
- * state. Deterministic: same input, same bytes.
+ * A "__DROP_CAPTION_<TARGET>__" sentinel (HEADLINE or GENERAL) in the topic
+ * omits that key, ONLY in a generation reply (one that asks for both the
+ * headline and the general caption). So a later regenerate of the dropped
+ * caption succeeds, with no stored state. Deterministic: same input, same bytes.
+ *
+ * 039 FR-21: `hasGeneral` (the prompt carried a general caption) adds "[from general]"
+ * to each curated caption; "__FAIL_CURATED__" in the topic omits every curated key.
  *
  * 027: a fact sentinel in the topic (__MOCK_FACT_PRICE__ and the other three)
  * appends its invented value to the headline and to every caption;
  * __MOCK_FACT_HEADLINE__ appends one to the headline only.
  */
-export function buildMockCaptionReply(topic: string, targets: readonly CaptionTarget[]): string {
-  const allChannels = CAPTION_CHANNELS.every((s) => targets.includes(s.channel))
+export function buildMockCaptionReply(
+  topic: string,
+  targets: readonly CaptionTarget[],
+  { hasGeneral = false }: { hasGeneral?: boolean } = {},
+): string {
+  const generation = targets.includes('HEADLINE') && targets.includes('GENERAL')
   const dropped = (target: CaptionTarget) => {
     const sentinel = DROP_CAPTION_SENTINELS[target]
-    return allChannels && sentinel !== undefined && topic.includes(sentinel)
+    return generation && sentinel !== undefined && topic.includes(sentinel)
   }
 
   const values = FACT_VALUE_SENTINELS.filter(([sentinel]) => topic.includes(sentinel)).map(([, value]) => value)
@@ -102,9 +122,16 @@ export function buildMockCaptionReply(topic: string, targets: readonly CaptionTa
     const tail = headlineValues.length > 0 ? ` ${headlineValues.join(' ')}` : ''
     reply.headline = `Mock headline ${topic}`.slice(0, HEADLINE_MAX - tail.length) + tail
   }
-  for (const s of CAPTION_CHANNELS) {
-    if (!targets.includes(s.channel) || dropped(s.channel)) continue
-    reply[s.jsonKey] = withValues(`Mock ${s.label} caption [${topic}]`, values)
+  for (const s of CAPTION_REGISTRY) {
+    if (!targets.includes(s.target) || dropped(s.target)) continue
+    // 039 FR-21: __FAIL_CURATED__ omits every curated key, in any reply.
+    if (s.kind === 'CURATED' && topic.includes(FAIL_CURATED_SENTINEL)) continue
+    // A curate that was given the general caption says so.
+    const fromGeneral = s.kind === 'CURATED' && hasGeneral ? ' [from general]' : ''
+    reply[s.jsonKey] =
+      s.target === 'FACEBOOK'
+        ? mockFacebookBody(topic, fromGeneral !== '', values)
+        : withValues(`Mock ${s.label} caption [${topic}]${fromGeneral}`, values)
   }
 
   return [
@@ -118,52 +145,9 @@ export function buildMockCaptionReply(topic: string, targets: readonly CaptionTa
   ].join('\n')
 }
 
-// Per-caption record so a __FAIL_ONCE__ post fails the first publish attempt and
-// succeeds on retry — state lives for the life of the serve process. Backed by
-// globalThis (not a plain module-scope `const`): Next.js/Turbopack can give
-// different API route bundles their own instance of this module in dev mode
-// (each route is compiled somewhat independently), which would silently
-// split this Set across the "first attempt" route and the "retry" route and
-// break the once-then-succeed contract (observed: retry.test flakiness where
-// __FAIL_ONCE__ failed on both the first attempt AND the retry). A
-// globalThis-backed singleton survives that split.
-const mockFailedOnce: Set<string> = ((globalThis as Record<string, unknown>).__mockFailedOnce ??=
-  new Set<string>()) as Set<string>
-
-/**
- * Decide whether a mocked publish should throw. Active only when MOCK_SOCIAL is
- * set (the publishers gate on that). Precedence:
- *   - MOCK_SOCIAL_FAIL (global env)      → always fail (legacy behaviour, kept)
- *   - caption contains "__FAIL_ALWAYS__" → always fail (deterministic FAILED)
- *   - caption contains "__FAIL_ONCE__"   → fail first attempt, succeed after
- *   - otherwise                          → succeed
- * The caption must be unique per post (use a unique brief topic) for __FAIL_ONCE__.
- */
-export function shouldMockPublishFail(caption: string): boolean {
-  if (MOCK_SOCIAL_FAIL) return true
-  if (caption.includes('__FAIL_ALWAYS__')) return true
-  if (caption.includes('__FAIL_ONCE__')) {
-    if (mockFailedOnce.has(caption)) return false
-    mockFailedOnce.add(caption)
-    return true
-  }
-  return false
-}
-
-/**
- * The mock publishers' platformId (012 FR-21): `mock-<channel>-<Date.now()>-`
- * then the first 12 hex of sha256(caption), so an E2E can prove which text a
- * channel received. The `mock-<channel>-<timestamp>` prefix is unchanged.
- */
-export function mockPlatformId(channel: Channel, caption: string): string {
-  const hash = createHash('sha256').update(caption).digest('hex').slice(0, 12)
-  return `mock-${channel.toLowerCase()}-${Date.now()}-${hash}`
-}
-
 // Per-prompt record so a __FAIL_GEN_ONCE__ generation fails its first attempt
-// and succeeds on retry — state for the life of the serve process. Same
-// globalThis-backed pattern as mockFailedOnce above, for the same reason: the
-// initial generation (assemble-a/b's route) and the retry (drafts/[id]/retry's
+// and succeeds on retry — state for the life of the serve process. Backed
+// by globalThis (not a module-scope const): the initial generation (assemble-a/b's route) and the retry (drafts/[id]/retry's
 // route) are different Next.js route files, which can end up as separate
 // Turbopack dev-mode module instances of this file.
 const mockGenFailedOnce: Set<string> = ((globalThis as Record<string, unknown>).__mockGenFailedOnce ??=
@@ -176,8 +160,6 @@ const mockGenFailedOnce: Set<string> = ((globalThis as Record<string, unknown>).
  *   - "__FAIL_GEN_ALWAYS__" → always fail (deterministic FAILED)
  *   - "__FAIL_GEN_ONCE__"   → fail first attempt, succeed on retry (F1 retry path)
  * The topic must be unique per draft for __FAIL_GEN_ONCE__ to isolate its state.
- * The scheduled-generation + async-generation retry/FAILED counterpart to
- * shouldMockPublishFail.
  */
 export function shouldMockGenerateFail(promptContext: string): boolean {
   if (promptContext.includes('__FAIL_GEN_ALWAYS__')) return true
@@ -192,40 +174,21 @@ export function shouldMockGenerateFail(promptContext: string): boolean {
 /**
  * Deterministic briefing-assistant chat reply (MOCK_AI). Echoes the last user
  * message and always carries a ```briefing block so tests can assert the
- * draft-extraction path end-to-end. When the user message asks to SCHEDULE a
- * series of posts (contains "schedule" or "scheme"), it instead emits a
- * ```schedule block with a small deterministic plan so F4's auto-scheduling
- * path can be asserted end-to-end.
+ * draft-extraction path end-to-end.
  */
 export function buildMockBriefingReply(lastUserMessage: string): string {
-  const wantsSchedule = /schedul|scheme/i.test(lastUserMessage)
-  if (wantsSchedule) {
-    const plan = {
-      posts: [
-        { topic: 'Mock scheduled post 1', postStyle: 'launch', tone: 'professional', daysFromNow: 1, postAction: 'HOLD' },
-        { topic: 'Mock scheduled post 2', postStyle: 'flash-sale', tone: 'casual', daysFromNow: 3, postAction: 'HOLD' },
-      ],
-    }
-    return [
-      `Mock scheduling reply for E2E tests. [${lastUserMessage}]`,
-      '',
-      '```schedule',
-      JSON.stringify(plan, null, 2),
-      '```',
-    ].join('\n')
-  }
   return [
     `Mock briefing assistant reply for E2E tests. [${lastUserMessage}]`,
     '',
     '```briefing',
-    `Mock campaign briefing draft based on: ${lastUserMessage}`,
+    `Mock project briefing draft based on: ${lastUserMessage}`,
     '```',
   ].join('\n')
 }
 
 /** Deterministic "Enhance with AI" briefing rewrite (MOCK_AI). */
 export function buildMockBriefingEnhance(content: string): string {
-  return `Enhanced: ${content || 'Mock briefing drafted from campaign context.'}`
+  return `Enhanced: ${content || 'Mock briefing drafted from project context.'}`
 }
 
 /**

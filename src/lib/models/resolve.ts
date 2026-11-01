@@ -5,7 +5,7 @@
 //
 // Pure and client-safe: imports the catalogue only. No I/O, no clock, no env
 // read — the policy, the credential tier, the mode and CLAUDE_CLI_MODEL are
-// inputs (the recovery.ts / captions/resolve.ts split).
+// inputs (the recovery.ts split).
 //
 // Tiers, first match wins, each checked against the effective set at call time:
 //   1. the explicit request — a miss is refused (the route's 400);
@@ -264,14 +264,14 @@ export function internalModel(
 /**
  * FR-09: the stamp tier of a regenerate-copy, from its parsed targets
  * (captions/requests.ts parseRegenerateBody): ['HEADLINE'] → headlineModel;
- * [channel] → that row's stamp; every channel ("Regenerate all") → the common
+ * [target] → that row's stamp; several caption targets → the common
  * stamp only when every target row has one and they are all equal. Otherwise
  * null: no stamp tier, and — since no single stamp was refused — no substitution.
  */
 export function regenerateStampTier<C extends string>(
   targets: readonly (C | 'HEADLINE')[],
   draft: {
-    captions: readonly { channel: C; model: string | null }[]
+    captions: readonly { target: C; model: string | null }[]
     headlineModel: string | null
   },
 ): string | null {
@@ -280,8 +280,8 @@ export function regenerateStampTier<C extends string>(
     return targets.length === 1 ? draft.headlineModel : null
   }
   let common: string | null = null
-  for (const channel of targets) {
-    const stamp = draft.captions.find((row) => row.channel === channel)?.model ?? null
+  for (const target of targets) {
+    const stamp = draft.captions.find((row) => row.target === target)?.model ?? null
     if (stamp === null || (common !== null && stamp !== common)) return null
     common = stamp
   }

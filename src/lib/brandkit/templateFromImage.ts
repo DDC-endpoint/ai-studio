@@ -1,6 +1,6 @@
 import type { AspectRatio } from '@prisma/client'
 import { runVisionModel } from '@/lib/agent/vision'
-import { resolveAssistantModel } from '@/lib/campaign/briefingAssistant'
+import { resolveAssistantModel } from '@/lib/projects/briefingAssistant'
 import { pipelineMode } from '@/lib/agent/config'
 import { modelCallFor, recordModelCall } from '@/lib/models/modelCalls'
 import { getImageDimensions } from '@/lib/renderer/puppeteer'

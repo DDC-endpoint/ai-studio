@@ -39,7 +39,7 @@ vi.mock('@/lib/prisma', () => ({
   prisma: {
     draft: { findUnique: h.draftFindUnique, update: vi.fn() },
     brief: { create: h.briefCreate },
-    campaign: { findFirst: async () => ({ id: 'c1', teamId: 'team1' }) },
+    project: { findFirst: async () => ({ id: 'p1', teamId: 'team1' }) },
     brandKit: {
       findUnique: async () => ({ id: 'k1', isDeleted: false, teamId: 'team1' }),
       findFirst: async () => ({ id: 'k1', teamId: 'team1' }),
@@ -81,7 +81,7 @@ vi.mock('@/lib/api/handler', () => {
     withTeamAdmin: wrap,
   }
 })
-vi.mock('@/lib/authz/visibility', () => ({ canAccessContent: () => true }))
+vi.mock('@/lib/authz/visibility', () => ({ canView: () => true, canEditPost: () => true, NOT_AUTHOR: { code: 'not-author' } }))
 // The mode, deterministically (the local .env may set CLI mode; CI has none).
 vi.mock('@/lib/agent/config', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/agent/config')>()),
@@ -113,7 +113,6 @@ vi.mock('@/lib/brandkit/resolve', () => ({
     artifacts: [],
   }),
 }))
-vi.mock('@/lib/campaign/briefing', () => ({ getActiveCampaignBriefing: async () => null }))
 // The real copyProviderIsClaude (spec open question 1) on the faked COPY row;
 // only the provider instance and the key lookup are faked.
 vi.mock('@/providers/registry', async (importOriginal) => ({
@@ -134,8 +133,11 @@ vi.mock('@/lib/factsCheck/refresh', () => ({
 vi.mock('@/lib/captions/generate', () => ({ writeCaptions: h.writeCaptions }))
 vi.mock('@/lib/captions/store', () => ({
   loadDraftCaptions: async () => ({
-    captions: ['INSTAGRAM', 'LINKEDIN'].map((channel) => ({
+    general: { kind: 'GENERAL', channel: null, target: 'GENERAL', model: 'claude-sonnet-5-5' },
+    curated: ['INSTAGRAM', 'LINKEDIN'].map((channel) => ({
+      kind: 'CURATED',
       channel,
+      target: channel,
       model: 'claude-sonnet-5-5',
     })),
   }),
@@ -203,7 +205,7 @@ const { POST: createBrief } = await import('@/app/api/briefs/route')
 const { POST: regenerateCopy } = await import('@/app/api/drafts/[id]/regenerate-copy/route')
 const { POST: regenerateDesign } = await import('@/app/api/drafts/[id]/regenerate-design/route')
 const { POST: refine } = await import('@/app/api/drafts/[id]/refine/route')
-const { POST: briefingChat } = await import('@/app/api/campaigns/[id]/briefing/chat/route')
+const { POST: briefingChat } = await import('@/app/api/projects/[id]/briefing/chat/route')
 const { POST: brandKitChat } = await import('@/app/api/admin/brandkits/[id]/assistant/chat/route')
 
 let calls: ModelCallRecord[] = []
@@ -279,7 +281,7 @@ const ROUTES: Route[] = [
   },
   ...(
     [
-      ['{ model? } (Regenerate all)', {}],
+      ["{ kind: 'GENERAL', model? }", { kind: 'GENERAL' }],
       ['{ channel, model? }', { channel: 'LINKEDIN' }],
       ['{ headline: true, model? }', { headline: true }],
     ] as const
@@ -299,7 +301,7 @@ const ROUTES: Route[] = [
     defaultKey: 'SONNET',
     status: 202,
     call: (model) => send(regenerateDesign as Handler, model === undefined ? {} : { model }),
-    seen: () => pickOf(h.pathB.mock.calls[0]?.[5]),
+    seen: () => pickOf(h.pathB.mock.calls[0]?.[4]),
     touched: () => h.claimDraft.mock.calls.length > 0,
   },
   {
@@ -312,7 +314,7 @@ const ROUTES: Route[] = [
     touched: () => h.claimDraft.mock.calls.length > 0,
   },
   {
-    name: 'POST /api/campaigns/[id]/briefing/chat',
+    name: 'POST /api/projects/[id]/briefing/chat',
     surface: 'ASSISTANT_BRIEFING',
     defaultKey: 'SONNET',
     status: 200,
@@ -356,7 +358,6 @@ function draft(over: Record<string, unknown> = {}) {
       id: 'b1',
       userId: 'u1',
       teamId: 'team1',
-      campaignId: null,
       brandKitId: null,
       copyProviderKey: null,
       aspectRatio: 'SQUARE',
@@ -395,7 +396,7 @@ beforeEach(() => {
   h.draftFindUnique.mockImplementation(async () => draft())
   h.briefCreate.mockImplementation(async ({ data }: { data: object }) => ({ id: 'b-new', ...data }))
   h.claimDraft.mockResolvedValue({ action: 'REFINE', claimId: 'c1' })
-  h.claimCaption.mockResolvedValue({ action: 'REGENERATE_COPY', claimId: 'c1' })
+  h.claimCaption.mockResolvedValue({ claim: { action: 'REGENERATE_COPY', claimId: 'c1' }, created: [] })
   const stop = async () => {
     throw new Error('boundary reached')
   }
@@ -520,7 +521,7 @@ describe('AC-25: every FR-17 route body accepts `model`', () => {
   it('an explicit pick wins over the regenerate stamp (FR-09: the stamp is tier 2)', async () => {
     h.draftFindUnique.mockImplementation(async () => draft({ designModel: 'claude-opus-5-5' }))
     await send(regenerateDesign as Handler, { model: 'HAIKU' })
-    expect(pickOf(h.pathB.mock.calls[0][5])).toEqual({ key: 'HAIKU', source: 'request' })
+    expect(pickOf(h.pathB.mock.calls[0][4])).toEqual({ key: 'HAIKU', source: 'request' })
   })
 })
 
@@ -660,7 +661,7 @@ describe('without a pick, an unresolvable surface keeps its wave-1 answer (not a
   })
 
   it('regenerate-copy → its 422 COPY_ERROR, nothing claimed', async () => {
-    const res = await send(regenerateCopy as Handler, undefined)
+    const res = await send(regenerateCopy as Handler, { kind: 'GENERAL' })
     expect(res.status).toBe(422)
     expect((await res.json()).code).toBe('COPY_ERROR')
     expect(h.claimCaption).not.toHaveBeenCalled()
@@ -788,7 +789,7 @@ describe('spec open question 1: a caption pick needs a Claude caption provider',
     )
     // Not the team default: the row is reached only through the brief's own key.
     h.copyRow = { id: 'p1', providerName: 'openai', providerKey: 'openai-key' }
-    expect((await send(regenerateCopy as Handler, { model: 'HAIKU' })).status).toBe(400)
+    expect((await send(regenerateCopy as Handler, { kind: 'GENERAL', model: 'HAIKU' })).status).toBe(400)
     expect(h.copyLookups.mock.calls[0][0]).toMatchObject({ slot: 'COPY', teamId: 'team1' })
   })
 

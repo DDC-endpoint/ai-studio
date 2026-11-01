@@ -60,7 +60,8 @@ type Call = {
   label: string | null
 }
 type Caption = {
-  channel: 'INSTAGRAM' | 'LINKEDIN'
+  // 039: the general caption, plus an old post's curated rows (seeded: curate is T3).
+  target: 'GENERAL' | 'INSTAGRAM' | 'LINKEDIN'
   text: string
   status: string
   updatedAt: string
@@ -121,7 +122,7 @@ async function resetPolicy(teamId: string | null) {
 // ── Drafts ───────────────────────────────────────────────────────────────────
 
 const captionsOf = (d: Draft) => d.captions as Caption[]
-const captionOf = (d: Draft, channel: Caption['channel']) => captionsOf(d).find((c) => c.channel === channel)!
+const captionOf = (d: Draft, target: Caption['target']) => captionsOf(d).find((c) => c.target === target)!
 const read = async (api: ApiClient, id: unknown): Promise<Draft> => (await api.get(`/api/drafts/${id}`)).json()
 const revisionModel = async (draftId: string, revisionNumber: number) =>
   prisma!.draftRevision.findFirstOrThrow({
@@ -129,8 +130,8 @@ const revisionModel = async (draftId: string, revisionNumber: number) =>
     select: { model: true, modelSubstitutedFrom: true },
   })
 
-// One kit (with a square template) + campaign per worker, shared by the suite.
-let fixture: { kitId: string; kitName: string; templateId: string; templateName: string; campaignId: string } | null = null
+// One kit (with a square template) + project per worker, shared by the suite.
+let fixture: { kitId: string; kitName: string; templateId: string; templateName: string; projectId: string } | null = null
 async function suiteFixture(api: ApiClient) {
   if (fixture) return fixture
   const stamp = Date.now()
@@ -141,8 +142,15 @@ async function suiteFixture(api: ApiClient) {
       htmlTemplate: '<html><body style="width:1080px;height:1080px;background:#0b6e4f;color:#fff">{{topic}}</body></html>',
     })
   ).json()
-  const camp = await (await api.post('/api/campaigns', { name: `Models Camp ${stamp}`, brandKitId: kit.id })).json()
-  fixture = { kitId: kit.id, kitName: kit.name, templateId: template.id, templateName: template.name, campaignId: camp.id }
+  // The project's default kit serves its posts and the briefing assistant (038).
+  const project = await (await api.post('/api/projects', { name: `Models Project ${stamp}`, defaultBrandKitId: kit.id })).json()
+  fixture = {
+    kitId: kit.id,
+    kitName: kit.name,
+    templateId: template.id,
+    templateName: template.name,
+    projectId: project.id,
+  }
   return fixture
 }
 
@@ -155,7 +163,7 @@ async function generate(api: ApiClient, path: 'A' | 'B', topic: string): Promise
     channels: ['INSTAGRAM'],
     designMode: path === 'A' ? 'TEMPLATE' : 'GENERATE',
     copyProviderKey: 'cli',
-    campaignId: f.campaignId,
+    projectId: f.projectId,
   })
   expect(brief.status()).toBe(201)
   const briefId = (await brief.json()).id
@@ -167,6 +175,19 @@ async function generate(api: ApiClient, path: 'A' | 'B', topic: string): Promise
   const draft = await waitForDraft(api, (await res.json()).draftId)
   expect(draft.status, String(draft.failureReason)).toBe('EXPORTED')
   return draft
+}
+
+// A Path B post with the two curated rows a post made before 039 has (039 T2: curate is
+// T3, so the test DB seeds them), stamped as a generation would stamp them (Haiku).
+async function generateWithCurated(api: ApiClient, topic: string): Promise<Draft> {
+  const draft = await generate(api, 'B', topic)
+  const id = draft.id as string
+  for (const channel of ['INSTAGRAM', 'LINKEDIN'] as const) {
+    await prisma!.draftCaption.create({
+      data: { draftId: id, kind: 'CURATED', channel, text: `Seeded ${channel} caption`, status: 'READY', model: HAIKU },
+    })
+  }
+  return read(api, id)
 }
 
 async function act(api: ApiClient, id: unknown, path: string, body: unknown): Promise<Draft> {
@@ -199,10 +220,10 @@ test.describe('§Y — model selection: stamps, policy and the recorder', () => 
     await clearCalls(api)
     const draft = await generate(api, 'B', `Models PathB ${Date.now()}`)
 
-    expect(captionsOf(draft)).toHaveLength(2)
+    expect(captionsOf(draft).map((c) => c.target)).toEqual(['GENERAL'])
     for (const c of captionsOf(draft)) {
-      expect(c.model, c.channel).toBe(HAIKU)
-      expect(c.modelSubstitutedFrom, c.channel).toBeNull()
+      expect(c.model, c.target).toBe(HAIKU)
+      expect(c.modelSubstitutedFrom, c.target).toBeNull()
     }
     expect(draft.headlineModel).toBe(HAIKU)
     expect(draft.headlineModelSubstitutedFrom).toBeNull()
@@ -248,7 +269,7 @@ test.describe('§Y — model selection: stamps, policy and the recorder', () => 
     expect(draft.designModelSubstitutedFrom).toBeNull()
     expect(await revisionModel(draft.id as string, 1)).toEqual({ model: OPUS, modelSubstitutedFrom: null })
     // Only the surface with a team default moved.
-    expect(captionOf(draft, 'INSTAGRAM').model).toBe(HAIKU)
+    expect(captionOf(draft, 'GENERAL').model).toBe(HAIKU)
 
     const calls = await readCalls(api)
     expectRan(calls, 'DESIGN_FREEFORM', OPUS, 'team')
@@ -322,7 +343,7 @@ test.describe('§Y — model selection: stamps, policy and the recorder', () => 
       await clearCalls(api)
       const draft = await generate(api, 'B', `Models Isolation ${Date.now()}`)
       expect(draft.designModel).toBe(SONNET)
-      expect(captionOf(draft, 'LINKEDIN').model).toBe(HAIKU)
+      expect(captionOf(draft, 'GENERAL').model).toBe(HAIKU)
       const calls = await readCalls(api)
       expectRan(calls, 'DESIGN_FREEFORM', SONNET, 'system')
       expectRan(calls, 'CAPTION', HAIKU, 'system')
@@ -339,13 +360,13 @@ test.describe('§Y — model selection: stamps, policy and the recorder', () => 
     const draft = await generate(api, 'B', `Models Removal ${Date.now()}`)
     const id = draft.id as string
     await prisma!.draft.update({ where: { id }, data: { designModel: OPUS } })
-    await prisma!.draftCaption.update({
-      where: { draftId_channel: { draftId: id, channel: 'LINKEDIN' } },
+    await prisma!.draftCaption.updateMany({
+      where: { draftId: id, kind: 'GENERAL' },
       data: { model: OPUS },
     })
     const seeded = await read(api, id)
     expect(seeded.designModel).toBe(OPUS)
-    expect(captionOf(seeded, 'LINKEDIN').model).toBe(OPUS)
+    expect(captionOf(seeded, 'GENERAL').model).toBe(OPUS)
 
     await putPolicy(api, policy({ allowed: ['HAIKU', 'SONNET'] }))
     await clearCalls(api)
@@ -356,12 +377,10 @@ test.describe('§Y — model selection: stamps, policy and the recorder', () => 
     expect(designed.designModelSubstitutedFrom).toBe(OPUS)
     expect(await revisionModel(id, 2)).toEqual({ model: SONNET, modelSubstitutedFrom: OPUS })
 
-    const recaptioned = await act(api, id, 'regenerate-copy', { channel: 'LINKEDIN' })
-    expect(captionOf(recaptioned, 'LINKEDIN')).toMatchObject({ model: HAIKU, modelSubstitutedFrom: OPUS })
-    // The other row was never written: same stamp, same updatedAt.
-    for (const channel of ['INSTAGRAM'] as const) {
-      expect(captionOf(recaptioned, channel)).toEqual(captionOf(seeded, channel))
-    }
+    const recaptioned = await act(api, id, 'regenerate-copy', { kind: 'GENERAL' })
+    expect(captionOf(recaptioned, 'GENERAL')).toMatchObject({ model: HAIKU, modelSubstitutedFrom: OPUS })
+    // The headline was never written: same stamp.
+    expect(recaptioned.headlineModel).toBe(seeded.headlineModel)
     expect(recaptioned.designModel).toBe(SONNET) // a caption action leaves the design stamp
 
     const calls = await readCalls(api)
@@ -370,53 +389,8 @@ test.describe('§Y — model selection: stamps, policy and the recorder', () => 
     expect(on(calls, 'CAPTION').map((c) => [c.arg, c.source, c.substitutedFrom])).toEqual([[HAIKU, 'system', OPUS]])
   })
 
-  // TC-MODEL-07 — AC-18 (FR-09): Regenerate all is like for like, by the stamps.
-  test('Regenerate all keeps a uniform stamp, uses the team default on mixed stamps, and the system default on null ones', async () => {
-    if (!MOCKED()) { test.skip(); return }
-    const draft = await generate(api, 'B', `Models LikeForLike ${Date.now()}`)
-    const id = draft.id as string
-    const setStamps = async (models: [string | null, string | null]) => {
-      const channels = ['INSTAGRAM', 'LINKEDIN'] as const
-      for (const [i, channel] of channels.entries()) {
-        await prisma!.draftCaption.update({
-          where: { draftId_channel: { draftId: id, channel } },
-          data: { model: models[i], modelSubstitutedFrom: null },
-        })
-      }
-    }
-    const stampsOf = (d: Draft) => captionsOf(d).map((c) => [c.model, c.modelSubstitutedFrom])
-
-    // (a) Two equal stamps: the stamp tier.
-    await setStamps([SONNET, SONNET])
-    await clearCalls(api)
-    let done = await act(api, id, 'regenerate-copy', {})
-    expect(stampsOf(done)).toEqual([[SONNET, null], [SONNET, null]])
-    expectRan(await readCalls(api), 'CAPTION', SONNET, 'stamp')
-
-    // (b) Mixed stamps (Opus allowed) and a team CAPTION default of Haiku: no
-    // stamp tier, the team default, and no substitution recorded.
-    await putPolicy(api, policy({ defaults: { CAPTION: 'HAIKU' } }))
-    await setStamps([SONNET, OPUS])
-    await clearCalls(api)
-    done = await act(api, id, 'regenerate-copy', {})
-    expect(stampsOf(done)).toEqual([[HAIKU, null], [HAIKU, null]])
-    let calls = await readCalls(api)
-    expectRan(calls, 'CAPTION', HAIKU, 'team')
-    expect(on(calls, 'CAPTION').every((c) => c.substitutedFrom === null)).toBe(true)
-
-    // (c) Null stamps (a pre-008 draft) with no team default: the system default.
-    await resetPolicy(teamId)
-    await setStamps([null, null])
-    await clearCalls(api)
-    done = await act(api, id, 'regenerate-copy', {})
-    expect(stampsOf(done)).toEqual([[HAIKU, null], [HAIKU, null]])
-    calls = await readCalls(api)
-    expectRan(calls, 'CAPTION', HAIKU, 'system')
-    expect(on(calls, 'CAPTION').every((c) => c.substitutedFrom === null)).toBe(true)
-    // Regenerate all never touches the headline or its stamp.
-    expect(done.headlineModel).toBe(HAIKU)
-    expect(done.headline).toBe(draft.headline)
-  })
+  // TC-MODEL-07 — removed by 039 (Q2): "Regenerate all" is retired, and with it the mixed-stamp
+  // rule it exercised. regenerateStampTier keeps its unit cases (regenerateStamp.test.ts).
 
   // TC-MODEL-08 — AC-19 (FR-08, A8): refine by path, the Haiku verifier, a team
   // REFINE default, and restore.
@@ -466,41 +440,10 @@ test.describe('§Y — model selection: stamps, policy and the recorder', () => 
     expect(restored.designModelSubstitutedFrom).toBeNull()
   })
 
-  // TC-MODEL-09 — AC-20 (FR-11): the scheduler and ACP use the team default.
-  test('a scheduled HOLD entry and ACP generate_post both design on the team default', async ({ request }) => {
+  // TC-MODEL-09 — AC-20 (FR-11): ACP uses the team default (the scheduler leg went with 037 T2).
+  test('ACP generate_post designs on the team default', async ({ request }) => {
     if (!MOCKED()) { test.skip(); return }
     await putPolicy(api, policy({ defaults: { DESIGN_FREEFORM: 'OPUS' } }))
-
-    // The scheduler (userId null → credential 'team'; API mode, so not gated).
-    const f = await suiteFixture(api)
-    const entryRes = await api.post(`/api/campaigns/${f.campaignId}/queue`, {
-      topic: `Models Scheduled ${Date.now()}`,
-      goal: 'Awareness',
-      tone: 'professional',
-      channels: ['INSTAGRAM'],
-      designMode: 'GENERATE',
-      generateAt: new Date(Date.now() + 24 * 3600_000).toISOString(),
-      postAction: 'HOLD',
-    })
-    expect(entryRes.status()).toBe(201)
-    const entry = await entryRes.json()
-    await prisma!.scheduledGeneration.update({
-      where: { id: entry.id },
-      data: { generateAt: new Date(Date.now() - 1000), nextRetryAt: null },
-    })
-    await clearCalls(api)
-    expect((await api.post('/api/test/generation-tick', {})).status()).toBe(200)
-    const after = await prisma!.scheduledGeneration.findUniqueOrThrow({ where: { id: entry.id } })
-    expect(after.status).toBe('COMPLETED')
-    expect(after.errorReason).toBeNull()
-    const scheduled = await read(api, after.draftId)
-    expect(scheduled.status).toBe('EXPORTED')
-    expect(scheduled.designModel).toBe(OPUS)
-    expect(await revisionModel(after.draftId!, 1)).toEqual({ model: OPUS, modelSubstitutedFrom: null })
-    const tickCalls = (await readCalls(api)).filter((c) => c.surface === 'DESIGN_FREEFORM' && c.arg === OPUS)
-    expect(tickCalls.length).toBeGreaterThan(0)
-    expect(tickCalls.every((c) => c.source === 'team')).toBe(true)
-
     // ACP generate_post, on a team API key. The `request` fixture carries no
     // session, so the key is the only credential. An unknown `model` in the
     // input is ignored (FR-11: MCP/ACP have no model input).
@@ -525,7 +468,7 @@ test.describe('§Y — model selection: stamps, policy and the recorder', () => 
       const { draftId } = (await gen.json()).output
       const acpDraft = await read(api, draftId)
       expect(acpDraft.designModel).toBe(OPUS)
-      expect(captionOf(acpDraft, 'INSTAGRAM').model).toBe(HAIKU)
+      expect(captionOf(acpDraft, 'GENERAL').model).toBe(HAIKU)
       expectRan(await readCalls(api), 'DESIGN_FREEFORM', OPUS, 'team')
     } finally {
       await api.del(`/api/team/api-keys/${created.id}`)
@@ -547,27 +490,27 @@ test.describe('§Y — model selection: stamps, policy and the recorder', () => 
 
     const surfaces: { what: string; surface: Surface; label: string; run: () => Promise<number> }[] = [
       {
-        what: 'campaign briefing chat',
+        what: 'project briefing chat',
         surface: 'ASSISTANT_BRIEFING',
         label: 'briefing',
         run: async () =>
-          (await api.post(`/api/campaigns/${f.campaignId}/briefing/chat`, {
+          (await api.post(`/api/projects/${f.projectId}/briefing/chat`, {
             messages: [{ role: 'user', content: 'Plan the launch' }],
           })).status(),
       },
       {
-        what: 'campaign Enhance',
+        what: 'project Enhance',
         surface: 'ASSISTANT_BRIEFING',
         label: 'briefing',
         run: async () =>
-          (await api.post(`/api/campaigns/${f.campaignId}/briefing/enhance`, { content: 'rough briefing' })).status(),
+          (await api.post(`/api/projects/${f.projectId}/briefing/enhance`, { content: 'rough briefing' })).status(),
       },
       {
         what: 'post-brief Enhance',
         surface: 'ASSISTANT_BRIEFING',
         label: 'briefing',
         run: async () =>
-          (await api.post('/api/briefs/enhance', { topic: 'Models', content: 'rough post brief', campaignId: f.campaignId })).status(),
+          (await api.post('/api/briefs/enhance', { topic: 'Models', content: 'rough post brief', projectId: f.projectId })).status(),
       },
       {
         what: 'brand-kit assistant chat',
@@ -662,7 +605,7 @@ test.describe('§Y — /team → Models', () => {
       ['Freeform design', 'Sonnet 5.5'],
       // 018 FR-02: refine's system default follows the draft's path.
       ['Refine', 'Sonnet 5.5; Haiku 4.5 on template drafts'],
-      ['Campaign briefing assistant', 'Sonnet 5.5'],
+      ['Project briefing assistant', 'Sonnet 5.5'],
       ['Brand kit assistant', 'Sonnet 5.5'],
     ]
     for (const [name, model] of systemDefaults) {
@@ -679,7 +622,7 @@ test.describe('§Y — /team → Models', () => {
     // The switch: named, described, and disabled in API mode.
     const gate = models.getByRole('checkbox', { name: 'Opus requires a personal token', exact: true })
     await expect(gate).toBeDisabled()
-    await expect(gate).toHaveAccessibleDescription(/Scheduled posts, MCP and ACP always use the team token\..*Only applies in CLI mode\./)
+    await expect(gate).toHaveAccessibleDescription(/MCP and ACP always use the team token\..*Only applies in CLI mode\./)
     await expectNoAxeViolations(page, '/team (Models section)')
 
     // Untick Opus and save: the GET shows it, and Opus is now a "New" entry.
@@ -808,7 +751,7 @@ async function continueToReview(page: Page) {
 // A Path B walk on `kitId` to the Review step, touching no picker.
 async function walkToReview(page: Page, kitId: string, topic: string) {
   await page.goto('/brief')
-  await expect(page.getByRole('heading', { name: 'Select a campaign' })).toBeVisible({ timeout: 20_000 })
+  await expect(page.getByRole('heading', { name: 'Select a project' })).toBeVisible({ timeout: 20_000 })
   const cont = page.getByRole('button', { name: /continue/i })
   await cont.click()
   await expect(page.getByRole('heading', { name: 'Size & Design' })).toBeVisible()
@@ -872,7 +815,7 @@ test.describe('§Y — the pickers (wave 2)', () => {
   test('an explicit Opus pick on an Opus-less team is a 400 MODEL_NOT_ALLOWED on every route, and claims, writes and runs nothing', async () => {
     if (!MOCKED()) { test.skip(); return }
     const f = await suiteFixture(api)
-    const draft = await generate(api, 'B', `Models Refused ${Date.now()}`)
+    const draft = await generateWithCurated(api, `Models Refused ${Date.now()}`)
     const id = draft.id as string
     await putPolicy(api, policy({ allowed: ['HAIKU', 'SONNET'] }))
     await clearCalls(api)
@@ -884,7 +827,7 @@ test.describe('§Y — the pickers (wave 2)', () => {
       channels: ['INSTAGRAM'],
       designMode,
       copyProviderKey: 'cli',
-      campaignId: f.campaignId,
+      projectId: f.projectId,
     })
     const expectRefused = async (what: string, res: APIResponse, error = NOT_ALLOWED) => {
       expect(res.status(), what).toBe(400)
@@ -905,7 +848,7 @@ test.describe('§Y — the pickers (wave 2)', () => {
 
     // Every draft action, refused before its claim.
     const actions: [string, string, Record<string, unknown>][] = [
-      ['regenerate-copy (all captions)', 'regenerate-copy', {}],
+      ['regenerate-copy (general caption)', 'regenerate-copy', { kind: 'GENERAL' }],
       ['regenerate-copy (one channel)', 'regenerate-copy', { channel: 'LINKEDIN' }],
       ['regenerate-copy (headline)', 'regenerate-copy', { headline: true }],
       ['regenerate-design', 'regenerate-design', {}],
@@ -917,7 +860,7 @@ test.describe('§Y — the pickers (wave 2)', () => {
     }
     // The two assistant chats.
     const turn = { messages: [{ role: 'user', content: 'Plan the launch' }], model: 'OPUS' }
-    await expectRefused('briefing chat', await api.post(`/api/campaigns/${f.campaignId}/briefing/chat`, turn))
+    await expectRefused('briefing chat', await api.post(`/api/projects/${f.projectId}/briefing/chat`, turn))
     await expectRefused('brand-kit chat', await api.post(`/api/admin/brandkits/${f.kitId}/assistant/chat`, turn))
 
     // Nothing ran, and the draft is exactly as it was.
@@ -1024,7 +967,7 @@ test.describe('§Y — the pickers (wave 2)', () => {
     expect(body.captionModel).toBe('SONNET')
     expect(draft.designModel).toBe(OPUS)
     expect(captionsOf(draft).length).toBeGreaterThan(0)
-    for (const c of captionsOf(draft)) expect(c.model, c.channel).toBe(SONNET)
+    for (const c of captionsOf(draft)) expect(c.model, c.target).toBe(SONNET)
     expect(
       await prisma!.brief.findFirstOrThrow({ where: { topic }, select: { captionModel: true, designModel: true } }),
     ).toEqual({ captionModel: 'SONNET', designModel: 'OPUS' })
@@ -1052,7 +995,7 @@ test.describe('§Y — the pickers (wave 2)', () => {
     expect(body).not.toHaveProperty('captionModel')
     expect(body).not.toHaveProperty('designModel')
     expect(draft.designModel).toBe(SONNET)
-    for (const c of captionsOf(draft)) expect(c.model, c.channel).toBe(HAIKU)
+    for (const c of captionsOf(draft)) expect(c.model, c.target).toBe(HAIKU)
     expect(
       await prisma!.brief.findFirstOrThrow({ where: { topic }, select: { captionModel: true, designModel: true } }),
     ).toEqual({ captionModel: null, designModel: null })
@@ -1065,12 +1008,11 @@ test.describe('§Y — the pickers (wave 2)', () => {
   test('the draft page: each picker pre-selects from its stamp, a pick reaches only its own row, and each panel says what generated it', async ({ page }) => {
     if (!MOCKED()) { test.skip(); return }
     test.setTimeout(180_000)
-    const draft = await generate(api, 'B', `Models Draft Page ${Date.now()}`)
+    const draft = await generateWithCurated(api, `Models Draft Page ${Date.now()}`)
     const id = draft.id as string
-    // A Sonnet stamp on LinkedIn only: its picker pre-selects from the stamp,
-    // and "Regenerate all" sees mixed stamps (so no stamp tier).
-    await prisma!.draftCaption.update({
-      where: { draftId_channel: { draftId: id, channel: 'LINKEDIN' } },
+    // A Sonnet stamp on LinkedIn only: its picker pre-selects from the stamp.
+    await prisma!.draftCaption.updateMany({
+      where: { draftId: id, kind: 'CURATED', channel: 'LINKEDIN' },
       data: { model: SONNET },
     })
     const seeded = await read(api, id)
@@ -1080,10 +1022,10 @@ test.describe('§Y — the pickers (wave 2)', () => {
     await openDraft(page, id)
 
     const preselected: [string, string, string, string][] = [
+      ['General caption model', 'draft-caption-model-general', 'HAIKU', 'Same model as the current caption'],
       ['LinkedIn caption model', 'draft-caption-model-linkedin', 'SONNET', 'Same model as the current caption'],
       ['Instagram caption model', 'draft-caption-model-instagram', 'HAIKU', 'Same model as the current caption'],
       ['Headline model', 'draft-headline-model', 'HAIKU', 'Same model as the current headline'],
-      ['All captions model', 'draft-all-captions-model', 'HAIKU', 'Default'],
       ['Design model', 'draft-design-model', 'SONNET', 'Same model as the current design'],
       ['Refine model', 'draft-refine-model', 'SONNET', 'Default'],
     ]
@@ -1095,12 +1037,12 @@ test.describe('§Y — the pickers (wave 2)', () => {
     // "Generated with": each caption panel, the headline, the design, and the
     // Versions cell (the name, with the sentence in its title).
     await expect(generatedWithIn(panelOf(page, 'draft-caption-model-linkedin'))).toHaveText('Generated with Sonnet 5.5')
-    for (const channel of ['instagram']) {
+    for (const channel of ['general', 'instagram']) {
       await expect(generatedWithIn(panelOf(page, `draft-caption-model-${channel}`))).toHaveText('Generated with Haiku 4.5')
     }
     await expect(generatedWithIn(panelOf(page, 'draft-headline-model'))).toHaveText('Generated with Haiku 4.5')
     await expect(generatedWithLines(page, 'Sonnet 5.5')).toHaveCount(2) // the design and LinkedIn
-    await expect(generatedWithLines(page, 'Haiku 4.5')).toHaveCount(2) // Instagram, the headline
+    await expect(generatedWithLines(page, 'Haiku 4.5')).toHaveCount(3) // the general caption, Instagram, the headline
     await expect(page.locator('span[title="Generated with Sonnet 5.5"]')).toHaveText('Generated with Sonnet 5.5')
     await expectNoAxeViolations(page, '/drafts/[id] (with the model pickers)')
 
@@ -1111,8 +1053,8 @@ test.describe('§Y — the pickers (wave 2)', () => {
     await page.getByRole('button', { name: 'Regenerate LinkedIn caption', exact: true }).click()
     expect(bodyOf(await linkedInPost)).toEqual({ channel: 'LINKEDIN', model: 'OPUS' })
     let now = await until(api, id, (d) => captionOf(d, 'LINKEDIN').model === OPUS, 'LinkedIn rewritten on Opus')
-    for (const channel of ['INSTAGRAM'] as const) {
-      expect(captionOf(now, channel), channel).toEqual(captionOf(seeded, channel))
+    for (const target of ['GENERAL', 'INSTAGRAM'] as const) {
+      expect(captionOf(now, target), target).toEqual(captionOf(seeded, target))
     }
     expect(now.headlineModel).toBe(HAIKU)
     expect(on(await readCalls(api), 'CAPTION').map((c) => [c.arg, c.source])).toEqual([[OPUS, 'request']])
@@ -1166,16 +1108,16 @@ test.describe('§Y — the pickers (wave 2)', () => {
   test('a removed Opus shows as a substitution on the design picker, a substituted stamp says so, and a failed caption row or design shows no "Generated with"', async ({ page }) => {
     if (!MOCKED()) { test.skip(); return }
     test.setTimeout(120_000)
-    const draft = await generate(api, 'B', `Models Substituted ${Date.now()}`)
+    const draft = await generateWithCurated(api, `Models Substituted ${Date.now()}`)
     const id = draft.id as string
     await prisma!.draft.update({ where: { id }, data: { designModel: OPUS } })
-    await prisma!.draftCaption.update({
-      where: { draftId_channel: { draftId: id, channel: 'LINKEDIN' } },
+    await prisma!.draftCaption.updateMany({
+      where: { draftId: id, kind: 'CURATED', channel: 'LINKEDIN' },
       data: { model: HAIKU, modelSubstitutedFrom: OPUS },
     })
     // A FAILED row may keep the stamp of text since cleared (reviews/T7.md).
-    await prisma!.draftCaption.update({
-      where: { draftId_channel: { draftId: id, channel: 'INSTAGRAM' } },
+    await prisma!.draftCaption.updateMany({
+      where: { draftId: id, kind: 'CURATED', channel: 'INSTAGRAM' },
       data: { status: 'FAILED', text: '', failureReason: 'Seeded failure (008 T18)' },
     })
     await putPolicy(api, policy({ allowed: ['HAIKU', 'SONNET'] }))
@@ -1212,9 +1154,9 @@ test.describe('§Y — the pickers (wave 2)', () => {
     })
     await page.reload()
     await expect(page.getByText('Generation failed', { exact: true })).toBeVisible({ timeout: 20_000 })
-    await expect(generatedWithLines(page, 'Haiku 4.5')).toHaveCount(2) // LinkedIn and the headline (Instagram is the FAILED row)
+    await expect(generatedWithLines(page, 'Haiku 4.5')).toHaveCount(3) // the general caption, LinkedIn and the headline (Instagram is the FAILED row)
     await expect(generatedWithLines(page, 'Opus 5.5')).toHaveCount(0)
-    await expect(page.locator('p').filter({ hasText: /^Generated with / })).toHaveCount(2)
+    await expect(page.locator('p').filter({ hasText: /^Generated with / })).toHaveCount(3)
     await expect(picker(page, 'Design model')).toHaveCount(0)
   })
 
@@ -1223,7 +1165,7 @@ test.describe('§Y — the pickers (wave 2)', () => {
   test('a refused pick leaves no trace: refine puts its instruction back, the design and caption regenerates leave no Undo, and each picker shows why', async ({ page }) => {
     if (!MOCKED()) { test.skip(); return }
     test.setTimeout(120_000)
-    const draft = await generate(api, 'B', `Models Refused UI ${Date.now()}`)
+    const draft = await generateWithCurated(api, `Models Refused UI ${Date.now()}`)
     const id = draft.id as string
     await putPolicy(api, policy({ allowed: ['HAIKU', 'SONNET'] }))
 
@@ -1285,7 +1227,7 @@ test.describe('§Y — the pickers (wave 2)', () => {
     await page.setViewportSize({ width: 1440, height: 900 })
     await pageLogin(page)
     const openBriefingChat = async () => {
-      await page.goto(`/campaigns/${f.campaignId}`)
+      await page.goto(`/projects/${f.projectId}`)
       await page.getByRole('button', { name: 'Draft with AI' }).click()
       const drawer = page.getByRole('dialog', { name: 'Draft briefing with AI' })
       await expect(picker(drawer, 'Briefing assistant model')).toBeVisible({ timeout: 20_000 })

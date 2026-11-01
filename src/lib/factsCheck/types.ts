@@ -7,9 +7,12 @@ import { z } from 'zod'
 export const FACT_KINDS = ['tel', 'date', 'time', 'cur', 'pct', 'num'] as const
 export type FactKind = (typeof FACT_KINDS)[number]
 
-// 'headline' or a registry caption channel (CAPTION_CHANNELS: Instagram and
-// LinkedIn; hidden legacy WhatsApp rows are never read).
-export const FACT_WHERE = ['headline', 'INSTAGRAM', 'LINKEDIN'] as const
+// 'headline' or a registry caption target (CAPTION_REGISTRY: the general
+// caption, Instagram and LinkedIn; hidden legacy WhatsApp rows are never read).
+// A literal tuple keeps z.enum typed and this module free of imports;
+// channels.test.ts proves it equals ['headline', ...registry targets], so it
+// cannot drift. A stored flag with where 'INSTAGRAM' or 'LINKEDIN' still parses (FACEBOOK joined in 039 T4).
+export const FACT_WHERE = ['headline', 'GENERAL', 'INSTAGRAM', 'LINKEDIN', 'FACEBOOK'] as const
 export type FactWhere = (typeof FACT_WHERE)[number]
 
 // Caps (FR-10 "Size" and "Result").

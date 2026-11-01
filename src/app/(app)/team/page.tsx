@@ -36,35 +36,13 @@ import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
 import { useCaptionRoute } from '@/lib/hooks/useCaptionRoute'
 import { pickServingImageProvider } from '@/providers/imageCapabilities'
 import { detectKeyProvider, KEY_PROVIDER_LABEL } from '@/providers/keyPrefix'
-import type { AdminProvider as Provider, ProviderSlot, ChannelStatus, ChannelMap } from '@/lib/api-types'
+import type { AdminProvider as Provider, ProviderSlot } from '@/lib/api-types'
 
-// Team settings: AI providers + social channels (moved here from the old
+// Team settings: AI providers (moved here from the old
 // /admin/settings tab page — the routes are team-scoped, and every setting
 // here now applies to the whole team, so it belongs beside the team's Claude
 // token and API keys rather than under /admin). Gated on isTeamAdmin, not
 // app-role admin: a team's own admin manages it regardless of app role.
-
-// lucide-react 1.x removed brand icons — inline equivalents (stroke style
-// matches lucide so they sit naturally beside the other icons).
-function InstagramIcon({ size = 15 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <rect width="20" height="20" x="2" y="2" rx="5" ry="5" />
-      <path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z" />
-      <line x1="17.5" x2="17.51" y1="6.5" y2="6.5" />
-    </svg>
-  )
-}
-
-function LinkedinIcon({ size = 15 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M16 8a6 6 0 0 1 6 6v7h-4v-7a2 2 0 0 0-2-2 2 2 0 0 0-2 2v7h-4v-7a6 6 0 0 1 6-6z" />
-      <rect width="4" height="12" x="2" y="9" />
-      <circle cx="4" cy="4" r="2" />
-    </svg>
-  )
-}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -313,113 +291,6 @@ function ProviderCard({
   )
 }
 
-// ─── Channel Row ──────────────────────────────────────────────────────────────
-
-function ChannelRow({
-  channel,
-  status,
-  label,
-  tokenPlaceholder,
-  metadataPlaceholder,
-  icon,
-  onRefresh,
-}: {
-  channel: 'INSTAGRAM' | 'LINKEDIN'
-  status: ChannelStatus
-  label: string
-  tokenPlaceholder: string
-  metadataPlaceholder: string
-  icon: React.ReactNode
-  onRefresh: () => void
-}) {
-  const [token, setToken] = useState('')
-  const [metadata, setMetadata] = useState('')
-  const [showToken, setShowToken] = useState(false)
-  const tokenId = React.useId()
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
-
-  async function save() {
-    setError('')
-    setLoading(true)
-    try {
-      await apiFetch('/api/team/channels', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ channel, token, metadata }),
-      })
-      setToken(''); setMetadata('')
-      onRefresh()
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Save failed')
-    } finally { setLoading(false) }
-  }
-
-  async function revoke() {
-    try {
-      await apiFetch(`/api/team/channels/${channel}`, { method: 'DELETE' })
-      onRefresh()
-    } catch (e: unknown) { toast.error(e instanceof Error ? e.message : 'Something went wrong') }
-  }
-
-  return (
-    <li className={`${ROW} space-y-3 py-4`}>
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-2.5">
-          <span className="text-fg-muted">{icon}</span>
-          <span className="text-ui-base font-medium text-fg">{label}</span>
-        </div>
-        {status.connected
-          ? <StatusChip tone="published">Connected</StatusChip>
-          : <StatusChip tone="draft">Not connected</StatusChip>}
-      </div>
-
-      <div className="space-y-2">
-        {/* The label sits above the relative wrapper, not inside it, so the eye
-            button stays centred on the field (014 FR-12 row 10). */}
-        <div className="flex flex-col gap-1.5">
-          <FieldLabel htmlFor={tokenId}>Access token</FieldLabel>
-          <div className="relative">
-            <Input
-              id={tokenId}
-              className="pr-11"
-              type={showToken ? 'text' : 'password'}
-              placeholder={tokenPlaceholder}
-              value={token}
-              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setToken(e.target.value)}
-            />
-            <button
-              type="button"
-              onClick={() => setShowToken(v => !v)}
-              aria-label={showToken ? 'Hide access token' : 'Show access token'}
-              aria-pressed={showToken}
-              className={`absolute right-1.5 top-1/2 -translate-y-1/2 ${ICON_BUTTON} hover:text-fg ${FOCUS}`}
-            >
-              {showToken ? <EyeOff {...ICON} /> : <Eye {...ICON} />}
-            </button>
-          </div>
-        </div>
-        <Input
-          label={metadataPlaceholder}
-          placeholder={metadataPlaceholder}
-          value={metadata}
-          onChange={(e: React.ChangeEvent<HTMLInputElement>) => setMetadata(e.target.value)}
-        />
-      </div>
-
-      {error && <p className="text-ui-xs text-status-failed">{error}</p>}
-
-      <div className="flex flex-wrap gap-2">
-        <Button variant="ink" size="sm" onClick={save} disabled={loading || !token || !metadata}>
-          {loading ? 'Saving…' : 'Save'}
-        </Button>
-        {status.connected && (
-          <Button variant="secondary" size="sm" onClick={revoke}>Revoke</Button>
-        )}
-      </div>
-    </li>
-  )
-}
 
 // FR-05: say plainly which IMAGE row serves teammates who have no personal
 // image key. The rule is pickServingImageProvider's, the same one the resolver
@@ -558,52 +429,6 @@ function ProvidersSection() {
   )
 }
 
-// ─── Section: Social Channels ───────────────────────────────────────────────────
-
-function ChannelsSection() {
-  const queryClient = useQueryClient()
-
-  const channelsQuery = useQuery({
-    queryKey: ['team-channels'],
-    queryFn: () => apiFetch<ChannelMap>('/api/team/channels'),
-  })
-  const channels = channelsQuery.data ?? { INSTAGRAM: { connected: false }, LINKEDIN: { connected: false } }
-
-  function invalidateChannels() {
-    return queryClient.invalidateQueries({ queryKey: ['team-channels'] })
-  }
-
-  if (channelsQuery.isLoading) {
-    return <p className="text-ui-sm text-fg-muted">Loading…</p>
-  }
-  if (channelsQuery.isError) {
-    return <QueryError error={channelsQuery.error} onRetry={() => channelsQuery.refetch()} />
-  }
-
-  return (
-    <ul className="border-t border-line-subtle">
-      <ChannelRow
-        channel="INSTAGRAM"
-        status={channels.INSTAGRAM}
-        label="Instagram"
-        tokenPlaceholder="Access token"
-        metadataPlaceholder="Business Account ID"
-        icon={<InstagramIcon size={15} />}
-        onRefresh={invalidateChannels}
-      />
-      <ChannelRow
-        channel="LINKEDIN"
-        status={channels.LINKEDIN}
-        label="LinkedIn"
-        tokenPlaceholder="Access token"
-        metadataPlaceholder="Organization ID"
-        icon={<LinkedinIcon size={15} />}
-        onRefresh={invalidateChannels}
-      />
-    </ul>
-  )
-}
-
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function TeamSettingsPage() {
@@ -624,7 +449,7 @@ export default function TeamSettingsPage() {
       <PageHead
         eyebrow="Admin"
         title="Team settings"
-        lead="Providers, channels, and credentials shared by everyone on this team."
+        lead="Providers and credentials shared by everyone on this team."
         className="mb-8"
       />
 
@@ -638,18 +463,11 @@ export default function TeamSettingsPage() {
           </div>
         </section>
 
-        <section>
-          <SectionHead numeral="iii." title="Social channels" className="mb-3" />
-          <div className={BLOCK}>
-            <ChannelsSection />
-          </div>
-        </section>
+        <TeamClaudeTokenCard numeral="iii." />
 
-        <TeamClaudeTokenCard numeral="iv." />
+        <ApiKeysCard numeral="iv." />
 
-        <ApiKeysCard numeral="v." />
-
-        <ModelsCard numeral="vi." />
+        <ModelsCard numeral="v." />
       </div>
     </div>
   )

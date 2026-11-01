@@ -15,6 +15,7 @@ import type { ResolvedBrandKit } from '@/lib/brandkit/resolve'
 import { MOCK_PNG_BUFFER } from '@/lib/testHooks'
 import { ASPECT_DIMENSIONS } from '@/lib/aspectRatio'
 import { archetypes, compositeRegionOf } from '@/lib/designData'
+import { ctxFor } from '../helpers/postContext'
 
 const h = vi.hoisted(() => ({
   designCalls: [] as Array<{
@@ -65,7 +66,8 @@ const kit: ResolvedBrandKit = {
   logoUrl: null,
   logos: [],
   voicePrompt: null,
-  source: 'system',
+  website: null,
+  source: 'team',
 }
 const actor = { userId: 'user-actor', teamId: 'team-1' }
 const KEY = 'screenshots/team-1/user-1/shot.png'
@@ -128,7 +130,7 @@ describe('runPathBDesign places the screenshot (025 FR-15)', () => {
 
   it('a kept look: the object is read once, the prompt names the detected screen, the insertion writes the element at it, and the stamp carries the rect', async () => {
     const { runPathBDesign } = await load()
-    const result = await runPathBDesign(mkBrief(), kit, 'Big news', null, actor, model)
+    const result = await runPathBDesign(mkBrief(), ctxFor(kit), 'Big news', actor, model)
     expect(h.background).toHaveBeenCalledTimes(1)
     expect(h.getObjectBytes).toHaveBeenCalledTimes(1)
     expect(h.getObjectBytes).toHaveBeenCalledWith('docs', KEY)
@@ -168,7 +170,7 @@ describe('runPathBDesign places the screenshot (025 FR-15)', () => {
       }
       return { htmlContent: '<html><body>classic</body></html>', exportUrl: 'exports/y.png', toolCallCount: 0 }
     }
-    const result = await runPathBDesign(mkBrief(), kit, 'Big news', null, actor, model)
+    const result = await runPathBDesign(mkBrief(), ctxFor(kit), 'Big news', actor, model)
     // One image step (the only image call), two design calls.
     expect(h.background).toHaveBeenCalledTimes(1)
     expect(h.designCalls).toHaveLength(2)
@@ -203,7 +205,7 @@ describe('runPathBDesign places the screenshot (025 FR-15)', () => {
     h.designImpl = async () => {
       throw new Error('model timeout')
     }
-    await expect(runPathBDesign(mkBrief(), kit, 'h', null, actor, model)).rejects.toThrow('model timeout')
+    await expect(runPathBDesign(mkBrief(), ctxFor(kit), 'h', actor, model)).rejects.toThrow('model timeout')
     expect(h.designCalls).toHaveLength(1)
   })
 
@@ -212,7 +214,7 @@ describe('runPathBDesign places the screenshot (025 FR-15)', () => {
     h.getObjectBytes.mockImplementation(() => {
       throw new Error('NoSuchKey')
     })
-    const result = await runPathBDesign(mkBrief(), kit, 'h', null, actor, model)
+    const result = await runPathBDesign(mkBrief(), ctxFor(kit), 'h', actor, model)
     expect(h.designCalls).toHaveLength(1)
     expect(h.designCalls[0].composites ?? null).toBeNull()
     expect(h.designCalls[0].systemPrompt).not.toContain('https://minio.example.com/bg.png')
@@ -224,7 +226,7 @@ describe('runPathBDesign places the screenshot (025 FR-15)', () => {
   it("a screenshot under another team's prefix is refused without reading it", async () => {
     const { runPathBDesign } = await load()
     const foreign = { kind: 'brief-upload', key: 'screenshots/team-2/user-9/shot.png', width: 1600, height: 1000 }
-    const result = await runPathBDesign(mkBrief({ compositeSource: foreign }), kit, 'h', null, actor, model)
+    const result = await runPathBDesign(mkBrief({ compositeSource: foreign }), ctxFor(kit), 'h', actor, model)
     expect(h.getObjectBytes).not.toHaveBeenCalled()
     expect(result.composition).toMatchObject({ appliedArchetype: 'classic', fallbackReason: 'composite-source-missing' })
   })
@@ -235,7 +237,7 @@ describe('runPathBDesign places the screenshot (025 FR-15)', () => {
       url: 'https://minio.example.com/bg.png',
       check: { ok: false, reason: 'composite-not-blank' },
     })
-    const result = await runPathBDesign(mkBrief(), kit, 'h', null, actor, model)
+    const result = await runPathBDesign(mkBrief(), ctxFor(kit), 'h', actor, model)
     expect(h.getObjectBytes).not.toHaveBeenCalled()
     expect(h.designCalls).toHaveLength(1)
     expect(h.designCalls[0].systemPrompt).toContain('https://minio.example.com/bg.png')
@@ -246,7 +248,7 @@ describe('runPathBDesign places the screenshot (025 FR-15)', () => {
   it('a brief with no screenshot never reaches the composite look (classic composite-source-missing)', async () => {
     const { runPathBDesign } = await load()
     h.background.mockResolvedValue({ url: 'https://minio.example.com/bg.png' })
-    const result = await runPathBDesign(mkBrief({ compositeSource: null }), kit, 'h', null, actor, model)
+    const result = await runPathBDesign(mkBrief({ compositeSource: null }), ctxFor(kit), 'h', actor, model)
     expect(h.getObjectBytes).not.toHaveBeenCalled()
     expect(result.composition).toMatchObject({ appliedArchetype: 'classic', fallbackReason: 'composite-source-missing' })
   })

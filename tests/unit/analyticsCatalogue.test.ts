@@ -47,13 +47,6 @@ describe('analytics catalogue (006 FR-02, FR-03)', () => {
     expect(r.success && r.data.failureReason).toHaveLength(FAILURE_REASON_MAX)
   })
 
-  it('redacts publish and scheduled-generation reasons too', () => {
-    const p = parse('publish.settled', { channel: 'LINKEDIN', terminal: true, errorReason: 'sk-secret999 rejected' })
-    const s = parse('scheduled_generation.settled', { errorReason: 'http://10.0.0.1:9000/x' })
-    expect(p.success && p.data.errorReason).toBe('<redacted> rejected')
-    expect(s.success && s.data.errorReason).toBe('<url>')
-  })
-
   it('strips unknown keys, so stray text never reaches a row (NFR-04)', () => {
     const r = parse('revision.restored', { from: 1, to: 2, description: 'a brief', html: '<p>x</p>' })
     expect(r.success && r.data).toEqual({ from: 1, to: 2 })
@@ -61,7 +54,7 @@ describe('analytics catalogue (006 FR-02, FR-03)', () => {
 
   it('rejects a value outside an imported vocabulary', () => {
     expect(parse('draft_action.settled', { action: 'DELETE_EVERYTHING' }).success).toBe(false)
-    expect(parse('publish.settled', { channel: 'TELEGRAM', terminal: true }).success).toBe(false)
+    expect(parse('draft_action.settled', { action: 'REGENERATE_COPY', channel: 'TELEGRAM' }).success).toBe(false)
     expect(parse('wizard.step', { step: 9 }).success).toBe(false)
   })
 
@@ -70,7 +63,7 @@ describe('analytics catalogue (006 FR-02, FR-03)', () => {
       expect(parse('draft_action.settled', { action }).success).toBe(true)
     }
     for (const channel of Object.values(Channel)) {
-      expect(parse('publish.settled', { channel, terminal: false }).success).toBe(true)
+      expect(parse('draft_action.settled', { action: 'REGENERATE_COPY', channel }).success).toBe(true)
     }
     for (const aspectRatio of Object.values(AspectRatio)) {
       expect(parse('generation.finished', { aspectRatio }).success).toBe(true)

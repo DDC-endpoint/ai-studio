@@ -81,16 +81,15 @@ export interface PathBUserMessageOptions {
   description?: string | null
   goal: string
   tone: string
-  channels: string[]
   // The on-image headline (012 FR-09) — never a caption.
   headline: string
   mode: PipelineMode
   width: number
   height: number
   briefImages?: BriefImage[]
-  // Active campaign briefing — campaign-level context shared by every post in
-  // the campaign, rendered above the per-post brief fields.
-  campaignBriefing?: string | null
+  // Active project briefing — project-level context shared by every post in
+  // the project, rendered above the per-post brief fields.
+  projectBriefing?: string | null
   // A kept hero archetype is in force (009): the briefing's layout instructions
   // yield to the layout contract in the system prompt.
   heroPrecedence?: boolean
@@ -102,15 +101,15 @@ export interface PathBUserMessageOptions {
 export type { BriefImage }
 
 export function buildPathBUserMessage(opts: PathBUserMessageOptions): string {
-  const { topic, description, goal, tone, channels, headline, mode, width, height, briefImages = [], campaignBriefing, heroPrecedence, imageRules } = opts
+  const { topic, description, goal, tone, headline, mode, width, height, briefImages = [], projectBriefing, heroPrecedence, imageRules } = opts
 
   const imageSection = briefImages.length > 0
     ? `\n\nProvided images (follow intent rules from system prompt):\n${briefImages.map((img) => `- ${img.url} (intent: ${img.intent})`).join('\n')}`
     : ''
 
-  const briefingSection = campaignBriefing
-    ? `Campaign briefing (applies to every post in this campaign — follow it alongside the brief below${heroPrecedence ? '; layout instructions in it yield to the image-style layout contract in the system prompt' : ''}):
-${campaignBriefing}
+  const briefingSection = projectBriefing
+    ? `Project briefing (applies to every post in this project — follow it alongside the brief below${heroPrecedence ? '; layout instructions in it yield to the image-style layout contract in the system prompt' : ''}):
+${projectBriefing}
 
 `
     : ''
@@ -125,7 +124,6 @@ Topic: ${topic}
 Description: ${description || 'none'}
 Goal: ${goal}
 Tone: ${tone}
-Channels: ${channels.join(', ')}
 
 ${onImageHeadline(headline)}${imageSection}${imageRules ? `
 

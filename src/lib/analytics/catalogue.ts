@@ -10,13 +10,13 @@
 //   - Vocabularies are IMPORTED (Prisma enums, MODEL_KEYS, the instruction
 //     classes, the 009 archetypes and fallback reasons), never copied, so a new
 //     value cannot drift silently (tests/unit/analyticsCoverage.test.ts).
-//   - A change that adds a draft action, a channel, a generation path or a
-//     publish path OWNS its events: it adds them here, in the same change.
+//   - A change that adds a draft action, a channel or a generation path OWNS
+//     its events: it adds them here, in the same change.
 //   - No payload field holds prompt text, model output, a caption, the headline
 //     or HTML (NFR-04). The one user text is `instruction`, capped. Unknown
 //     keys are stripped by the schemas, so a stray field never reaches the row.
 import { z } from 'zod'
-import { AspectRatio, CaptionRoute, Channel, DraftAction } from '@prisma/client'
+import { AspectRatio, CaptionKind, CaptionRoute, Channel, DraftAction } from '@prisma/client'
 import type { AnalyticsSource } from '@prisma/client'
 import { MODEL_KEYS } from '@/lib/models/catalogue'
 import type { CaptionRoute as CaptionRouteStamp, RouteSetting } from '@/lib/models/route'
@@ -26,6 +26,9 @@ import { POST_STYLE_KEYS } from '@/lib/postStyles'
 import { redactText } from '@/lib/text/redact'
 import { HEADLINE_CHECKS, HEADLINE_STATES } from '@/lib/renderedText/vocab'
 import { APPLY_FAILURES, APPLY_FIELDS, APPLY_METHODS } from '@/lib/applyText/vocab'
+import { DOWNLOAD_FAILURES } from '@/lib/drafts/downloadVocab'
+import { CAPTION_OPS } from '@/lib/captions/ops'
+import { isRegistryRef } from '@/lib/channels'
 
 export const INSTRUCTION_MAX = 2000
 export const FAILURE_REASON_MAX = 500
@@ -88,7 +91,7 @@ interface EventDef {
 export const CATALOGUE = {
   'generation.finished': {
     schemaVersion: 1,
-    source: ['web', 'scheduler', 'mcp'],
+    source: ['web', 'mcp'],
     outcomes: ['ok', 'failed'],
     schema: z.object({
       path: z.enum(['A', 'B']).optional(),
@@ -123,6 +126,12 @@ export const CATALOGUE = {
     outcomes: ['ok', 'not-applied', 'conflict', 'failed'],
     schema: z.object({
       action: z.nativeEnum(DraftAction),
+      // 037 D5: the caption channel a regenerate-copy settle names; additive.
+      channel: z.nativeEnum(Channel).optional(),
+      // 039 D22: which caption a regenerate-copy settle wrote, and whether it made
+      // the row or replaced it; additive at schemaVersion 1.
+      captionKind: z.nativeEnum(CaptionKind).optional(),
+      captionOp: z.enum(CAPTION_OPS).optional(),
       model: modelFragment.optional(),
       instruction: capped(INSTRUCTION_MAX).optional(),
       attempts: z.array(refineAttempt).max(2).optional(),
@@ -156,15 +165,15 @@ export const CATALOGUE = {
     schema: z.object({ from: z.number().int().min(0), to: z.number().int().min(0) }),
   },
   // 030 FR-15: a headline change, with how the image stands afterwards. No text.
+  // v2 (037): `scheduledPending` is gone with scheduling.
   'draft.headline_edited': {
-    schemaVersion: 1,
+    schemaVersion: 2,
     source: ['web'],
     outcomes: [],
     schema: z.object({
       // 031 FR-43: 'apply' is additive; the schemaVersion stays.
       via: z.enum(['edit', 'regenerate', 'apply']),
       state: z.enum(HEADLINE_STATES),
-      scheduledPending: z.boolean(),
     }),
   },
   // 031 FR-43: an Apply to image that reached a verdict. No text.
@@ -178,28 +187,43 @@ export const CATALOGUE = {
       failure: z.enum(APPLY_FAILURES).optional(),
     }),
   },
-  'publish.settled': {
+  // 037 D7: a Download that reached a verdict. No text.
+  'draft.downloaded': {
     schemaVersion: 1,
-    source: ['web', 'mcp', 'scheduler'],
-    outcomes: ['published', 'failed', 'retry-scheduled'],
+    source: ['web'],
+    outcomes: ['ok', 'failed'],
     schema: z.object({
-      channel: z.nativeEnum(Channel),
-      terminal: z.boolean(),
-      retryCount: z.number().int().min(0).optional(),
-      errorReason: failureReason.optional(),
-      // 030 FR-16: what the image showed of the headline at the attempt.
-      headlineState: z.enum(HEADLINE_STATES).optional(),
+      // Whether a render ran for this download.
+      rendered: z.boolean(),
+      factsStatus: z.enum(FACTS_STATUSES).nullable(),
+      headlineState: z.enum(HEADLINE_STATES),
+      failure: z.enum(DOWNLOAD_FAILURES).optional(),
     }),
   },
-  'scheduled_generation.settled': {
+  // 038 D14: a post assigned, moved or unassigned. Ids and an enum only. The one
+  // emitter is PUT /api/drafts/[id]/project.
+  'draft.project_changed': {
     schemaVersion: 1,
-    source: ['scheduler'],
-    outcomes: ['completed', 'retry', 'failed'],
+    source: ['web'],
+    outcomes: [],
     schema: z.object({
-      retryCount: z.number().int().min(0).optional(),
-      errorReason: failureReason.optional(),
-      postStyle: z.enum(POST_STYLE_KEYS).nullable().optional(),
-      held: z.boolean().optional(),
+      change: z.enum(['assign', 'move', 'unassign']),
+      fromProjectId: z.string().max(64).nullable(),
+      toProjectId: z.string().max(64).nullable(),
+    }),
+  },
+  // 038 D14: "Apply project settings" took effect. The one emitter is
+  // POST /api/drafts/[id]/apply-project.
+  'draft.inputs_applied': {
+    schemaVersion: 1,
+    source: ['web'],
+    outcomes: ['ok'],
+    schema: z.object({
+      fromProjectId: z.string().max(64).nullable(),
+      toProjectId: z.string().max(64).nullable(),
+      kitChanged: z.boolean(),
+      briefingChanged: z.boolean(),
+      factsStatus: z.enum(FACTS_STATUSES).nullable(),
     }),
   },
   'wizard.step': {
@@ -207,6 +231,17 @@ export const CATALOGUE = {
     source: ['web'],
     outcomes: [],
     schema: z.object({ step: wizardStep, briefDraftId: z.string().max(64).nullable().optional() }),
+  },
+  // 039 D22: a caption copied. The browser reports it through POST /api/events,
+  // the one emitter. Enums only, never the caption text; the registry refine
+  // refuses a retired channel and a kind/channel pair that is no entry.
+  'caption.copied': {
+    schemaVersion: 1,
+    source: ['web'],
+    outcomes: [],
+    schema: z
+      .object({ kind: z.nativeEnum(CaptionKind), channel: z.nativeEnum(Channel).nullable() })
+      .refine((p) => isRegistryRef(p.kind, p.channel)),
   },
   'brief.submitted': {
     schemaVersion: 1,
@@ -228,6 +263,21 @@ export const CATALOGUE = {
   },
 } as const satisfies Record<string, EventDef>
 
+/**
+ * Event names that once existed and are gone from CATALOGUE. A retired name is
+ * never reused for a different meaning: old rows with it stay in the store until
+ * retention sweeps them, and nothing reads them (037 D6).
+ */
+export const RETIRED_EVENT_NAMES = ['scheduled_generation.settled', 'publish.settled'] as const
+
+/**
+ * Sources that once existed and no event carries any more (037 D5). The
+ * `scheduler` source is the publish scheduler and the scheduled-generation
+ * loop; both are gone. A retired source is never reused for a different
+ * meaning: old rows keep it until retention sweeps them.
+ */
+export const RETIRED_SOURCES = ['scheduler'] as const
+
 export type EventName = keyof typeof CATALOGUE
 export const EVENT_NAMES = Object.keys(CATALOGUE) as EventName[]
 
@@ -235,4 +285,4 @@ export const EVENT_NAMES = Object.keys(CATALOGUE) as EventName[]
 export type EventPayloadInput<N extends EventName> = z.input<(typeof CATALOGUE)[N]['schema']>
 
 /** The events the browser may send through POST /api/events (006 FR-08). */
-export const CLIENT_EVENTS = ['wizard.step'] as const satisfies readonly EventName[]
+export const CLIENT_EVENTS = ['wizard.step', 'caption.copied'] as const satisfies readonly EventName[]

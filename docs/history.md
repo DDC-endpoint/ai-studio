@@ -2,6 +2,19 @@
 
 > **To pick up work, read `CLAUDE.md` "Current state", not this file.**
 
+## 2026-10-28: PR #1 merged, 036, and the 037–039 proposals
+
+- **PR #1 merged** by the user (`4cd1f94f`). `v2` was fast-forwarded to `main` and continues.
+- **036 browser tab title (VERIFIED PASS, 3/3; CI green on `c74a6fa3`, run 40714132579, E2E 601/3/0/0).** The root metadata title is "ai-studio". The ACP and MCP names and the prompt text keep "bistec-studio".
+- **The local database was reset for the user's own use.** This happened on the local machine only. The Bistec team, its kits and `adminBTG` were hard-deleted, and the MinIO buckets were emptied. A super admin `DDC` and teams `Aloys` and `ddc` were created. Two Aloy's Travels kits were built (Highlights: freeform and photo-led; Tours: four Path A templates).
+- **The 037–039 program.** The user wants generate, download and copy caption only. Three rounds of questions settled the decisions, which are in the proposals.
+  - **037 remove scheduling and publishing.**
+    - Its deep party panel returned CHANGES_REQUESTED: 28 upheld, 2 BLOCK. The blocks were a cheaper split, and a migration that must fail closed.
+    - The user kept it as one change, with the drop now behind a fail-closed check, and kept Download replacing Export.
+    - The user added "Posts this month", accepted that the removal is one-way, and had `pre-037-publishing` tagged at `ea8e7f2e`.
+  - **038 campaigns become projects** and **039 general and curated captions** are approved by the user, and their panels are pending.
+  - **Lesson:** a deep panel is 10 spawns. The user asked for one panel at a time (037 first), after a 30-spawn batch was interrupted.
+
 ## 2026-10-27 (night): the pre-PR review, 034 and 035
 
 - **The pre-PR review of `v2` against `main`** ran the four agreed checks, read-only. The full report stays outside the repo (user decision).

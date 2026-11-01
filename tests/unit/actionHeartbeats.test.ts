@@ -68,11 +68,10 @@ vi.mock('@/lib/renderer/fontSet', () => ({ getFontSetId: () => 'fonts-test' }))
 vi.mock('@/lib/brandkit/resolve', () => ({
   resolveBrandKit: async () => ({ id: 'kit', name: 'Kit', colors: [], fonts: [], logos: [], artifacts: [] }),
 }))
-vi.mock('@/lib/campaign/briefing', () => ({ getActiveCampaignBriefing: async () => null }))
 vi.mock('@/providers/registry', () => ({
   resolveCopyProvider: async () => ({
     generateCaptions: async (_b: unknown, _t: unknown, model: { arg: string }) => ({
-      raw: JSON.stringify({ headline: 'Applications are open', instagram: 'IG', linkedin: 'LI' }),
+      raw: JSON.stringify({ headline: 'Applications are open', general: 'GEN' }),
       modelId: model.arg,
     }),
   }),
@@ -139,7 +138,7 @@ vi.mock('@/lib/api/handler', () => ({
     (req: unknown, ctx: { params: unknown }) =>
       handler(req, { params: ctx.params }, { userId: 'u1', teamId: 'team1' }),
 }))
-vi.mock('@/lib/authz/visibility', () => ({ canAccessContent: () => true }))
+vi.mock('@/lib/authz/visibility', () => ({ canView: () => true, canEditPost: () => true, NOT_AUTHOR: { code: 'not-author' } }))
 vi.mock('@/lib/storage/minio', () => ({ resolveExportUrl: async (k: string | null) => k }))
 vi.mock('@/lib/agent/userToken', () => ({ resolveClaudeAuth: async () => null }))
 vi.mock('@/lib/agent/claudeAuth', () => ({ runWithClaudeAuth: (_auth: unknown, fn: () => unknown) => fn() }))
@@ -193,7 +192,6 @@ function brief(designMode: 'GENERATE' | 'TEMPLATE' = 'GENERATE') {
     goal: null,
     tone: null,
     channels: [],
-    campaignId: null,
     brandKitId: null,
     referenceTemplateId: null,
     briefImages: null,
@@ -259,7 +257,7 @@ describe('async generation (runGenerationForDraft)', () => {
 
 describe('sync generation (generateDraftForBrief: the scheduler, MCP, ACP)', () => {
   it("runs the caller's onBeforeDesign after the background step, right before the design", async () => {
-    await generateDraftForBrief(brief() as never, { userId: null, teamId: 'team1', source: 'scheduler' }, {
+    await generateDraftForBrief(brief() as never, { userId: null, teamId: 'team1', source: 'mcp' }, {
       onBeforeDesign: async () => {
         h.log.push('hook')
       },
@@ -268,7 +266,7 @@ describe('sync generation (generateDraftForBrief: the scheduler, MCP, ACP)', () 
   })
 
   it('without a hook, behaves as before', async () => {
-    await generateDraftForBrief(brief() as never, { userId: null, teamId: 'team1', source: 'scheduler' })
+    await generateDraftForBrief(brief() as never, { userId: null, teamId: 'team1', source: 'mcp' })
     expect(h.log).toEqual(['background', 'design', 'draft created', 'revision'])
   })
 })

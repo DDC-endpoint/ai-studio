@@ -19,10 +19,9 @@ const ADMIN_PASSWORD = 'BistecStudio2026!'
 
 async function briefFor(api: ApiClient, topic: string): Promise<string> {
   const kit = await (await api.post('/api/admin/brandkits', { name: `Async Kit ${topic}`, colors: ['#0284c7'] })).json()
-  const camp = await (await api.post('/api/campaigns', { name: `Async Camp ${topic}`, brandKitId: kit.id })).json()
   const brief = await (await api.post('/api/briefs', {
     topic, goal: 'g', tone: 'professional', channels: ['INSTAGRAM'],
-    designMode: 'GENERATE', copyProviderKey: 'cli', campaignId: camp.id,
+    designMode: 'GENERATE', copyProviderKey: 'cli', brandKitId: kit.id,
   })).json()
   return brief.id
 }

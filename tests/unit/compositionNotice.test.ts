@@ -89,7 +89,7 @@ describe('compositionNoticeFor', () => {
         imageQuality: 'default',
       })
       expect(compositionNoticeFor(stamp)!.message).toBe(
-        `Some text or the logo sits outside the area ${label} reserves for it. The post is unchanged; check it before publishing.`,
+        `Some text or the logo sits outside the area ${label} reserves for it. The post is unchanged; check it before you download it.`,
       )
       expect(compositionNoticeFor(fallback('busy', key))!.message.startsWith(label)).toBe(true)
     }
@@ -106,7 +106,7 @@ describe('compositionNoticeFor', () => {
     const n = compositionNoticeFor(stamp)!
     expect(n.reason).toBe('layout-violation')
     expect(n.message).toBe(
-      'Some text or the logo sits outside the area Product showcase reserves for it. The post is unchanged; check it before publishing.',
+      'Some text or the logo sits outside the area Product showcase reserves for it. The post is unchanged; check it before you download it.',
     )
   })
 })

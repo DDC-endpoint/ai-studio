@@ -75,7 +75,7 @@ const topicOf = (label: string) => `AP ${label} ${Date.now()}`
 async function openDraft(page: Page, id: string) {
   await pageLogin(page)
   await page.goto(`/drafts/${id}`)
-  await expect(page.getByRole('button', { name: /^publish$/i })).toBeVisible({ timeout: 20_000 })
+  await expect(page.getByTestId('download-button')).toBeVisible({ timeout: 20_000 })
 }
 
 async function clearEvents() {
@@ -209,7 +209,7 @@ test.describe('§AM Apply to image', () => {
     expect((await api.post('/api/test/draft-rendered-text', { draftId: old.id })).status()).toBe(200)
     await setHeadline(old.id, NEW_HEADLINE)
     await page.goto(`/drafts/${old.id}`)
-    await expect(page.getByRole('button', { name: /^publish$/i })).toBeVisible({ timeout: 20_000 })
+    await expect(page.getByTestId('download-button')).toBeVisible({ timeout: 20_000 })
     await expect(page.getByTestId('headline-image-notice')).toHaveCount(0)
 
     // The server agrees: an unconfirmed or unknown draft is refused with not-stale.

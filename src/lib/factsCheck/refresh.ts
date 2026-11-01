@@ -8,19 +8,24 @@ import { prisma } from '@/lib/prisma'
 import { loadDraftCaptions } from '@/lib/captions/store'
 import { redactText } from '@/lib/text/redact'
 import { checkFacts, factsCheckError } from './compare'
-import { loadFactsSources, type FactsBrief, type PreloadedSources } from './sources'
+import { postContext, type PostContext } from '@/lib/projects/context'
+import { loadFactsSources, type FactsBrief } from './sources'
 import { shouldMockFactError } from '@/lib/testHooks'
-import { MAX_REASON_CHARS, type CheckText, type FactWhere, type FactsCheck } from './types'
+import { MAX_REASON_CHARS, type CheckText, type FactsCheck } from './types'
 
 export interface RefreshDeps {
   db: PrismaClient
-  loadSources: (brief: FactsBrief) => Promise<string[]>
+  // 038: the post's context is read from the draft's recorded stamp (D3), never
+  // from the brief's current assignment.
+  loadContext: (draft: { generationInputs: unknown; brief: FactsBrief }) => Promise<PostContext>
+  loadSources: (brief: FactsBrief, ctx: PostContext) => Promise<string[]>
   loadCaptions: typeof loadDraftCaptions
 }
 
 const defaultDeps = (): RefreshDeps => ({
   db: prisma,
-  loadSources: (brief) => loadFactsSources(brief),
+  loadContext: (draft) => postContext(draft),
+  loadSources: (brief, ctx) => loadFactsSources(brief, ctx),
   loadCaptions: loadDraftCaptions,
 })
 
@@ -37,17 +42,17 @@ function throwIfMockFactError(topic: string): void {
 
 /**
  * The check for a synchronous generation (FR-11): the texts in hand, the
- * sources from the loader (a caller that already resolved the briefing or the
- * kit voice passes them in). Never throws: a failure is logged and returned as
+ * sources from the post's context, which the generation already resolved.
+ * Never throws: a failure is logged and returned as
  * `status: 'error'`, so the generation still returns its draft.
  */
 export async function computeFactsCheck(
-  input: { brief: FactsBrief; texts: CheckText[]; preloaded?: PreloadedSources },
-  loadSources: (brief: FactsBrief, preloaded?: PreloadedSources) => Promise<string[]> = loadFactsSources,
+  input: { brief: FactsBrief; texts: CheckText[]; ctx: PostContext },
+  loadSources: (brief: FactsBrief, ctx: PostContext) => Promise<string[]> = loadFactsSources,
 ): Promise<FactsCheck> {
   try {
     throwIfMockFactError(input.brief.topic)
-    const sources = await loadSources(input.brief, input.preloaded)
+    const sources = await loadSources(input.brief, input.ctx)
     return checkFacts({ texts: input.texts, sources })
   } catch (err) {
     const message = describe(err)
@@ -57,8 +62,8 @@ export async function computeFactsCheck(
 }
 
 /**
- * Recomputes `Draft.factsCheck` from the draft's headline and READY captions.
- * A PENDING or FAILED caption row is skipped. On any failure it logs
+ * Recomputes `Draft.factsCheck` from the draft's headline, its general caption
+ * and its live curated captions. A PENDING, FAILED or deleted row is skipped. On any failure it logs
  * `[facts-check] draft <id>: <message>` and tries once to store `status:
  * 'error'`. Never throws.
  */
@@ -74,12 +79,12 @@ export async function refreshFactsCheck(
       where: { id: draftId },
       select: {
         headline: true,
+        generationInputs: true,
         brief: {
           select: {
             teamId: true,
             topic: true,
             description: true,
-            campaignId: true,
             brandKitId: true,
           },
         },
@@ -89,11 +94,14 @@ export async function refreshFactsCheck(
     const loaded = await deps.loadCaptions(draftId, deps.db)
     const texts: CheckText[] = []
     if (draft.headline) texts.push({ where: 'headline', text: draft.headline })
-    for (const row of loaded?.captions ?? [])
-      if (row.status === 'READY' && row.text)
-        texts.push({ where: row.channel as FactWhere, text: row.text })
+    // The general caption, then the live curated ones (039 D19): READY, with
+    // text, not deleted. PENDING, FAILED, deleted and retired rows are skipped.
+    for (const row of [...(loaded?.general ? [loaded.general] : []), ...(loaded?.curated ?? [])])
+      if (row.status === 'READY' && row.text && !row.deleted)
+        texts.push({ where: row.target, text: row.text })
     throwIfMockFactError(draft.brief.topic)
-    const sources = await deps.loadSources(draft.brief)
+    const ctx = await deps.loadContext(draft)
+    const sources = await deps.loadSources(draft.brief, ctx)
     const check = checkFacts({ texts, sources })
     await deps.db.draft.updateMany({
       where: { id: draftId },

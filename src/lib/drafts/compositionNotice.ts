@@ -66,7 +66,7 @@ export function compositionNoticeFor(stamp: CompositionStamp | null): Compositio
   if (stamp.observations?.includes('layout-violation')) {
     return {
       reason: 'layout-violation',
-      message: `Some text or the logo sits outside the area ${label} reserves for it. The post is unchanged; check it before publishing.`,
+      message: `Some text or the logo sits outside the area ${label} reserves for it. The post is unchanged; check it before you download it.`,
     }
   }
   return null

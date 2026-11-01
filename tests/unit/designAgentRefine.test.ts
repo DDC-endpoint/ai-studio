@@ -149,6 +149,27 @@ describe('runDesignAgentRefine — the real tool loop', () => {
     expect(JSON.stringify(second.messages.at(-1))).toMatch(/not available in this step/)
   })
 
+  it('038 AC-26: getBrandKitContext reads the run’s context and ignores a briefId in the model’s input', async () => {
+    const tools = await import('@/lib/agent/tools')
+    const ctx = { teamId: 'team-run', kit: { id: 'kit-run' } } as never
+    h.create
+      .mockResolvedValueOnce({
+        content: [{ type: 'tool_use', id: 't1', name: 'getBrandKitContext', input: { briefId: 'another-teams-brief' } }],
+        stop_reason: 'tool_use',
+        usage,
+      })
+      .mockResolvedValueOnce({ content: [{ type: 'text', text: 'final' }], stop_reason: 'end_turn', usage })
+    expect(await runDesignAgentRefine({ ...base, context: ctx })).toBe('final')
+    // the tool got the run's context and nothing the model supplied
+    expect(vi.mocked(tools.toolGetBrandKitContext)).toHaveBeenCalledWith(ctx)
+    expect(JSON.stringify(vi.mocked(tools.toolGetBrandKitContext).mock.calls)).not.toContain('another-teams-brief')
+    // the advertised tool takes no input
+    const declared = (h.tools as Array<{ name: string; input_schema: { properties: object } }>).find(
+      (t) => t.name === 'getBrandKitContext',
+    )!
+    expect(declared.input_schema.properties).toEqual({})
+  })
+
   it('returns a max_tokens-truncated turn as partial text (the route treats it as not applied), not a crash', async () => {
     h.create.mockResolvedValue({ content: [{ type: 'text', text: '<!DOCTYPE html><html><body>cut' }], stop_reason: 'max_tokens', usage })
     expect(await runDesignAgentRefine(base)).toBe('<!DOCTYPE html><html><body>cut')

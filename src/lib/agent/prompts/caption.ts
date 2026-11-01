@@ -4,26 +4,37 @@
 //
 // One call writes every requested target: a caption per channel plus,
 // optionally, the on-image headline. The per-channel briefs, length guidance and
-// key list all come from the CAPTION_CHANNELS registry, never written here. The
+// key list all come from the CAPTION_REGISTRY, never written here. The
 // reply is extracted by extractCaptionReply (src/lib/captions/extract.ts), which
 // is why the prompt asks for one JSON object with exactly these keys.
 
 import type { BriefInput } from '@/providers/interfaces/CopyProvider'
-import { CAPTION_CHANNELS, type CaptionTarget } from '@/lib/channels'
+import { CAPTION_REGISTRY, captionSpec, type CaptionTarget } from '@/lib/channels'
+import { rulesPromptText } from '@/lib/captions/rules'
 import { captionReplyKeys } from '@/lib/captions/extract'
 import { HEADLINE_MAX } from '@/lib/captions/headline'
 import { derivedPromptVersion } from '@/lib/postStyles'
+import { fenceUntrusted, UNTRUSTED_CONTENT_GUARD } from '@/lib/agent/untrusted'
 
 // Bump when caption prompt content changes materially; logged with every
 // caption call. Separate from PROMPT_VERSION, which versions the design prompts.
 // 2026-10-25.1: post styles (027): derived from the post-style dataset, like
 // PROMPT_VERSION, and the user prompt carries the style's caption rules.
-export const CAPTION_PROMPT_VERSION_BASE = '2026-10-25.1'
+// 2026-11-02.1: the general caption and each target's rules rendered from the registry (039).
+// 2026-11-02.2: a curate carries the general caption, fenced as untrusted (039 T3).
+// 2026-11-02.3: Facebook's rules; the kit website line says the app adds the link (039 T4).
+export const CAPTION_PROMPT_VERSION_BASE = '2026-11-02.3'
 export const CAPTION_PROMPT_VERSION = derivedPromptVersion(CAPTION_PROMPT_VERSION_BASE)
 
-// Room for two captions plus a headline, including non-Latin scripts at about
-// one token per character.
-export const CAPTION_MAX_TOKENS = 8192
+// Room for the requested targets, including non-Latin scripts at about one
+// token per character: 512 of overhead, plus the headline's cap and each
+// caption's hard limit (039 D18, so the budget follows the registry).
+export function captionMaxTokens(targets: readonly CaptionTarget[]): number {
+  return targets.reduce(
+    (sum, t) => sum + (t === 'HEADLINE' ? HEADLINE_MAX : captionSpec(t).hardLimit),
+    512,
+  )
+}
 
 export interface CaptionPrompt {
   system: string
@@ -37,14 +48,14 @@ function systemPrompt(brief: BriefInput, task: string): string {
   const voiceSection = brief.brandVoice
     ? `\n\nBrand voice guidelines:\n${brief.brandVoice}`
     : ''
-  const briefingSection = brief.campaignBriefing
-    ? `\n\nCampaign briefing (applies to every post in this campaign):\n${brief.campaignBriefing}`
+  const briefingSection = brief.projectBriefing
+    ? `\n\nProject briefing (applies to every post in this project):\n${brief.projectBriefing}`
     : ''
   return `You are an expert social media copywriter for ${brandName}. ${task}${voiceSection}${briefingSection}`
 }
 
 export function buildCaptionPrompt(brief: BriefInput, targets: readonly CaptionTarget[]): CaptionPrompt {
-  const channels = CAPTION_CHANNELS.filter((s) => targets.includes(s.channel))
+  const specs = CAPTION_REGISTRY.filter((s) => targets.includes(s.target))
 
   const bullets: string[] = []
   if (targets.includes('HEADLINE')) {
@@ -52,9 +63,12 @@ export function buildCaptionPrompt(brief: BriefInput, targets: readonly CaptionT
       `- "headline": the short line printed on the post image: one line, at most ${HEADLINE_MAX} characters, no hashtags, no emoji, no markdown.`
     )
   }
-  for (const s of channels) {
-    const length = s.hardLimit !== null ? `At most ${count(s.hardLimit)} characters.` : ''
-    bullets.push(`- "${s.jsonKey}" (${s.label}): ${s.brief}${length ? ` ${length}` : ''}`)
+  // 039 D18: each entry's brief, its hard limit and its rules (rulesPromptText).
+  for (const s of specs) {
+    const rules = rulesPromptText(s, { hasWebsite: !!brief.kitWebsite })
+    bullets.push(
+      `- "${s.jsonKey}" (${s.label}): ${s.brief} At most ${count(s.hardLimit)} characters.${rules ? ` ${rules}` : ''}`,
+    )
   }
 
   // 027 FR-09: the post style's caption rules, after Tone and before the task.
@@ -65,17 +79,28 @@ ${brief.captionRules}` : ''
   const keys = captionReplyKeys(targets)
     .map((k) => `"${k}"`)
     .join(', ')
-  const labels = channels.map((s) => s.label).join(', ')
+  const generalOnly = specs.length > 0 && specs.every((s) => s.kind === 'GENERAL')
+  const labels = specs.map((s) => s.label).join(', ')
+  // 039 D18: a curate (one curated caption, no general among the targets) carries
+  // the general caption the author has, fenced because it is model output or an edit.
+  const curated = specs.filter((s) => s.kind === 'CURATED')
+  const curate = curated.length > 0 && !specs.some((s) => s.kind === 'GENERAL')
+  const general = curate && brief.generalCaption ? brief.generalCaption : null
+  const generalBlock = general
+    ? `\n\nGeneral caption for this post (keep its facts, offers and dates; adapt it to the channel):\n${fenceUntrusted(general)}`
+    : ''
+  const task = generalOnly
+    ? 'Write the general caption for the post: compelling, on-brand and platform-neutral.'
+    : curate && curated.length === 1
+      ? `Write a compelling, on-brand caption for ${curated[0].label}, tailored to its channel.`
+    : `Write compelling, on-brand captions${labels ? ` for ${labels}` : ''}, each tailored to its channel.`
 
   return {
-    system: systemPrompt(
-      brief,
-      `Write compelling, on-brand captions${labels ? ` for ${labels}` : ''}, each tailored to its channel.`
-    ),
+    system: systemPrompt(brief, task) + (general ? `\n\n${UNTRUSTED_CONTENT_GUARD}` : ''),
     user: `Topic: ${brief.topic}
 Description: ${brief.description}
 Goal: ${brief.goal}
-Tone: ${brief.tone}${rulesBlock}
+Tone: ${brief.tone}${rulesBlock}${generalBlock}
 
 Write the following for the brief above:
 ${bullets.join('\n')}

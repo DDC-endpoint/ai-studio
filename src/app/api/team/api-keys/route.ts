@@ -7,7 +7,7 @@ import type { TeamApiKeySummary, TeamApiKeyCreated } from '@/lib/api-types'
 
 // Team-admin management of the team's MCP/ACP machine credentials
 // (src/mcp/auth.ts resolveApiKey). Mirrors the shape of /api/team/claude-token
-// and /api/team/channels — team-admin-only, masked values in every response
+// — team-admin-only, masked values in every response
 // except the one-time plaintext returned right after minting.
 
 export const GET = withTeamAdmin(async (_req, _ctx, user) => {

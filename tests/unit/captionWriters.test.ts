@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 
-// 012 T5: the caption writers (FR-07/FR-09/FR-10). writeCaptions' logging and
+// 012 T5, 039 T2: the caption writers (FR-07/FR-09/FR-10). writeCaptions' logging and
 // whole-reply failure mapping; the required headline (A6) on the async and
 // sync generation paths; retry resetting the caption rows; and
 // regenerate-design's Topic fallback. Prisma, the provider and the design
@@ -80,7 +82,6 @@ const db = h.db
 vi.mock('@/lib/prisma', () => ({ prisma: h.client }))
 vi.mock('@/lib/renderer/fontSet', () => ({ getFontSetId: () => 'fonts-test' }))
 vi.mock('@/lib/brandkit/resolve', () => ({ resolveBrandKit: async () => ({ id: 'kit', name: 'Kit' }) }))
-vi.mock('@/lib/campaign/briefing', () => ({ getActiveCampaignBriefing: async () => null }))
 vi.mock('@/providers/registry', () => ({
   resolveCopyProvider: async () => ({
     generateCaptions: async (_b: unknown, _t: unknown, model: { arg: string }) => {
@@ -105,7 +106,7 @@ vi.mock('@/lib/api/handler', () => ({
     (req: unknown, ctx: { params: unknown }) =>
       handler(req, { params: ctx.params }, { userId: 'u1', teamId: 'team1' }),
 }))
-vi.mock('@/lib/authz/visibility', () => ({ canAccessContent: () => true }))
+vi.mock('@/lib/authz/visibility', () => ({ canView: () => true, canEditPost: () => true, NOT_AUTHOR: { code: 'not-author' } }))
 vi.mock('@/lib/agent/backgroundGeneration', () => ({ startBackgroundGeneration: h.startBackgroundGeneration }))
 vi.mock('@/lib/drafts/draftActions', () => ({
   claimDraftAction: async () => ({ action: 'REGENERATE_COPY', claimId: 'c1' }),
@@ -140,7 +141,7 @@ const policyRow = (allowedModels: string[], defaults: Array<{ surface: string; m
 
 const SENTENCE = (reason: string) => `The caption reply had no usable headline (${reason}). Retry to generate again.`
 
-const FULL = { headline: 'Applications are open', instagram: 'IG text', linkedin: 'LI text' }
+const FULL = { headline: 'Applications are open', general: 'General text' }
 const json = (o: Record<string, unknown>) => JSON.stringify(o)
 
 const brief = {
@@ -148,7 +149,6 @@ const brief = {
   teamId: 'team1',
   userId: 'u1',
   topic: 'The brief topic',
-  campaignId: null,
   brandKitId: null,
   designMode: 'GENERATE',
   aspectRatio: 'SQUARE',
@@ -184,7 +184,7 @@ afterEach(() => {
 const provider = () => ({
   generateCaptions: async (_b: unknown, _t: unknown, model: { arg: string }) => ({ raw: h.reply, modelId: model.arg, route: null }),
 })
-const briefInput = { topic: 't', description: '', goal: 'g', tone: 'x', channels: [] }
+const briefInput = { topic: 't', description: '', goal: 'g', tone: 'x' }
 
 describe('writeCaptions (design §3)', () => {
   it('logs the caption prompt version with every call, and the discarded text JSON-quoted, clipped to 500', async () => {
@@ -192,7 +192,7 @@ describe('writeCaptions (design §3)', () => {
     const { fields } = await writeCaptions(provider(), briefInput, GENERATION_TARGETS, captionModel)
     expect(fields.HEADLINE).toEqual({ ok: true, text: 'Applications are open' })
     expect(logged(info)[0]).toBe(
-      `[captions] caption call (prompt ${CAPTION_PROMPT_VERSION}) for HEADLINE, INSTAGRAM, LINKEDIN`,
+      `[captions] caption call (prompt ${CAPTION_PROMPT_VERSION}) for HEADLINE, GENERAL`,
     )
     expect(logged(warn)).toEqual([`[captions] discarded reply text: ${JSON.stringify('p'.repeat(500))}`])
   })
@@ -268,19 +268,33 @@ describe('HeadlineMissingError (A6, FR-09)', () => {
   })
 })
 
+describe('039 D10: what a generation asks for', () => {
+  it('is the headline and the general caption, in that order', () => {
+    expect([...GENERATION_TARGETS]).toEqual(['HEADLINE', 'GENERAL'])
+  })
+
+  it('a generation calls writeCaptions with exactly those targets', async () => {
+    const seen: unknown[] = []
+    const spy = {
+      generateCaptions: async (_b: unknown, targets: unknown, model: { arg: string }) => {
+        seen.push(targets)
+        return { raw: h.reply, modelId: model.arg, route: null }
+      },
+    }
+    await writeCaptions(spy, briefInput, GENERATION_TARGETS, captionModel)
+    expect(seen).toEqual([['HEADLINE', 'GENERAL']])
+  })
+})
+
 describe('createPendingDraft', () => {
-  it('creates the draft with one PENDING row per registry channel, in the same (nested) write', async () => {
+  it('creates the draft with its one PENDING general row, in the same (nested) write', async () => {
     await createPendingDraft(brief)
     expect(db.draftCreates).toHaveLength(1)
     expect(db.draftCreates[0]).toMatchObject({
       status: 'IN_PROGRESS',
-      captions: {
-        create: [
-          { channel: 'INSTAGRAM', status: 'PENDING' },
-          { channel: 'LINKEDIN', status: 'PENDING' },
-        ],
-      },
+      captions: { create: [{ kind: 'GENERAL', channel: null, status: 'PENDING' }] },
     })
+    expect((db.draftCreates[0].captions as { create: unknown[] }).create).toHaveLength(1)
     expect(db.draftCreates[0]).not.toHaveProperty('headline')
   })
 })
@@ -290,11 +304,10 @@ describe('runGenerationForDraft (async)', () => {
     db.draft = { id: 'd1', templateId: null, brief }
   })
 
-  it('writes every row and the headline, then designs from the headline — never a caption', async () => {
+  it('writes the general row and the headline, then designs from the headline — never a caption', async () => {
     await runGenerationForDraft('d1', actor)
     expect(db.captionUpdateManys.map((u) => [u.where, u.data.status, u.data.text])).toEqual([
-      [{ draftId: 'd1', channel: 'INSTAGRAM', status: 'PENDING' }, 'READY', 'IG text'],
-      [{ draftId: 'd1', channel: 'LINKEDIN', status: 'PENDING' }, 'READY', 'LI text'],
+      [{ draftId: 'd1', kind: 'GENERAL', channel: null, status: 'PENDING' }, 'READY', 'General text'],
     ])
     expect(db.draftUpdateManys).toEqual([
       {
@@ -309,33 +322,34 @@ describe('runGenerationForDraft (async)', () => {
     ])
     expect(h.pathB).toHaveBeenCalledTimes(1)
     expect(h.pathB.mock.calls[0][2]).toBe('Applications are open')
-    expect(JSON.stringify(h.pathB.mock.calls[0])).not.toContain('IG text')
+    expect(JSON.stringify(h.pathB.mock.calls[0])).not.toContain('General text')
     expect(db.draftUpdates.at(-1)!.data).toMatchObject({ status: 'EXPORTED' })
   })
 
-  it('no valid headline ⇒ FAILED with the FR-09 sentence, the validated captions kept, no design run', async () => {
-    h.reply = json({ instagram: 'IG text', linkedin: 'LI text' })
+  it('no valid headline ⇒ FAILED with the FR-09 sentence, the validated caption kept, no design run', async () => {
+    h.reply = json({ general: 'General text' })
     await runGenerationForDraft('d1', actor)
     expect(h.pathB).not.toHaveBeenCalled()
-    expect(db.captionUpdateManys.map((u) => u.data.status)).toEqual(['READY', 'READY'])
+    expect(db.captionUpdateManys.map((u) => u.data.status)).toEqual(['READY'])
     const failed = db.draftUpdates.at(-1)!.data
     expect(failed).toMatchObject({ status: 'FAILED', failureReason: SENTENCE('missing') })
-    // Only registry rows still PENDING are failed; the READY ones above, and a
-    // hidden WhatsApp row (026 FR-05), are untouched.
+    // Only the general row, and only while it is still PENDING, is failed (039 AC-04): the
+    // READY one above, every curated row (an old post's) and a hidden WhatsApp row (026
+    // FR-05) are untouched.
     expect(failed.captions).toEqual({
       updateMany: {
-        where: { status: 'PENDING', channel: { in: ['INSTAGRAM', 'LINKEDIN'] } },
+        where: { status: 'PENDING', kind: 'GENERAL' },
         data: { status: 'FAILED', text: '', failureReason: 'generation failed' },
       },
     })
     expect(db.draftUpdates.some((u) => u.data.status === 'EXPORTED')).toBe(false)
   })
 
-  it('a partial reply stores the failed channel as FAILED with no text, and still designs', async () => {
-    h.reply = json({ headline: 'H', instagram: 'IG text' })
+  it('a reply without the general caption stores it as FAILED with no text, and still designs (D10)', async () => {
+    h.reply = json({ headline: 'H' })
     await runGenerationForDraft('d1', actor)
-    const li = db.captionUpdateManys.find((u) => u.where.channel === 'LINKEDIN')!
-    expect(li.data).toMatchObject({ status: 'FAILED', text: '', failureReason: 'missing' })
+    const general = db.captionUpdateManys.find((u) => u.where.kind === 'GENERAL')!
+    expect(general.data).toMatchObject({ status: 'FAILED', text: '', failureReason: 'missing' })
     expect(h.pathB).toHaveBeenCalledTimes(1)
   })
 
@@ -346,34 +360,33 @@ describe('runGenerationForDraft (async)', () => {
     const failed = db.draftUpdates.at(-1)!.data
     expect(failed.status).toBe('FAILED')
     expect(failed.failureReason).toMatch(/No Claude token is connected/)
-    expect(failed.captions).toMatchObject({ updateMany: { where: { status: 'PENDING' } } })
+    // Scoped to the general row only (039 AC-04): a curated row is never failed with the draft.
+    expect(failed.captions).toMatchObject({ updateMany: { where: { status: 'PENDING', kind: 'GENERAL' } } })
   })
 })
 
 describe('generateDraftForBrief (sync: scheduler, MCP, ACP)', () => {
   it('throws HeadlineMissingError before any design is paid for, and creates no draft', async () => {
-    h.reply = json({ headline: '   ', instagram: 'IG text', linkedin: 'LI text' })
-    await expect(generateDraftForBrief(brief, { userId: null, teamId: 'team1', source: 'scheduler' })).rejects.toThrow(
+    h.reply = json({ headline: '   ', general: 'General text' })
+    await expect(generateDraftForBrief(brief, { userId: null, teamId: 'team1', source: 'mcp' })).rejects.toThrow(
       SENTENCE('empty'),
     )
     expect(h.pathB).not.toHaveBeenCalled()
     expect(db.draftCreates).toHaveLength(0)
   })
 
-  it('creates the draft with its headline, two rows and revision 1 in one transaction', async () => {
-    h.reply = json({ headline: 'H', instagram: 'IG text' })
-    await generateDraftForBrief(brief, { userId: null, teamId: 'team1', source: 'scheduler' })
+  it('creates the draft with its headline, its one general row and revision 1 in one transaction', async () => {
+    h.reply = json({ headline: 'H', general: 'General text' })
+    await generateDraftForBrief(brief, { userId: null, teamId: 'team1', source: 'mcp' })
     expect(h.pathB.mock.calls[0][2]).toBe('H')
     expect(db.draftCreates[0]).toMatchObject({
       headline: 'H',
       status: 'EXPORTED',
       captions: {
-        create: [
-          { channel: 'INSTAGRAM', text: 'IG text', status: 'READY', failureReason: null },
-          { channel: 'LINKEDIN', text: '', status: 'FAILED', failureReason: 'missing' },
-        ],
+        create: [{ kind: 'GENERAL', channel: null, text: 'General text', status: 'READY', failureReason: null }],
       },
     })
+    expect((db.draftCreates[0].captions as { create: unknown[] }).create).toHaveLength(1)
     expect(db.revisionCreates).toHaveLength(1)
   })
 })
@@ -381,25 +394,26 @@ describe('generateDraftForBrief (sync: scheduler, MCP, ACP)', () => {
 // ── 008: the generation's models and stamps (FR-08, FR-10, FR-11, AC-07) ──────
 
 describe('generation on the resolver (008)', () => {
-  const pathBModel = () => h.pathB.mock.calls[0][5] as { key: string; arg: string; source: string; substitutedFrom: string | null }
+  const pathBModel = () => h.pathB.mock.calls[0][4] as { key: string; arg: string; source: string; substitutedFrom: string | null }
 
   beforeEach(() => {
     db.draft = { id: 'd1', templateId: null, brief }
   })
 
   it('async: CAPTION and DESIGN_FREEFORM resolve to the system defaults with no policy row, and stamp what ran', async () => {
-    h.reply = json({ headline: 'H', instagram: 'IG text' })
+    h.reply = json({ headline: 'H', general: 'General text' })
     await runGenerationForDraft('d1', actor)
-    // Caption stamps on the ok rows only; the failed (text-less) row has none.
-    const byChannel = Object.fromEntries(
-      db.captionUpdateManys.map((u) => [u.where.channel, u.data]),
-    )
-    expect(byChannel.INSTAGRAM).toMatchObject({
+    // The caption stamp lands on the ok row.
+    expect(db.captionUpdateManys[0].data).toMatchObject({
       status: 'READY',
       model: 'claude-haiku-4-5',
       modelSubstitutedFrom: null,
     })
-    expect(byChannel.LINKEDIN).toMatchObject({
+    // A failed (text-less) row has no stamp.
+    db.captionUpdateManys = []
+    h.reply = json({ headline: 'H' })
+    await runGenerationForDraft('d1', actor)
+    expect(db.captionUpdateManys[0].data).toMatchObject({
       status: 'FAILED',
       model: null,
       modelSubstitutedFrom: null,
@@ -450,7 +464,7 @@ describe('generation on the resolver (008)', () => {
   it('sync: a stored request since disallowed is substituted, not thrown — the scheduler/MCP run completes', async () => {
     db.policy = policyRow(['HAIKU', 'SONNET'])
     const stored = { ...(brief as object), captionModel: 'OPUS', designModel: 'OPUS' } as never
-    await expect(generateDraftForBrief(stored, { userId: null, teamId: 'team1', source: 'scheduler' })).resolves.toBeDefined()
+    await expect(generateDraftForBrief(stored, { userId: null, teamId: 'team1', source: 'mcp' })).resolves.toBeDefined()
     expect(db.draftCreates[0]).toMatchObject({
       headline: 'Applications are open',
       headlineModel: 'claude-haiku-4-5',
@@ -475,7 +489,7 @@ describe('generation on the resolver (008)', () => {
 
   it('the sync path throws it instead, and creates no draft', async () => {
     db.policy = policyRow([])
-    await expect(generateDraftForBrief(brief, { userId: null, teamId: 'team1', source: 'scheduler' })).rejects.toThrow(/No model is allowed/)
+    await expect(generateDraftForBrief(brief, { userId: null, teamId: 'team1', source: 'mcp' })).rejects.toThrow(/No model is allowed/)
     expect(db.draftCreates).toHaveLength(0)
   })
 })
@@ -484,8 +498,8 @@ describe('retry route (FR-10)', () => {
   const req = {} as never
   const ctx = { params: { id: 'd1' } } as never
 
-  it('sets IN_PROGRESS and every caption row back to PENDING in the same update, then reruns', async () => {
-    db.draft = { id: 'd1', status: 'FAILED', teamId: 'team1', brief: { userId: 'u1', campaignId: null } }
+  it('sets IN_PROGRESS and the general caption back to PENDING in the same update, then reruns', async () => {
+    db.draft = { id: 'd1', status: 'FAILED', teamId: 'team1', brief: { userId: 'u1' } }
     const res = (await retry(req, ctx)) as Response
     expect(res.status).toBe(202)
     expect(db.draftUpdates).toHaveLength(1)
@@ -498,14 +512,11 @@ describe('retry route (FR-10)', () => {
       headlineModelSubstitutedFrom: null,
       captions: {
         updateMany: {
-          where: { channel: { in: ['INSTAGRAM', 'LINKEDIN'] } },
+          where: { kind: 'GENERAL' },
           data: { status: 'PENDING', failureReason: null },
         },
         createMany: {
-          data: [
-            { channel: 'INSTAGRAM', status: 'PENDING' },
-            { channel: 'LINKEDIN', status: 'PENDING' },
-          ],
+          data: [{ kind: 'GENERAL', channel: null, status: 'PENDING' }],
           skipDuplicates: true,
         },
       },
@@ -513,28 +524,32 @@ describe('retry route (FR-10)', () => {
     expect(h.startBackgroundGeneration).toHaveBeenCalledWith('d1', 'u1', 'team1')
   })
 
-  it('resets only the registry channels, so a legacy WHATSAPP row is untouched (026 AC-06)', async () => {
+  it('resets only the general row: curated rows (an old post\'s) and a legacy WHATSAPP row are untouched (039 D10, 026 AC-06)', async () => {
     db.draft = {
       id: 'd1',
       status: 'FAILED',
       teamId: 'team1',
-      brief: { userId: 'u1', campaignId: null },
+      brief: { userId: 'u1' },
     }
     await retry(req, ctx)
     const { updateMany, createMany } = db.draftUpdates[0].data.captions as {
-      updateMany: { where: { channel: { in: string[] } } }
-      createMany: { data: { channel: string }[] }
+      updateMany: { where: { kind: string } }
+      createMany: { data: { kind: string; channel: string | null }[] }
     }
-    // Apply the reset's filter to a draft holding a legacy WHATSAPP row.
-    const rows = ['INSTAGRAM', 'LINKEDIN', 'WHATSAPP']
-    const reset = rows.filter((channel) => updateMany.where.channel.in.includes(channel))
-    expect(reset).toEqual(['INSTAGRAM', 'LINKEDIN'])
-    // A hidden row is never created either.
-    expect(createMany.data.map((d) => d.channel)).toEqual(['INSTAGRAM', 'LINKEDIN'])
+    // Apply the reset's filter to a draft holding old curated rows and a legacy WhatsApp row.
+    const rows = [
+      { kind: 'GENERAL', channel: null },
+      { kind: 'CURATED', channel: 'INSTAGRAM' },
+      { kind: 'CURATED', channel: 'LINKEDIN' },
+      { kind: 'CURATED', channel: 'WHATSAPP' },
+    ]
+    expect(rows.filter((r) => r.kind === updateMany.where.kind)).toEqual([{ kind: 'GENERAL', channel: null }])
+    // A hidden or curated row is never created either.
+    expect(createMany.data).toEqual([{ kind: 'GENERAL', channel: null, status: 'PENDING' }])
   })
 
   it('a non-FAILED draft is left alone (409)', async () => {
-    db.draft = { id: 'd1', status: 'EXPORTED', teamId: 'team1', brief: { userId: 'u1', campaignId: null } }
+    db.draft = { id: 'd1', status: 'EXPORTED', teamId: 'team1', brief: { userId: 'u1' } }
     const res = (await retry(req, ctx)) as Response
     expect(res.status).toBe(409)
     expect(db.draftUpdates).toHaveLength(0)
@@ -562,5 +577,61 @@ describe('regenerate-design uses designHeadline (FR-09)', () => {
     await regenerateDesign(req, ctx)
     expect(h.pathB.mock.calls[0][2]).toBe('The brief topic')
     expect(logged(info)).toContain('[captions] draft d1 has no headline — design uses the brief topic')
+  })
+})
+
+// ── 039 AC-15: one recompute path ────────────────────────────────────────────
+// Every exported store function whose body writes a DraftCaption row must call
+// refreshAfterWrite( (the facts check recompute), so a new writer cannot skip it.
+// Comments are stripped first, and the source is split at top-level
+// declarations, so a helper's body is never read as its neighbour's.
+
+const EXEMPT: Record<string, string> = {
+  claimCaptionAction: 'writes only PENDING, which the facts check skips',
+}
+
+export function unrefreshedWriters(source: string, exempt: Record<string, string>): string[] {
+  const code = source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+  const chunks = code.split(/^(?=(?:export )?(?:async )?function |export (?:interface|type|const) )/m)
+  const bad: string[] = []
+  for (const chunk of chunks) {
+    const m = chunk.match(/^export async function (\w+)/)
+    if (!m || m[1] in exempt) continue
+    if (/draftCaption\.(?:update|updateMany|create|createMany|delete|deleteMany|upsert)\b/.test(chunk) && !chunk.includes('refreshAfterWrite(')) {
+      bad.push(m[1])
+    }
+  }
+  return bad
+}
+
+describe('039 AC-15: every caption writer in store.ts recomputes the facts check', () => {
+  const store = readFileSync(join(process.cwd(), 'src/lib/captions/store.ts'), 'utf8')
+
+  it('the real store has no writer without refreshAfterWrite(', () => {
+    expect(unrefreshedWriters(store, EXEMPT)).toEqual([])
+  })
+
+  it('the guard sees the writers it is meant to see', () => {
+    // saveCaptionEdit and saveGenerationCaptions write rows and refresh; dropping the exemption must flag the claim
+    expect(unrefreshedWriters(store, {})).toEqual(['claimCaptionAction'])
+  })
+
+  it('a fixture writer without the call fails the check', () => {
+    // top-level declarations start in column 0, as in store.ts
+    const fixture = [
+      "export async function saveGenerationCaptions(db) { await db.draftCaption.updateMany({}); await refreshAfterWrite('d', db) }",
+      'export async function deleteCaption(db) {',
+      '  await db.draftCaption.update({ data: { deletedAt: new Date() } })',
+      '}',
+    ].join('\n')
+    expect(unrefreshedWriters(fixture, {})).toEqual(['deleteCaption'])
+  })
+
+  it('a comment that mentions a write is not a write', () => {
+    const fixture = [
+      '// draftCaption.update here is only prose',
+      'export async function readOnly(db) { return db.draftCaption.findMany({}) }',
+    ].join('\n')
+    expect(unrefreshedWriters(fixture, {})).toEqual([])
   })
 })

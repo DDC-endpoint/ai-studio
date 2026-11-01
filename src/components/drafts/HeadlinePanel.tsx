@@ -26,7 +26,7 @@ export interface HeadlinePanelProps {
   /** The headline is being written: a generation, or a headline-only action
    *  (captionActionTargets). */
   busy: boolean
-  /** The draft can take a caption action (EXPORTED or PUBLISHED). */
+  /** The draft can take a caption action (EXPORTED). */
   ready: boolean
   /** Any action is firing or running on the draft (single-flight, A2). */
   locked: boolean
@@ -39,13 +39,16 @@ export interface HeadlinePanelProps {
   onRegenerate: (model?: ModelKey) => Promise<RegenerateResult>
   /** Called after an edit is saved, so the parent refetches the draft. */
   onSaved: () => void
+  /** 038 D11: false for a member who is not the author or a team admin: no
+   *  edit controls, and the field is read-only. */
+  canEdit?: boolean
 }
 
 // The on-image headline (012 FR-18/FR-19): its h3 with the tail (save state,
 // Undo, Generate/Regenerate headline), a single-line field named by that
 // heading, saved on blur with the
 // server's 400 reason shown inline, the n / 100 counter and the helper text.
-// "Regenerate all" never writes it (A9).
+// No caption action writes it except its own Regenerate (A9).
 export function HeadlinePanel({
   draftId,
   headline,
@@ -59,6 +62,7 @@ export function HeadlinePanel({
   editLocked,
   onRegenerate,
   onSaved,
+  canEdit = true,
 }: HeadlinePanelProps) {
   const headingId = useId()
   const helpId = useId()
@@ -181,8 +185,8 @@ export function HeadlinePanel({
   return (
     <div>
       <SectionHead level={3} title="Headline" id={headingId} className="mb-3">
-        {!busy && <SaveState saving={saving} saved={saved} />}
-        {undo.snapshot !== null && (
+        {canEdit && !busy && <SaveState saving={saving} saved={saved} />}
+        {canEdit && undo.snapshot !== null && (
           <Button
             variant="ghost"
             size="sm"
@@ -194,9 +198,11 @@ export function HeadlinePanel({
             {undo.undoing ? <Loader2 {...ICON} className="animate-spin" /> : <Undo2 {...ICON} />} Undo
           </Button>
         )}
-        <Button variant="ghost" size="sm" onClick={regenerate} disabled={!ready || locked || undo.undoing}>
-          {busy ? <Loader2 {...ICON} className="animate-spin" /> : <Sparkles {...ICON} />} {verb}
-        </Button>
+        {canEdit && (
+          <Button variant="ghost" size="sm" onClick={regenerate} disabled={!ready || locked || undo.undoing}>
+            {busy ? <Loader2 {...ICON} className="animate-spin" /> : <Sparkles {...ICON} />} {verb}
+          </Button>
+        )}
       </SectionHead>
 
       {busy ? (
@@ -217,6 +223,7 @@ export function HeadlinePanel({
             onBlur={() => {
               inFlightSave.current = save()
             }}
+            readOnly={!canEdit}
             disabled={editLocked}
             placeholder="Write the headline…"
             // Beats the field's border-line by specificity, not source order.
@@ -247,7 +254,7 @@ export function HeadlinePanel({
       {!busy && (
         <GeneratedWith stamp={headlineModel} substitutedFrom={headlineModelSubstitutedFrom} className="mt-2" />
       )}
-      {ready && (
+      {canEdit && ready && (
         <ModelPicker
           id="draft-headline-model"
           surface="CAPTION"

@@ -311,7 +311,7 @@ describe('Graphite deny-list (032 FR-14, AC-16)', () => {
     expect(findFolioModule('src/components/ui/folio.ts', '')).toHaveLength(1)
     expect(findFolioModule('src/components/team/Folio.tsx', '')).toHaveLength(1)
     expect(findFolioModule('src/components/x.tsx', "import { ROW } from '@/components/ui/atoms'")).toEqual([])
-    expect(findFolioModule('src/components/x.tsx', "import { ROW_TITLE } from '@/components/campaigns/classes'")).toEqual([])
+    expect(findFolioModule('src/components/x.tsx', "import { ROW_TITLE } from '@/components/projects/classes'")).toEqual([])
     expect(findFolioModule('src/components/x.tsx', '// the Folio design system, see folio notes')).toEqual([])
   })
 
@@ -356,7 +356,7 @@ describe('Shared-name guard (014 FR-05, AC-02)', () => {
       "export const PILL_BADGE = 'x'", // 12 (021 T2)
       'export function GateNotice({ title }: Props) {', // 13 (021 T2)
       "const ROW = 'border-b py-3'", // 14 (021 T8)
-      "export const ROW_TITLE = 'x'", // 15: a longer name (campaigns/classes.ts)
+      "export const ROW_TITLE = 'x'", // 15: a longer name (projects/classes.ts)
     ].join('\n')
     const lines = (hits: string[]) => hits.map((h) => h.split(':')[1])
     expect(lines(findSharedCopies('src/components/team/ApiKeysCard.tsx', sample))).toEqual([

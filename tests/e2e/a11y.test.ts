@@ -8,7 +8,7 @@ import {
   briefDraftIds,
   expectNoHorizontalScroll,
   mintBrandKitFixture,
-  mintCampaignFixture,
+  mintProjectFixture,
   mintExportedDraft,
   pageLogin,
   tabThreeFromMain,
@@ -26,15 +26,16 @@ import {
 //   T12: AC-09 (FR-10, tabular figures on the body).
 //   T13: AC-11 (FR-12) for rows 1–5 (login, library, brief) and AC-13 (FR-14,
 //        the login h1).
-//   T14: AC-11 (FR-12) for rows 18, 19, 20 (briefing assistant, campaign
-//        briefing) and 23, 24, 25 (the campaign and project aside selects).
+//   T14: AC-11 (FR-12) for rows 18, 19, 20 (briefing assistant, project
+//        briefing) and 25 (the project aside selects; rows 23 and 24 went
+//        with the campaign page in 038).
 //   T15: AC-11 (FR-12) for rows 26 and 27 (the draft caption and refine prompt).
 //   T16: AC-11 (FR-12) for rows 7–11 (/team register form and channel rows) and
 //        AC-18 (FR-19, the provider toggle's On/Off word).
 //   T17: ARIA states — AC-12 (FR-13, named tablists), AC-15's breadcrumb part
 //        on the project page (FR-16), AC-16 (FR-17, static scroll regions) and
 //        AC-17 (FR-18, 24 × 24 remove targets). AC-14 (the stepper) and the
-//        campaign breadcrumb live in surfaces.test.ts, in the 011 cases they
+//        project breadcrumb live in surfaces.test.ts, in the 011 cases they
 //        supersede.
 //   T18: AC-19 (A4, the axe-core scan on the listed routes and rules), and
 //        AC-07's no-kit-open state (Add Kit is the one accent fill).
@@ -90,7 +91,7 @@ async function expectLabelled(
 // Walk /brief to step 2 (Size & Design), picking the first kit if none is set.
 async function briefStepTwo(page: Page) {
   await page.goto('/brief')
-  await expect(page.getByRole('heading', { name: 'Select a campaign' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Select a project' })).toBeVisible()
   await page.getByRole('button', { name: /continue/i }).click()
   await expect(page.getByRole('heading', { name: 'Size & Design' })).toBeVisible()
   const kit = page.getByRole('combobox', { name: 'Brand kit' })
@@ -141,16 +142,16 @@ test.describe('Field labels (T9)', () => {
     expect(reference.textTransform).toBe('uppercase')
     expect(reference.fontSize).toBe('11px')
 
-    // The campaign create form: an Input label and a Select label.
-    await page.goto('/campaigns')
-    await expect(page.getByRole('heading', { name: 'Campaigns', level: 1 })).toBeVisible()
-    await page.getByRole('button', { name: 'New Campaign' }).click()
-    const name = page.getByRole('textbox', { name: 'Campaign name', exact: true })
-    const project = page.getByRole('combobox', { name: 'Project', exact: true })
+    // The project create form: an Input label and a Select label.
+    await page.goto('/projects')
+    await expect(page.getByRole('heading', { name: 'Projects', level: 1 })).toBeVisible()
+    await page.getByRole('button', { name: 'New Project' }).click()
+    const name = page.getByRole('textbox', { name: 'Project name', exact: true })
+    const kit = page.getByRole('combobox', { name: 'Default brand kit', exact: true })
     await expect(name).toBeVisible()
-    await expect(project).toBeVisible()
-    expect(await labelStyle(await labelFor(page, name)), 'the "Campaign name" Input label').toEqual(reference)
-    expect(await labelStyle(await labelFor(page, project)), 'the "Project" Select label').toEqual(reference)
+    await expect(kit).toBeVisible()
+    expect(await labelStyle(await labelFor(page, name)), 'the "Project name" Input label').toEqual(reference)
+    expect(await labelStyle(await labelFor(page, kit)), 'the "Default brand kit" Select label').toEqual(reference)
   })
 
   test('AC-05 + AC-11 row 6: the brief brand kit select is named "Brand Kit"', async ({ page }) => {
@@ -184,58 +185,6 @@ test.describe('Field labels (T9)', () => {
     await expect(size).toBeVisible()
     await expect(templates.locator('label').filter({ hasText: /^Size$/ })).toHaveCount(0)
     await expect(templates.locator('span').filter({ hasText: /^Size$/ })).toBeVisible()
-  })
-
-  test('AC-11 rows 21 and 22: the queue modal labels Post specifics and the Template select', async ({ page }) => {
-    const { camp } = await mintCampaignFixture(api)
-    await page.setViewportSize({ width: 1440, height: 900 })
-    await pageLogin(page)
-    await page.goto(`/campaigns/${camp.id}`)
-    await expect(page.getByRole('heading', { name: camp.name, level: 1 })).toBeVisible()
-    await page.getByRole('button', { name: 'Plan a post' }).click()
-    const modal = page.getByRole('dialog', { name: 'Plan a post' })
-    await expect(modal).toBeVisible()
-
-    // Row 21.
-    await expectLabelled(modal, 'Post specifics', {
-      tag: 'TEXTAREA',
-      placeholder: 'What this specific post should say — the campaign briefing carries the rest.',
-    })
-
-    // Row 22: the select appears on the Template design path.
-    await modal.getByRole('tab', { name: 'Template', exact: true }).click()
-    await expectLabelled(modal, 'Template', { tag: 'SELECT' })
-    await expect(modal.getByRole('combobox', { name: 'Template', exact: true })).toBeVisible()
-  })
-
-  test('§8.3: the Channels and After generation captions name their groups', async ({ page }) => {
-    test.skip(!MOCKED(), 'needs MOCK_AI + MOCK_PUPPETEER to mint an exported draft')
-    const { camp } = await mintCampaignFixture(api)
-    const draft = await mintExportedDraft(api, `a11y-groups-${Date.now()}`)
-    await page.setViewportSize({ width: 1440, height: 900 })
-    await pageLogin(page)
-
-    // The queue modal: the channel checkboxes and the post-action radios.
-    await page.goto(`/campaigns/${camp.id}`)
-    await expect(page.getByRole('heading', { name: camp.name, level: 1 })).toBeVisible()
-    await page.getByRole('button', { name: 'Plan a post' }).click()
-    const modal = page.getByRole('dialog', { name: 'Plan a post' })
-    const queueChannels = modal.getByRole('group', { name: 'Channels', exact: true })
-    await expect(queueChannels).toBeVisible()
-    await expect(queueChannels.getByRole('checkbox')).toHaveCount(2)
-    const action = modal.getByRole('radiogroup', { name: 'After generation', exact: true })
-    await expect(action).toBeVisible()
-    await expect(action.getByRole('radio')).toHaveCount(3)
-    await modal.getByRole('button', { name: 'Cancel' }).click()
-    await expect(modal).toBeHidden()
-
-    // The publish dialog, from the draft page.
-    await page.goto(`/drafts/${draft.id}`)
-    await page.getByRole('button', { name: /^publish$/i }).click()
-    const publish = page.getByRole('dialog', { name: 'Publish post' })
-    const publishChannels = publish.getByRole('group', { name: 'Channels', exact: true })
-    await expect(publishChannels).toBeVisible()
-    await expect(publishChannels.getByRole('checkbox')).toHaveCount(2)
   })
 })
 
@@ -287,16 +236,16 @@ test.describe('Control heights (T10)', () => {
     await api.dispose()
   })
 
-  test('AC-06: the campaign form Input, Select and md Button are --control-md tall', async ({ page }) => {
+  test('AC-06: the project form Input, Select and md Button are --control-md tall', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 })
     await pageLogin(page)
-    await page.goto('/campaigns')
-    await expect(page.getByRole('heading', { name: 'Campaigns', level: 1 })).toBeVisible()
-    await page.getByRole('button', { name: 'New Campaign' }).click()
+    await page.goto('/projects')
+    await expect(page.getByRole('heading', { name: 'Projects', level: 1 })).toBeVisible()
+    await page.getByRole('button', { name: 'New Project' }).click()
     const form = page.locator('form').filter({ has: page.getByRole('button', { name: 'Create', exact: true }) })
     await expectControlHeights(page, [
-      ['"Campaign name" Input', form.getByRole('textbox', { name: 'Campaign name', exact: true }), 'md'],
-      ['"Project" Select', form.getByRole('combobox', { name: 'Project', exact: true }), 'md'],
+      ['"Project name" Input', form.getByRole('textbox', { name: 'Project name', exact: true }), 'md'],
+      ['"Default brand kit" Select', form.getByRole('combobox', { name: 'Default brand kit', exact: true }), 'md'],
       ['"Create" md Button', form.getByRole('button', { name: 'Create', exact: true }), 'md'],
     ])
   })
@@ -552,6 +501,26 @@ test.describe('Labels: login, library, brief (T13)', () => {
     }
   })
 
+  // 038 T4 (AC-23): the Project filter is a labelled select like Brand kit and Post style.
+  test('038: the library Project filter is a labelled select, and the head still fits at the md and phone widths', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await pageLogin(page)
+    await page.goto('/library')
+    await expect(page.getByRole('heading', { name: 'Library', level: 1 })).toBeVisible()
+    await expectLabelled(page, 'Project', { tag: 'SELECT' })
+    const filter = page.getByRole('combobox', { name: 'Project', exact: true })
+    await expect(filter).toBeVisible()
+    await expect(filter.locator('option').first()).toHaveText('All projects')
+    await expect(filter.locator('option').nth(1)).toHaveText('No project')
+    const reference = await labelStyle(await labelFor(page, page.getByRole('combobox', { name: 'Brand kit', exact: true })))
+    expect(await labelStyle(await labelFor(page, filter)), 'the "Project" label matches "Brand kit"').toEqual(reference)
+    for (const width of [768, 375]) {
+      await page.setViewportSize({ width, height: 900 })
+      await expect(filter).toBeVisible()
+      await expectNoHorizontalScroll(page, `library project filter at ${width}px`)
+    }
+  })
+
   test('AC-11 rows 4 and 5: the brief Topic and Description fields are labelled', async ({ page, request }) => {
     const api = await loginAs(request, ADMIN_EMAIL, ADMIN_PASSWORD)
     const before = new Set(await briefDraftIds(api))
@@ -578,7 +547,7 @@ test.describe('Labels: login, library, brief (T13)', () => {
   })
 })
 
-// ── T14: labels on campaigns and projects (AC-11 rows 18–20, 23–25) ─────────
+// ── T14: labels on projects (AC-11 rows 19, 20 and 25) ──────────────────────
 
 // AC-11 rows 23–25: the select is named by the visible dt it points at.
 async function expectNamedByTerm(page: Page, name: string) {
@@ -593,86 +562,61 @@ async function expectNamedByTerm(page: Page, name: string) {
   await expect(term).toHaveText(name)
 }
 
-const BRIEFING_PLACEHOLDER = "Audience, key messages, themes, do's and don'ts for this campaign…"
-const ASSISTANT_PLACEHOLDER = 'Tell the assistant about this campaign…'
+const BRIEFING_PLACEHOLDER = "Audience, key messages, themes, do's and don'ts for this project…"
+const ASSISTANT_PLACEHOLDER = 'Tell the assistant about this project…'
 
-test.describe('Labels: campaigns and projects (T14)', () => {
+test.describe('Labels: projects (T14)', () => {
   let api: ApiClient
-  // Every campaign and project a case mints is deleted after it.
-  const minted: { project: { id: string }; camp: { id: string } }[] = []
+  // Every project a case mints is deleted after it.
+  const minted: { project: { id: string } }[] = []
   test.beforeEach(async ({ request }) => {
     api = await loginAs(request, ADMIN_EMAIL, ADMIN_PASSWORD)
   })
   test.afterEach(async () => {
-    for (const { project, camp } of minted.splice(0)) {
-      await api.del(`/api/campaigns/${camp.id}`)
-      await api.del(`/api/projects/${project.id}`)
-    }
+    for (const { project } of minted.splice(0)) await api.del(`/api/projects/${project.id}`)
     await api.dispose()
   })
 
   async function mint() {
-    const fixture = await mintCampaignFixture(api)
+    const fixture = await mintProjectFixture(api)
     minted.push(fixture)
     return fixture
   }
 
-  test('AC-11 rows 23, 24 and 20: the campaign aside selects and the new-version briefing are labelled', async ({ page }) => {
-    const { camp } = await mint()
+  test('AC-11 row 20: the project new-version briefing is labelled (038 T2 moved it here)', async ({ page }) => {
+    const { project } = await mint()
     await page.setViewportSize({ width: 1440, height: 900 })
     await pageLogin(page)
-    await page.goto(`/campaigns/${camp.id}`)
-    await expect(page.getByRole('heading', { name: camp.name, level: 1 })).toBeVisible()
-
-    // Rows 23 and 24.
-    await expectNamedByTerm(page, 'Project')
-    await expectNamedByTerm(page, 'Brand kit override')
+    await page.goto(`/projects/${project.id}`)
+    await expect(page.getByRole('heading', { name: project.name, level: 1 })).toBeVisible()
 
     // Row 20: the new-version textarea.
     await page.getByRole('button', { name: 'Edit as new version' }).click()
     await expectLabelled(page, 'Briefing', { tag: 'TEXTAREA', placeholder: BRIEFING_PLACEHOLDER })
   })
 
-  test('AC-11 row 25: the project aside default kit select is labelled', async ({ page }) => {
+  test('AC-11 row 25: the project aside default kit and post style selects are labelled', async ({ page }) => {
     const { project } = await mint()
     await page.setViewportSize({ width: 1440, height: 900 })
     await pageLogin(page)
     await page.goto(`/projects/${project.id}`)
     await expect(page.getByRole('heading', { name: project.name, level: 1 })).toBeVisible()
     await expectNamedByTerm(page, 'Default brand kit')
+    await expectNamedByTerm(page, 'Default post style')
   })
 
-  test('AC-11 rows 19 and 18: the briefing assistant message and each plan row topic are named', async ({ page }) => {
-    test.skip(!MOCKED(), 'needs MOCK_AI for the assistant schedule plan')
-    const { camp } = await mint()
+  test('AC-11 row 19: the briefing assistant message is named', async ({ page }) => {
+    const { project } = await mint()
     await page.setViewportSize({ width: 1440, height: 900 })
     await pageLogin(page)
-    await page.goto(`/campaigns/${camp.id}`)
-    await expect(page.getByRole('heading', { name: camp.name, level: 1 })).toBeVisible()
+    await page.goto(`/projects/${project.id}`)
+    await expect(page.getByRole('heading', { name: project.name, level: 1 })).toBeVisible()
     await page.getByRole('button', { name: 'Draft with AI' }).click()
     const drawer = page.getByRole('dialog', { name: 'Draft briefing with AI' })
     await expect(drawer).toBeVisible()
 
     // Row 19.
     await expectLabelled(drawer, 'Message', { tag: 'INPUT', placeholder: ASSISTANT_PLACEHOLDER })
-
-    // Row 18: aria-label only (A6), one per plan row, alongside "Generate at".
-    const ask = drawer.getByLabel('Message', { exact: true })
-    await ask.fill('Please schedule a short series of posts.')
-    await ask.press('Enter')
-    const plan = drawer.getByRole('region', { name: 'Proposed schedule' })
-    await expect(plan).toBeVisible({ timeout: 30_000 })
-    const rows = plan.getByRole('listitem')
-    await expect(rows).toHaveCount(2)
-    for (let i = 0; i < 2; i++) {
-      const row = rows.nth(i)
-      const topic = row.getByLabel('Post topic', { exact: true })
-      await expect(topic, `row ${i + 1} has one "Post topic" field`).toHaveCount(1)
-      await expect(topic).toHaveJSProperty('tagName', 'INPUT')
-      await expect(topic).toHaveAttribute('aria-label', 'Post topic')
-      await expect(topic.and(row.getByPlaceholder('Post topic', { exact: true }))).toHaveCount(1)
-      await expect(row.getByRole('textbox', { name: 'Post topic', exact: true })).toHaveValue(`Mock scheduled post ${i + 1}`)
-    }
   })
 })
 
@@ -718,14 +662,12 @@ test.describe('Labels: draft page (T15)', () => {
     await page.goto(`/drafts/${draft.id}`)
     await expect(page.getByRole('button', { name: 'View full screen', exact: true })).toBeVisible({ timeout: 20_000 })
 
-    // Row 26: each caption (012) is named by its channel's h3.
-    for (const label of ['Instagram', 'LinkedIn']) {
-      await expectNamedByHeading(page, label, {
-        tag: 'TEXTAREA',
-        placeholder: `Write the ${label} caption…`,
-        headingTag: 'H3',
-      })
-    }
+    // Row 26: each caption (012) is named by its own h3 (039: a new post has the general caption).
+    await expectNamedByHeading(page, 'General caption', {
+      tag: 'TEXTAREA',
+      placeholder: 'Write the general caption…',
+      headingTag: 'H3',
+    })
     // Row 27.
     await expectNamedByHeading(page, 'Refine design', { tag: 'INPUT', placeholder: 'e.g. Make the logo larger…' })
   })
@@ -740,11 +682,6 @@ async function expectEyeCentred(field: Locator, eye: Locator) {
   const [f, e] = [await field.boundingBox(), await eye.boundingBox()]
   expect(f && e, 'the field and its eye button have boxes').toBeTruthy()
   expect(Math.abs(f!.y + f!.height / 2 - (e!.y + e!.height / 2))).toBeLessThan(1)
-}
-
-// A channel's ruled row, found by its visible channel name.
-function channelRow(page: Page, name: string): Locator {
-  return page.getByRole('listitem').filter({ has: page.getByText(name, { exact: true }) })
 }
 
 test.describe('Labels: team (T16)', () => {
@@ -771,32 +708,13 @@ test.describe('Labels: team (T16)', () => {
     await expectLabelled(page, 'Display label', { tag: 'INPUT', placeholder: 'Display label (e.g. Llama 3 (Groq))' })
   })
 
-  test('AC-11 rows 10 and 11: each channel row labels its access token and its ID field', async ({ page }) => {
+  test('037 FR-07: team settings has no Social channels section', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 })
     await pageLogin(page)
     await page.goto('/team')
-    await expect(page.getByRole('heading', { name: 'Social channels' })).toBeVisible()
-
-    for (const [name, idLabel] of [
-      ['Instagram', 'Business Account ID'],
-      ['LinkedIn', 'Organization ID'],
-    ] as const) {
-      const row = channelRow(page, name)
-      await expect(row, `one ${name} row`).toHaveCount(1)
-      // Row 10, scoped to the channel row: both rows say "Access token".
-      await expectLabelled(row, 'Access token', { tag: 'INPUT', placeholder: 'Access token' })
-      await expectEyeCentred(
-        row.getByLabel('Access token', { exact: true }),
-        row.getByRole('button', { name: 'Show access token' }),
-      )
-      // Row 11.
-      await expectLabelled(row, idLabel, { tag: 'INPUT', placeholder: idLabel })
-    }
-
-    // The two "Access token" labels point at two different fields.
-    const ids = await page.getByLabel('Access token', { exact: true }).evaluateAll((els) => els.map((el) => el.id))
-    expect(ids).toHaveLength(2)
-    expect(new Set(ids).size).toBe(2)
+    await expect(page.getByRole('heading', { name: 'AI providers' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Social channels' })).toHaveCount(0)
+    await expect(page.getByLabel('Access token', { exact: true })).toHaveCount(0)
   })
 
   test('AC-18: a provider row shows "On" or "Off" beside its toggle, aria-hidden, and the toggle keeps its name', async ({ page, request }) => {
@@ -894,13 +812,11 @@ async function expectAtLeast24(control: Locator, what: string) {
 test.describe('ARIA states (T17)', () => {
   let api: ApiClient
   const mintedKits: string[] = []
-  const mintedCampaigns: string[] = []
   const mintedProjects: string[] = []
   test.beforeEach(async ({ request }) => {
     api = await loginAs(request, ADMIN_EMAIL, ADMIN_PASSWORD)
   })
   test.afterEach(async () => {
-    for (const id of mintedCampaigns.splice(0)) await api.del(`/api/campaigns/${id}`)
     for (const id of mintedProjects.splice(0)) await api.del(`/api/projects/${id}`)
     for (const id of mintedKits.splice(0)) await api.del(`/api/admin/brandkits/${id}`)
     await api.dispose()
@@ -916,22 +832,22 @@ test.describe('ARIA states (T17)', () => {
     mintedKits.push(kit.id)
     return kit as { id: string; name: string }
   }
-  const mintCampaign = async () => {
-    const fixture = await mintCampaignFixture(api)
-    mintedCampaigns.push(fixture.camp.id)
+  const mintProject = async () => {
+    const fixture = await mintProjectFixture(api)
     mintedProjects.push(fixture.project.id)
     return fixture
   }
 
-  test('AC-12: every tablist is named — library, /team, an open kit, a campaign and its queue modal', async ({ page }) => {
+  test('AC-12: every tablist is named — /team, an open kit and a project', async ({ page }) => {
     const kit = await mintKit()
-    const { camp } = await mintCampaign()
+    const { project } = await mintProject()
     await page.setViewportSize({ width: 1440, height: 900 })
     await pageLogin(page)
 
     await page.goto('/library')
     await expect(page.getByRole('heading', { name: 'Library', level: 1 })).toBeVisible()
-    await expectTablistsNamed(page, ['Filter by status'])
+    // 037: the library's status tabs are gone (two selects replace them); any tablist left must be named.
+    await expectTablistsNamed(page, [])
 
     // /team with the register form open. Both modes render the slot toggle
     // since 024 FR-09.
@@ -943,13 +859,9 @@ test.describe('ARIA states (T17)', () => {
     await openKit(page, kit.name)
     await expectTablistsNamed(page, ['Prompt view'])
 
-    await page.goto(`/campaigns/${camp.id}`)
-    await expect(page.getByRole('heading', { name: camp.name, level: 1 })).toBeVisible()
+    await page.goto(`/projects/${project.id}`)
+    await expect(page.getByRole('heading', { name: project.name, level: 1 })).toBeVisible()
     await expectTablistsNamed(page, ['Briefing view'])
-    await page.getByRole('button', { name: 'Plan a post' }).click()
-    const modal = page.getByRole('dialog', { name: 'Plan a post' })
-    await expect(modal).toBeVisible()
-    await expectTablistsNamed(modal, ['Size', 'Design'])
   })
 
   test('AC-12 + AC-16: on a draft with no refine requests, "Refine requests" is a region, and the inline editor names its tablist', async ({ page }) => {
@@ -973,7 +885,7 @@ test.describe('ARIA states (T17)', () => {
 
   test('AC-16: with no turns yet, both assistant drawers hold a focusable "Conversation" region', async ({ page }) => {
     const kit = await mintKit()
-    const { camp } = await mintCampaign()
+    const { project } = await mintProject()
     await page.setViewportSize({ width: 1440, height: 900 })
     await pageLogin(page)
 
@@ -987,8 +899,8 @@ test.describe('ARIA states (T17)', () => {
     await page.keyboard.press('Escape')
     await expect(kitDrawer).toBeHidden()
 
-    await page.goto(`/campaigns/${camp.id}`)
-    await expect(page.getByRole('heading', { name: camp.name, level: 1 })).toBeVisible()
+    await page.goto(`/projects/${project.id}`)
+    await expect(page.getByRole('heading', { name: project.name, level: 1 })).toBeVisible()
     await page.getByRole('button', { name: 'Draft with AI' }).click()
     const briefingDrawer = page.getByRole('dialog', { name: 'Draft briefing with AI' })
     await expect(briefingDrawer).toBeVisible()
@@ -997,7 +909,7 @@ test.describe('ARIA states (T17)', () => {
   })
 
   test('AC-15 (breadcrumb): on a project page the tail crumb is visible but aria-hidden, and the h1 carries the name', async ({ page }) => {
-    const { project } = await mintCampaign()
+    const { project } = await mintProject()
     await page.setViewportSize({ width: 1440, height: 900 })
     await pageLogin(page)
     await page.goto(`/projects/${project.id}`)
@@ -1016,7 +928,7 @@ test.describe('ARIA states (T17)', () => {
     const put = await api.put('/api/brief-drafts', {
       payload: {
         step: 2,
-        campaignId: '',
+        projectId: '',
         aspectRatio: 'SQUARE',
         brandKitId: '',
         designMode: 'GENERATE',
@@ -1058,7 +970,6 @@ test.describe('axe scan (T18)', () => {
   let api: ApiClient
   let before: Set<string>
   const mintedKits: string[] = []
-  const mintedCampaigns: string[] = []
   const mintedProjects: string[] = []
   test.beforeEach(async ({ page, request }) => {
     api = await loginAs(request, ADMIN_EMAIL, ADMIN_PASSWORD)
@@ -1072,7 +983,6 @@ test.describe('axe scan (T18)', () => {
     for (const id of await briefDraftIds(api)) {
       if (!before.has(id)) await api.del(`/api/brief-drafts/${id}`)
     }
-    for (const id of mintedCampaigns.splice(0)) await api.del(`/api/campaigns/${id}`)
     for (const id of mintedProjects.splice(0)) await api.del(`/api/projects/${id}`)
     for (const id of mintedKits.splice(0)) await api.del(`/api/admin/brandkits/${id}`)
     await api.dispose()
@@ -1084,7 +994,7 @@ test.describe('axe scan (T18)', () => {
     await expectNoAxeViolations(page, '/login', { settle: true })
   })
 
-  test('AC-19: the dashboard, /library, /campaigns, /settings and /admin/users', async ({ page }) => {
+  test('AC-19: the dashboard, /library, /projects, /settings and /admin/users', async ({ page }) => {
     await pageLogin(page)
     await expect(page.getByRole('heading', { level: 1 })).toBeVisible()
     await expectNoAxeViolations(page, '/', { settle: true })
@@ -1093,9 +1003,9 @@ test.describe('axe scan (T18)', () => {
     await expect(page.getByRole('heading', { name: 'Library', level: 1 })).toBeVisible()
     await expectNoAxeViolations(page, '/library', { settle: true })
 
-    await page.goto('/campaigns')
-    await expect(page.getByRole('heading', { name: 'Campaigns', level: 1 })).toBeVisible()
-    await expectNoAxeViolations(page, '/campaigns', { settle: true })
+    await page.goto('/projects')
+    await expect(page.getByRole('heading', { name: 'Projects', level: 1 })).toBeVisible()
+    await expectNoAxeViolations(page, '/projects', { settle: true })
 
     await page.goto('/settings')
     await expect(page.getByRole('heading', { level: 1 })).toBeVisible()
@@ -1110,7 +1020,7 @@ test.describe('axe scan (T18)', () => {
   test('AC-19: /brief steps 1, 2 and 3', async ({ page }) => {
     await pageLogin(page)
     await page.goto('/brief')
-    await expect(page.getByRole('heading', { name: 'Select a campaign' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Select a project' })).toBeVisible()
     await expectNoAxeViolations(page, '/brief step 1', { settle: true })
 
     await briefStepTwo(page)
@@ -1130,7 +1040,7 @@ test.describe('axe scan (T18)', () => {
     await expect(page.getByRole('button', { name: 'View full screen', exact: true })).toBeVisible({ timeout: 20_000 })
     // 008 AC-33: the scan covers the model pickers. They load a query of their
     // own (/api/models), so wait for them rather than relying on networkidle.
-    for (const name of ['Design model', 'Headline model', 'Instagram caption model', 'Refine model']) {
+    for (const name of ['Design model', 'Headline model', 'General caption model', 'Refine model']) {
       await expect(page.getByRole('combobox', { name, exact: true })).toBeVisible()
     }
     await expectNoAxeViolations(page, '/drafts/[id]', { settle: true })
@@ -1156,7 +1066,7 @@ test.describe('axe scan (T18)', () => {
     await pageLogin(page)
     await page.goto(`/drafts/${draft.id}`)
     await expect(page.getByTestId('composition-notice')).toBeVisible({ timeout: 20_000 })
-    for (const name of ['Design model', 'Headline model', 'Instagram caption model', 'Refine model']) {
+    for (const name of ['Design model', 'Headline model', 'General caption model', 'Refine model']) {
       await expect(page.getByRole('combobox', { name, exact: true })).toBeVisible()
     }
     await expectNoAxeViolations(page, '/drafts/[id] with the composition notice', { settle: true })
@@ -1167,16 +1077,10 @@ test.describe('axe scan (T18)', () => {
     await expectNoAxeViolations(page, '/brief step 2 with the image style picker', { settle: true })
   })
 
-  test('AC-19: /campaigns/[id] and /projects/[id]', async ({ page }) => {
-    const { project, camp } = await mintCampaignFixture(api)
-    mintedCampaigns.push(camp.id)
+  test('AC-19: /projects/[id]', async ({ page }) => {
+    const { project } = await mintProjectFixture(api)
     mintedProjects.push(project.id)
     await pageLogin(page)
-
-    await page.goto(`/campaigns/${camp.id}`)
-    await expect(page.getByRole('heading', { name: camp.name, level: 1 })).toBeVisible()
-    await expect(page.getByText(`T10 pending`, { exact: false }).first()).toBeVisible()
-    await expectNoAxeViolations(page, '/campaigns/[id]', { settle: true })
 
     await page.goto(`/projects/${project.id}`)
     await expect(page.getByRole('heading', { name: project.name, level: 1 })).toBeVisible()
@@ -1202,6 +1106,18 @@ test.describe('axe scan (T18)', () => {
     await kitPanel.getByRole('button', { name: 'Edit', exact: true }).click()
     await expect(kitPanel.getByPlaceholder('#1A2B3C', { exact: true })).toBeVisible()
     await expectNoAxeViolations(page, '/admin/brandkits (kit in edit mode)', { settle: true })
+  })
+
+  // 040 AC-06: the kit page with the template viewer dialog open.
+  test('AC-19 (040): /admin/brandkits with the template viewer open', async ({ page }) => {
+    const { kit, stamp } = await mintBrandKitFixture(api)
+    mintedKits.push(kit.id)
+    await pageLogin(page)
+    await openKit(page, kit.name)
+    await page.getByRole('button', { name: `View template T11 template ${stamp}`, exact: true }).click()
+    await expect(page.getByRole('dialog')).toBeVisible()
+    await expect(page.locator('iframe[title^="Preview of"]')).toBeVisible()
+    await expectNoAxeViolations(page, '/admin/brandkits (template viewer open)', { settle: true })
   })
 
   test('AC-19: /team with the register form open', async ({ page }) => {

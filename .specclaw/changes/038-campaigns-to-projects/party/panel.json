@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "sig": "1135821835 4822",
+  "tier": "deep",
+  "tier_source": "classifier",
+  "rationale": "Removes the campaign model and its visibility rule, so every post becomes visible to the whole team with edit rights split by author and admin, while a migration drops Campaign, CampaignBriefing, CampaignDocument, ProjectCampaign and Brief.campaignId and moves kit, briefing, documents and post-style resolution to projects.",
+  "domains": ["security", "data"],
+  "seats": [
+    { "role": "party-po", "model": "sonnet" },
+    { "role": "party-architect", "model": "opus" },
+    { "role": "party-ba", "model": "sonnet" },
+    { "role": "party-security", "model": "opus" },
+    { "role": "party-visionary", "model": "opus" }
+  ],
+  "dropped": []
+}

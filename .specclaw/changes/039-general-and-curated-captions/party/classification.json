@@ -1,0 +1,10 @@
+{
+  "tier": "deep",
+  "domains": ["data"],
+  "rationale": "Changes the persisted caption shape by adding general and Facebook caption kinds through Postgres enum ALTERs, repurposes CAPTION_CHANNELS away from the publish list, and drops or ignores the wizard channel picker and Brief.channels, with the data-model choice left open to the plan.",
+  "signals": {
+    "blast_radius": "Caption data model, Channel enum and CAPTION_CHANNELS, FACT_WHERE, the caption prompt budget, the wizard channel picker, Brief.channels, the MCP get_draft and generate_post response shape, ACP manifest, analytics catalogue, Insights and the caption E2E suites, about 50 files, with structural moves rather than additive call sites.",
+    "unresolved": "Whether general and Facebook become new Channel values or a separate caption-kind column, and whether Brief.channels is dropped or ignored, both of which change the migrations and the file list; also whether general can be regenerated on its own.",
+    "irreversibility": "Postgres ALTER TYPE ADD VALUE cannot be cleanly removed, existing Instagram and LinkedIn rows are reinterpreted as curated captions, and the MCP/ACP response shape is a released contract, so undoing it is more than a git revert."
+  }
+}

@@ -1,5 +1,6 @@
 import { test, expect, type Locator, type Page, type Route } from '@playwright/test'
 import { loginAs, waitForDraft, type ApiClient } from '../helpers/api'
+import { seedCuratedCaption } from '../helpers/db'
 
 // Floating Create post button (change 011 T1 — AC-01, AC-02, AC-03). The
 // dashboard quick action is named "New post", so every lookup here is
@@ -30,9 +31,6 @@ async function createExportedDraft(api: ApiClient, topic: string): Promise<strin
   const kit = await (
     await api.post('/api/admin/brandkits', { name: `FAB Kit ${topic}`, colors: ['#0284c7'] })
   ).json()
-  const camp = await (
-    await api.post('/api/campaigns', { name: `FAB Camp ${topic}`, brandKitId: kit.id })
-  ).json()
   const brief = await (
     await api.post('/api/briefs', {
       topic,
@@ -41,7 +39,7 @@ async function createExportedDraft(api: ApiClient, topic: string): Promise<strin
       channels: ['INSTAGRAM'],
       designMode: 'GENERATE',
       copyProviderKey: 'cli',
-      campaignId: camp.id,
+      brandKitId: kit.id,
     })
   ).json()
   const assembleRes = await api.post('/api/generate/assemble-b', { briefId: brief.id })
@@ -100,14 +98,14 @@ test.describe('Create post button (011 FR-01 – FR-03)', () => {
     await api.dispose()
   })
 
-  // AC-01 — visible bottom-right on /, /library and /campaigns, each
+  // AC-01 — visible bottom-right on /, /library and /projects, each
   // navigating to /brief; absent on /brief itself. (Amended by 020: the draft
   // page is excluded, see AC-01b.)
   test('AC-01: shown bottom-right on app pages, links to /brief, absent on /brief', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 })
     await pageLogin(page)
 
-    for (const path of ['/', '/library', '/campaigns']) {
+    for (const path of ['/', '/library', '/projects']) {
       await page.goto(path)
       const link = page.getByRole('link', { name: 'Create post', exact: true })
       await expect(link).toBeVisible()
@@ -143,11 +141,13 @@ test.describe('Create post button (011 FR-01 – FR-03)', () => {
   // AC-02b (020) — at 1440px nothing fixed covers the last control in the
   // right-hand column when it sits where the floating button would: its bottom
   // edge 24px above the viewport bottom, inside the button's right-hand band.
-  // Since 026 that is the LinkedIn caption's Regenerate (Refine design, and its
+  // That is the last curated caption's Regenerate (an old post's LinkedIn card; seeded) (Refine design, and its
   // Send button, moved to the left column under the preview).
   test('AC-02b: the last caption control is not covered at 1440px', async ({ page }) => {
     test.skip(!MOCKED(), 'needs MOCK_AI + MOCK_PUPPETEER to mint a draft')
     const draftId = await createExportedDraft(api, `fab-ac02b-${Date.now()}`)
+    // An old post's curated LinkedIn card is the last caption control (a new post has only the general one).
+    await seedCuratedCaption(draftId, 'LINKEDIN', 'A curated LinkedIn caption.')
     await page.setViewportSize({ width: 1440, height: 900 })
     await pageLogin(page)
     await page.goto(`/drafts/${draftId}`)
@@ -198,7 +198,7 @@ test.describe('Create post button (011 FR-01 – FR-03)', () => {
     expect(focus.outlineWidth).not.toBe('0px')
   })
 
-  // AC-03 — three toasts never cover the button. The campaign create is made
+  // AC-03 — three toasts never cover the button. The project create is made
   // to fail (stubbed 500), and each failure toasts its error; the form stays
   // open, so it can be submitted three times. Checked at desktop and at
   // Sonner's full-width mobile layout.
@@ -207,7 +207,7 @@ test.describe('Create post button (011 FR-01 – FR-03)', () => {
       await page.setViewportSize(viewport)
       await pageLogin(page)
       let n = 0
-      await page.route('**/api/campaigns', (route: Route) => {
+      await page.route('**/api/projects', (route: Route) => {
         if (route.request().method() !== 'POST') return route.continue()
         n += 1
         return route.fulfill({
@@ -217,10 +217,10 @@ test.describe('Create post button (011 FR-01 – FR-03)', () => {
         })
       })
 
-      await page.goto('/campaigns')
+      await page.goto('/projects')
       await expect(fab(page)).toBeVisible()
-      await page.getByRole('button', { name: 'New Campaign' }).click()
-      await page.getByPlaceholder('e.g. Summer Product Launch').fill('FAB toast campaign')
+      await page.getByRole('button', { name: 'New Project' }).click()
+      await page.getByPlaceholder('e.g. Q3 Product Launch').fill('FAB toast project')
       const create = page.getByRole('button', { name: 'Create', exact: true })
       for (let i = 1; i <= 3; i++) {
         await create.click()

@@ -25,7 +25,9 @@ import { derivedPromptVersion } from '@/lib/postStyles'
 // its recomputed request and the kit's script fonts ("Sinhala text: ... (loaded for
 // you)"), and SCRIPT_SUPPORT_NOTE says the app adds the brand's Sinhala font to
 // every font stack.
-export const PROMPT_VERSION_BASE = '2026-10-29.1'
+// 2026-11-01.1: project briefing (038): the briefing section is headed "Project briefing".
+// 2026-11-02.1: the Path B user message no longer carries a "Channels:" line (039 D21).
+export const PROMPT_VERSION_BASE = '2026-11-02.1'
 export const PROMPT_VERSION = derivedPromptVersion(PROMPT_VERSION_BASE)
 
 // The on-image headline block every design prompt carries (012 FR-09): the

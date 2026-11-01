@@ -15,9 +15,11 @@ import { ADMIN_EMAIL, ADMIN_PASSWORD, mintExportedDraft, pageLogin } from '../he
 //   AC-05: a caption (or headline) regenerate that leaves the text identical
 //          and finishes before the post-202 refetch ends with no Undo — the
 //          panel settles on state once armed, not on an observed edge.
-//          The mock caption reply is deterministic (`Mock Instagram caption
+//          The mock caption reply is deterministic (`Mock General caption
 //          [<topic>]`), so regenerating a freshly minted draft writes the
-//          same text again.
+//          same text again. (039: the caption's Undo is on the server, and the
+//          same text again writes no snapshot, so the panel is idle again with
+//          the same text and no Undo ever showing.)
 //   AC-06: a failed /revisions fetch after a design regenerate is retried,
 //          so the new version is listed without a reload.
 
@@ -92,29 +94,27 @@ test.describe('§X — draft-page settle race (015)', () => {
   })
 
   // TC-RACE-03 — AC-05 (FR-05): the caption panel.
-  test('a caption regenerate that leaves the text identical and finishes before the refetch ends with no Undo', async ({ page }) => {
+  test('a general caption regenerate that leaves the text identical and finishes before the refetch settles with no Undo', async ({ page }) => {
     const draft = await mintExportedDraft(api, `settle-race-caption-${Date.now()}`)
     await pageLogin(page)
     const held = await holdFirstRefetchAfter(page, draft.id, 'regenerate-copy')
     await page.goto(`/drafts/${draft.id}`)
-    const field = page.getByRole('textbox', { name: 'Instagram', exact: true })
-    const text = `Mock Instagram caption [${draft.topic}]`
+    const field = page.getByRole('textbox', { name: 'General caption', exact: true })
+    const text = `Mock General caption [${draft.topic}]`
     await expect(field).toHaveValue(text, { timeout: 20_000 })
 
-    const regen = page.getByRole('button', { name: 'Regenerate Instagram caption', exact: true })
+    const regen = page.getByRole('button', { name: 'Regenerate general caption', exact: true })
     const accepted = page.waitForResponse(
       (r) => r.url().endsWith(`/api/drafts/${draft.id}/regenerate-copy`) && r.request().method() === 'POST'
     )
     await regen.click()
     expect((await accepted).status()).toBe(202)
-    // The Undo is captured before firing, and stays while the refetch is held.
-    const undo = page.getByRole('button', { name: 'Undo Instagram caption', exact: true })
-    await expect(undo).toBeVisible()
-
-    // Once the refetch lands the regenerate has already settled with the same
-    // text, so there is nothing to undo.
-    await expect(undo).toHaveCount(0, { timeout: 15_000 })
-    await expect(regen).toBeEnabled()
+    // The same text again saves no undo snapshot (039 D15), so no Undo shows: not
+    // while the refetch is held, and not once it lands.
+    const undo = page.getByRole('button', { name: /^Undo .* caption$/ })
+    await expect(undo).toHaveCount(0)
+    await expect(regen).toBeEnabled({ timeout: 15_000 })
+    await expect(undo).toHaveCount(0)
     await expect(field).toHaveValue(text)
     expect(held()).toBe(true)
   })

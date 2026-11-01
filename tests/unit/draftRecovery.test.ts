@@ -41,7 +41,7 @@ describe('planDraftRecovery', () => {
   })
 
   it('never fails a stale draft that is not IN_PROGRESS', () => {
-    for (const status of ['EXPORTED', 'PUBLISHED', 'FAILED']) {
+    for (const status of ['EXPORTED', 'FAILED']) {
       expect(planDraftRecovery(draft({ status, updatedAt: ancient }), NOW).failStuckGeneration).toBe(false)
     }
   })

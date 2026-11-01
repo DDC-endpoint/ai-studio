@@ -3,8 +3,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js'
 import { resolveApiKey } from './auth'
 import { createBrandKit, setBrandKitPrompt, uploadBrandTemplate, listBrandKits, getBrandKit } from './tools/brandkit'
-import { generatePost, getDraft } from './tools/generate'
-import { publishPost } from './tools/publish'
+import { generatePost, getDraft, refusalText } from './tools/generate'
 import { env } from '@/lib/env'
 import { activeStyles } from '@/lib/postStyles'
 
@@ -14,7 +13,7 @@ import { activeStyles } from '@/lib/postStyles'
 const API_KEY = env.MCP_API_KEY ?? null
 
 const server = new Server(
-  { name: 'bistec-studio', version: '1.0.0' },
+  { name: 'bistec-studio', version: '2.2.0' },
   { capabilities: { tools: {} } }
 )
 
@@ -76,7 +75,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     {
       name: 'generate_post',
       description:
-        'Generate a social media post from a brief. Returns draftId, exportUrl, htmlContent, headline (the on-image headline, or null), and captions ([{channel, text, status}], one per channel in registry order), postStyle (the style key used) and factsCheck ({status, flagged}: numbers, dates and times in the headline or captions that the brief does not state; null if never checked).',
+        'Generate a social media post from a brief. Returns draftId, exportUrl, htmlContent, headline (the on-image headline, or null), and captions ([{kind, channel, text, status, facts, rules}]: the general caption first, then any curated captions made in the app; a post made before 039 may have no general caption; treat facts.status flagged or error as needing review), postStyle (the style key used) and factsCheck ({status, flagged}: numbers, dates and times in the headline or captions that the brief does not state; null if never checked).',
       inputSchema: {
         type: 'object',
         properties: {
@@ -85,7 +84,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
             type: 'string',
             enum: activeStyles().map((s) => s.key),
             description:
-              'The kind of post (default: general, or the campaign default). An unknown value is an error.',
+              'The kind of post (default: general, or the project default). An unknown value is an error.',
           },
           goal: {
             type: 'string',
@@ -93,16 +92,19 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
               'Legacy. Picks a style (hiring or announcement) only when no postStyle is given; ignored otherwise.',
           },
           tone: { type: 'string', description: 'Optional. Defaults from the post style.' },
-          channels: { type: 'array', items: { type: 'string' } },
           designMode: { type: 'string', enum: ['TEMPLATE', 'GENERATE'] },
           copyProviderKey: {
             type: 'string',
             description: 'Ignored once the team has chosen a caption route.',
           },
-          campaignId: { type: 'string' },
+          projectId: {
+            type: 'string',
+            description:
+              'Project id (optional): its briefing, documents, default kit and default post style apply',
+          },
           description: { type: 'string' },
         },
-        required: ['topic', 'channels', 'designMode'],
+        required: ['topic', 'designMode'],
       },
     },
     {
@@ -112,18 +114,6 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         type: 'object',
         properties: { id: { type: 'string' } },
         required: ['id'],
-      },
-    },
-    {
-      name: 'publish_post',
-      description: 'Publish a draft to Instagram or LinkedIn.',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          draftId: { type: 'string' },
-          channel: { type: 'string', enum: ['INSTAGRAM', 'LINKEDIN'] },
-        },
-        required: ['draftId', 'channel'],
       },
     },
   ],
@@ -156,8 +146,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         }
 
       // C2 (final review): thread key.teamId into every brand-kit tool, same
-      // anti-spoof pattern as create_brand_kit/generate_post/get_draft/
-      // publish_post below — args is spread FIRST so a caller-supplied teamId
+      // anti-spoof pattern as create_brand_kit/generate_post/get_draft
+      // below — args is spread FIRST so a caller-supplied teamId
       // in the tool arguments can never override the ApiKey's real team.
       case 'set_brand_kit_prompt':
         return {
@@ -212,22 +202,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           }],
         }
 
-      case 'publish_post':
-        return {
-          content: [{
-            type: 'text',
-            text: JSON.stringify(
-              await publishPost({ ...(args as Parameters<typeof publishPost>[0]), teamId: key.teamId })
-            ),
-          }],
-        }
-
       default:
         return { content: [{ type: 'text', text: `Unknown tool: ${name}` }], isError: true }
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
-    return { content: [{ type: 'text', text: `Error: ${message}` }], isError: true }
+    return { content: [{ type: 'text', text: refusalText(err) ?? `Error: ${message}` }], isError: true }
   }
 })
 

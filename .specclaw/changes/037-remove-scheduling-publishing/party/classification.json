@@ -1,0 +1,10 @@
+{
+  "tier": "deep",
+  "domains": ["security", "data"],
+  "rationale": "Drops the Post, ChannelToken, ScheduledGeneration and WorkerHeartbeat tables and their enums in a migration, removes the publish_post MCP/ACP capability, and removes the HOLD gate in the publish path, which changes persisted data shape and removes a capability other surfaces assume.",
+  "signals": {
+    "blast_radius": "About 90 files across schema, migrations, worker loops, MCP/ACP routes, analytics catalogue, Insights, draft and library UI, the /team channels section, E2E suites and docs",
+    "unresolved": "Whether Postgres DraftStatus and PostGenerationAction enum values are rebuilt or left unused, and whether Download keeps storing PNGs in BUCKET_EXPORTS (the second question changes what is stored)",
+    "irreversibility": "Dropping tables and enums with migrated data is not a git revert, and it deletes encrypted social channel tokens (ChannelToken) and removes the HOLD gate, so restoring them needs a new migration and re-entry of credentials"
+  }
+}

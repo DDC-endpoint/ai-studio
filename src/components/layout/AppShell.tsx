@@ -40,7 +40,6 @@ const NAV_SECTIONS: NavSection[] = [
     label: 'Organize',
     items: [
       { label: 'Projects',  href: '/projects' },
-      { label: 'Campaigns', href: '/campaigns' },
     ],
   },
   {

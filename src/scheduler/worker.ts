@@ -1,16 +1,14 @@
-import { runScheduledJobs } from "../lib/scheduler/jobRunner"
-import { runGenerationJobs } from "../lib/scheduler/generationRunner"
-import { isCliMode } from "../lib/agent/config"
-import { prisma } from "../lib/prisma"
+// The "scheduler" container: the name is historical (037 D9). It runs only
+// analytics retention.
 import { runTick } from "../lib/scheduler/heartbeat"
 import { sweepAnalytics } from "../lib/analytics/retention"
+import { LOOPS, type LoopName } from "./loops"
 
 const POLL_INTERVAL_MS = 60_000
 
-// One independent poll loop per job type. Generation can legitimately run for
-// many minutes per tick; publishing must stay on its 60s cadence regardless —
-// so the loops never share a tick.
-async function loop(name: string, run: () => Promise<void>) {
+// One independent poll loop per job type, so a slow tick in one never delays
+// another. Names come from ./loops.
+async function loop(name: LoopName, run: () => Promise<void>) {
   while (true) {
     try {
       await runTick(name, run)
@@ -21,49 +19,20 @@ async function loop(name: string, run: () => Promise<void>) {
   }
 }
 
-// Informational startup diagnostic (CLI mode only): each claimed
-// ScheduledGeneration job now resolves its own team's Claude credential
-// (withClaudeAuth(null, entry.teamId, ...) in generationRunner.ts) instead of
-// a shared env token, so a team with none will have its scheduled generations
-// fail (via the existing retry/failure path, not a crash) until a team admin
-// connects one in Team Settings. This is a plain query, never fatal to
-// startup — a DB hiccup here must not stop the scheduler from polling.
-async function logTeamsWithoutClaudeToken(): Promise<void> {
-  if (!isCliMode()) return
-  try {
-    const teams = await prisma.team.findMany({
-      where: { encryptedClaudeToken: null },
-      select: { name: true },
-    })
-    if (teams.length > 0) {
-      console.log(
-        `[scheduler] ${teams.length} team(s) have no Claude token — their CLI-mode scheduled ` +
-          `generations will fail until a team admin connects one in Team Settings: ` +
-          teams.map((t) => t.name).join(", ")
-      )
-    } else {
-      console.log("[scheduler] all teams have a Claude token configured")
-    }
-  } catch (err) {
-    console.error("[scheduler] startup Claude-token check failed (non-fatal):", err)
-  }
+// What each named loop runs. Typed on LoopName, so a loop added to ./loops
+// without a runner here does not compile.
+const RUNNERS: Record<LoopName, () => Promise<void>> = {
+  // 006 FR-11: analytics retention. Writes its own WorkerHeartbeat row ("retention")
+  // through runTick; Insights reads it as the Health line.
+  retention: async () => {
+    await sweepAnalytics()
+  },
 }
 
 async function main() {
   console.log("[scheduler] starting, poll interval:", POLL_INTERVAL_MS, "ms")
 
-  await logTeamsWithoutClaudeToken()
-
-  await Promise.all([
-    loop("scheduler", runScheduledJobs),
-    loop("generation", runGenerationJobs),
-    // 006 FR-11: analytics retention. Writes its own WorkerHeartbeat row ("retention")
-    // through runTick, but is deliberately NOT in 023's HeartbeatLoop / the status
-    // route's LOOPS, so it cannot trip the "Scheduler offline" banner.
-    loop("retention", async () => {
-      await sweepAnalytics()
-    }),
-  ])
+  await Promise.all(LOOPS.map(name => loop(name, RUNNERS[name])))
 }
 
 main().catch(err => {

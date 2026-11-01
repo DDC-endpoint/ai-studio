@@ -29,7 +29,7 @@ vi.mock('@/lib/agent/userToken', () => ({
 vi.mock('@/lib/agent/config', () => ({ pipelineMode: () => 'cli' }))
 vi.mock('@/lib/renderer/puppeteer', () => ({ sampleImageColors: h.sampler }))
 vi.mock('@/lib/brandkit/voiceDraft', () => ({ draftBrandVoice: h.draft }))
-vi.mock('@/lib/campaign/briefingAssistant', () => {
+vi.mock('@/lib/projects/briefingAssistant', () => {
   class AssistantModelError extends Error {
     constructor(
       public code: string,
@@ -178,7 +178,7 @@ describe('upgrade route: before the model', () => {
     )
   })
   it('422 when no model can run', async () => {
-    const { AssistantModelError } = await import('@/lib/campaign/briefingAssistant')
+    const { AssistantModelError } = await import('@/lib/projects/briefingAssistant')
     h.resolve.mockRejectedValue(new AssistantModelError('MODEL_NOT_ALLOWED' as never, 'nope'))
     const { upgrade } = await load(false)
     const res = await post(upgrade, { text: TEXT, baseVersion: 3 })

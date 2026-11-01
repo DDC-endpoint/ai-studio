@@ -9,7 +9,7 @@ import { pageLogin } from '../helpers/ui'
 //   POST /api/drafts/[id]/regenerate-design | regenerate-copy | refine
 //     → all validation SYNCHRONOUS (404/403, 400 NOT_PATH_B, 400 'instruction
 //       is required', 422 NO_BRAND_KIT/COPY_ERROR, regenerate-copy 409 unless
-//       status EXPORTED/PUBLISHED — legacy shapes unchanged)
+//       status EXPORTED — legacy shapes unchanged)
 //     → atomic claim of Draft.pendingAction; a second action while one is in
 //       flight → 409 {error:'Another action is already running on this draft'}
 //     → 202 {ok:true}; the model work runs in-process in the background.
@@ -40,10 +40,9 @@ const urlPath = (u: unknown) => String(u ?? '').split('?')[0]
 
 async function createExportedDraft(api: ApiClient, topic: string) {
   const kit = await (await api.post('/api/admin/brandkits', { name: `Async Actions Kit ${topic}`, colors: ['#0284c7'] })).json()
-  const camp = await (await api.post('/api/campaigns', { name: `Async Actions Camp ${topic}`, brandKitId: kit.id })).json()
   const brief = await (await api.post('/api/briefs', {
     topic, goal: 'g', tone: 'professional', channels: ['INSTAGRAM'],
-    designMode: 'GENERATE', copyProviderKey: 'cli', campaignId: camp.id,
+    designMode: 'GENERATE', copyProviderKey: 'cli', brandKitId: kit.id,
   })).json()
   const assembleRes = await api.post('/api/generate/assemble-b', { briefId: brief.id })
   expect(assembleRes.status()).toBe(202)
@@ -90,17 +89,17 @@ test.describe('§Q — async draft actions', () => {
     const beforeHtml = draft.htmlContent
     const beforeExportPath = urlPath(draft.exportUrl)
 
-    const res = await api.post(`/api/drafts/${draft.id}/regenerate-copy`, {})
+    const res = await api.post(`/api/drafts/${draft.id}/regenerate-copy`, { kind: 'GENERAL' })
     expect(res.status()).toBe(202)
     expect(await res.json()).toEqual({ ok: true })
 
     const done = await waitForAction(api, draft.id as string)
     expect(done.pendingAction).toBeNull()
     expect(done.pendingActionError).toBeNull()
-    // The mock caption reply embeds the topic in every caption: {} is
-    // "Regenerate all" (012 FR-11), so both were (re)generated (026: two captions).
+    // The mock caption reply embeds the topic in every caption: { kind: 'GENERAL' }
+    // regenerated the one general caption (039; "Regenerate all" is retired).
     const captions = done.captions as { text: string; status: string }[]
-    expect(captions).toHaveLength(2)
+    expect(captions).toHaveLength(1)
     for (const c of captions) {
       expect(c.status).toBe('READY')
       expect(c.text).toContain(topic)
@@ -188,7 +187,7 @@ test.describe('§Q — async draft actions', () => {
 
     for (const [path, body] of [
       ['regenerate-design', {}],
-      ['regenerate-copy', {}],
+      ['regenerate-copy', { kind: 'GENERAL' }],
       ['refine', { instruction: 'Make it pop' }],
     ] as const) {
       const res = await api.post(`/api/drafts/${draft.id}/${path}`, body)
@@ -206,7 +205,7 @@ test.describe('§Q — async draft actions', () => {
       where: { id: draft.id as string },
       data: { pendingAction: null },
     })
-    const retry = await api.post(`/api/drafts/${draft.id}/regenerate-copy`, {})
+    const retry = await api.post(`/api/drafts/${draft.id}/regenerate-copy`, { kind: 'GENERAL' })
     expect(retry.status()).toBe(202)
     const done = await waitForAction(api, draft.id as string)
     expect(done.pendingAction).toBeNull()
@@ -312,7 +311,7 @@ test.describe('§Q — async draft actions', () => {
     // 404 on an unknown draft — all three actions.
     for (const [path, body] of [
       ['regenerate-design', {}],
-      ['regenerate-copy', {}],
+      ['regenerate-copy', { kind: 'GENERAL' }],
       ['refine', { instruction: 'x' }],
     ] as const) {
       const res = await api.post(`/api/drafts/nonexistent-draft-id/${path}`, body)
@@ -331,10 +330,9 @@ test.describe('§Q — async draft actions', () => {
       name: 'Async Val Template',
       htmlTemplate: '<html><body style="width:1080px;height:1080px;background:#0284c7">{{topic}}</body></html>',
     })).json()
-    const camp = await (await api.post('/api/campaigns', { name: `Async Val A Camp ${Date.now()}`, brandKitId: kit.id })).json()
     const briefA = await (await api.post('/api/briefs', {
       topic: `Async Val A ${Date.now()}`, goal: 'g', tone: 'professional', channels: ['INSTAGRAM'],
-      designMode: 'TEMPLATE', copyProviderKey: 'cli', campaignId: camp.id,
+      designMode: 'TEMPLATE', copyProviderKey: 'cli', brandKitId: kit.id,
     })).json()
     const assembleA = await api.post('/api/generate/assemble-a', { briefId: briefA.id, templateId: template.id })
     expect(assembleA.status()).toBe(202)
@@ -347,12 +345,12 @@ test.describe('§Q — async draft actions', () => {
     // 409 'not ready' — regenerate-copy on a FAILED draft (no content to replace).
     const failedBrief = await (await api.post('/api/briefs', {
       topic: `__FAIL_GEN_ALWAYS__ Async Val ${Date.now()}`, goal: 'g', tone: 'professional',
-      channels: ['INSTAGRAM'], designMode: 'GENERATE', copyProviderKey: 'cli', campaignId: camp.id,
+      channels: ['INSTAGRAM'], designMode: 'GENERATE', copyProviderKey: 'cli', brandKitId: kit.id,
     })).json()
     const { draftId: failedDraftId } = await (await api.post('/api/generate/assemble-b', { briefId: failedBrief.id })).json()
     const failedDraft = await waitForDraft(api, failedDraftId)
     expect(failedDraft.status).toBe('FAILED')
-    const notReady = await api.post(`/api/drafts/${failedDraftId}/regenerate-copy`, {})
+    const notReady = await api.post(`/api/drafts/${failedDraftId}/regenerate-copy`, { kind: 'GENERAL' })
     expect(notReady.status()).toBe(409)
     expect((await notReady.json()).error).toBe('Draft is not ready for caption regeneration')
   })
@@ -363,21 +361,21 @@ test.describe('§Q — async draft actions', () => {
   // made Regenerate answer 'Draft is not ready for copy regeneration', and after
   // 15 min let the sweep mark the draft FAILED — with nothing regenerating, so
   // the only way out was to regenerate the whole post. Rewritten to the 012
-  // caption contract (AC-19): PATCH { channel, text }; an empty caption that is
+  // caption contract (AC-19): PATCH { kind: 'GENERAL', text } (039); an empty caption that is
   // not PENDING is an editable field, never a skeleton.
   test('editing or clearing a caption leaves the draft EXPORTED and every action available', async ({ page }) => {
     if (!MOCKED()) { test.skip(); return }
     const topic = `Async Copy Edit ${Date.now()}`
     const draft = await createExportedDraft(api, topic)
     const beforeExportPath = urlPath(draft.exportUrl)
-    const instagram = (d: Record<string, unknown>) =>
-      (d.captions as { channel: string; text: string; status: string }[]).find((c) => c.channel === 'INSTAGRAM')!
+    const general = (d: Record<string, unknown>) =>
+      (d.captions as { kind: string; text: string; status: string }[]).find((c) => c.kind === 'GENERAL')!
 
     // 1. An ordinary caption edit. The PATCH response itself must already say EXPORTED.
-    const edited = await api.patch(`/api/drafts/${draft.id}`, { channel: 'INSTAGRAM', text: 'Hand-written caption.' })
+    const edited = await api.patch(`/api/drafts/${draft.id}`, { kind: 'GENERAL', text: 'Hand-written caption.' })
     expect(edited.status()).toBe(200)
     const editedBody = await edited.json()
-    expect(instagram(editedBody).text).toBe('Hand-written caption.')
+    expect(general(editedBody).text).toBe('Hand-written caption.')
     expect(editedBody.status).toBe('EXPORTED')
     // The design is untouched — captions and design are independent artifacts.
     expect(editedBody.htmlContent).toBe(draft.htmlContent)
@@ -386,38 +384,38 @@ test.describe('§Q — async draft actions', () => {
 
     // 2. Clearing the caption COMPLETELY — the reported trigger — is just an
     // empty string, not a draft mid-generation.
-    const cleared = await api.patch(`/api/drafts/${draft.id}`, { channel: 'INSTAGRAM', text: '' })
+    const cleared = await api.patch(`/api/drafts/${draft.id}`, { kind: 'GENERAL', text: '' })
     expect(cleared.status()).toBe(200)
     const clearedBody = await cleared.json()
-    expect(instagram(clearedBody).text).toBe('')
-    expect(instagram(clearedBody).status).toBe('READY')
+    expect(general(clearedBody).text).toBe('')
+    expect(general(clearedBody).status).toBe('READY')
     expect(clearedBody.status).toBe('EXPORTED')
     expect(clearedBody.htmlContent).toBe(draft.htmlContent)
     expect(urlPath(clearedBody.exportUrl)).toBe(beforeExportPath)
     expect(clearedBody.currentRevisionNumber).toBe(1)
 
-    // UI: the emptied Instagram caption is an editable field, not a skeleton.
+    // UI: the emptied general caption is an editable field, not a skeleton.
     await page.setViewportSize({ width: 1440, height: 900 })
     await pageLogin(page)
     await page.goto(`/drafts/${draft.id}`)
     await expect(page.getByRole('button', { name: 'View full screen', exact: true })).toBeVisible({ timeout: 20_000 })
-    const igField = page.getByRole('textbox', { name: 'Instagram', exact: true })
-    await expect(igField).toBeVisible()
-    await expect(igField).toBeEditable()
-    await expect(igField).toHaveValue('')
-    await expect(page.getByRole('status', { name: 'Generating the Instagram caption' })).toHaveCount(0)
+    const genField = page.getByRole('textbox', { name: 'General caption', exact: true })
+    await expect(genField).toBeVisible()
+    await expect(genField).toBeEditable()
+    await expect(genField).toHaveValue('')
+    await expect(page.getByRole('status', { name: 'Generating the general caption' })).toHaveCount(0)
 
     // 3. Still in the library (it lists EXPORTED drafts — a flipped status hid it).
-    const library = await (await api.get('/api/library?status=READY&pageSize=50')).json()
+    const library = await (await api.get('/api/library?pageSize=50')).json()
     expect(library.drafts.some((d: { id: string }) => d.id === draft.id)).toBe(true)
 
     // 4. Regenerate is accepted (this was the 409 'not ready') and refills the
     //    emptied caption without a full regeneration.
-    const regen = await api.post(`/api/drafts/${draft.id}/regenerate-copy`, { channel: 'INSTAGRAM' })
+    const regen = await api.post(`/api/drafts/${draft.id}/regenerate-copy`, { kind: 'GENERAL' })
     expect(regen.status()).toBe(202)
     const regenerated = await waitForAction(api, draft.id as string)
     expect(regenerated.pendingActionError).toBeNull()
-    expect(instagram(regenerated).text).toContain(topic)
+    expect(general(regenerated).text).toContain(topic)
     expect(regenerated.status).toBe('EXPORTED')
 
     // 5. Refine design is available too (it gates on EXPORTED and had vanished).

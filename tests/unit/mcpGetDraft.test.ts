@@ -1,24 +1,21 @@
-// 012 T8 — the MCP/ACP and generate/copy outputs (FR-10, FR-15, FR-17, AC-10).
-// Prisma, MinIO, the platform publishers and the generation orchestrator are
+// 012 T8, 039 T2 — the MCP/ACP and generate/copy outputs (FR-10, FR-15, FR-17,
+// AC-10; 039 D20, AC-20).
+// Prisma, MinIO and the generation orchestrator are
 // mocked; the real tools, caption loader, resolver and extractor run. Extends
 // the Task 13 / 14b cases (the team-bound guard; generation under the team
 // Claude credential), which are kept.
-//   - getDraft: `headline`; `captions` is 3 × {channel,text,status} in
-//     registry order; a cross-team draft is still "not found";
+//   - getDraft: `headline`; `captions` is the general caption first, then the
+//     curated ones, each {kind,channel,text,status,facts,rules}; a cross-team
+//     draft is still "not found";
 //   - generatePost: adds `headline` and `captions`;
 //   - generate/copy: `{headline, captions}`, partial per field, and nothing
 //     is written;
 //   - none of the three returns the pre-012 `copyText` alias (removed by
 //     change 016, FR-07 / AC-06);
-//   - publishPost: WhatsApp is rejected up front, with no row (FR-15); a
-//     refused caption (failed, pending, empty, over the limit) leaves one FAILED
-//     row with the resolver's reason and is never signed or sent (FR-17), in the
-//     same "recorded as post <id>" format as a platform failure.
+//   - there is no publish tool (037 removed publishPost).
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type { Channel } from '@prisma/client'
-import { PublishError } from '@/lib/social/types'
-import { resolveCaptionForPublish } from '@/lib/captions/resolve'
 import { buildMockCaptionReply } from '@/lib/testHooks'
 
 const h = vi.hoisted(() => ({
@@ -29,14 +26,9 @@ const h = vi.hoisted(() => ({
   captionFindMany: vi.fn(),
   captionUpdateMany: vi.fn(),
   transaction: vi.fn(),
-  postFindFirst: vi.fn(),
-  postCreate: vi.fn(),
-  postUpdate: vi.fn(),
   briefCreate: vi.fn(),
   briefFindUnique: vi.fn(),
   resolveExportUrl: vi.fn(),
-  igPublish: vi.fn(),
-  liPublish: vi.fn(),
   generateDraftForBrief: vi.fn(),
   generateCaptions: vi.fn(),
   withClaudeAuth: vi.fn(),
@@ -57,7 +49,6 @@ vi.mock('@/lib/prisma', () => ({
       findMany: h.captionFindMany,
       updateMany: h.captionUpdateMany,
     },
-    post: { findFirst: h.postFindFirst, create: h.postCreate, update: h.postUpdate },
     brief: { create: h.briefCreate, findUnique: h.briefFindUnique },
     // 008 T6: generate/copy resolves the CAPTION model (no saved policy; in
     // CLI mode, which the local .env that @prisma/client loads can set, the
@@ -68,8 +59,6 @@ vi.mock('@/lib/prisma', () => ({
   },
 }))
 vi.mock('@/lib/storage/minio', () => ({ resolveExportUrl: h.resolveExportUrl }))
-vi.mock('@/lib/social/instagram', () => ({ publish: h.igPublish }))
-vi.mock('@/lib/social/linkedin', () => ({ publish: h.liPublish }))
 vi.mock('@/mcp/systemUser', () => ({ getSystemUserId: async () => 'system-user' }))
 vi.mock('@/lib/agent/userToken', () => ({ withClaudeAuth: h.withClaudeAuth }))
 vi.mock('@/lib/agent/generateDraft', () => ({
@@ -84,34 +73,49 @@ vi.mock('@/lib/api/handler', () => {
   const parseBody = async (req: Request) => ({ data: await req.json() })
   return { parseBody, withTeamAuth: wrap }
 })
-vi.mock('@/lib/authz/visibility', () => ({ canAccessContent: () => true }))
+vi.mock('@/lib/authz/visibility', () => ({ canView: () => true, canEditPost: () => true, NOT_AUTHOR: { code: 'not-author' } }))
 vi.mock('@/providers/registry', () => ({
   resolveCopyProvider: async () => ({ generateCaptions: h.generateCaptions }),
 }))
-vi.mock('@/lib/brandkit/resolve', () => ({ resolveBrandKit: async () => null }))
-vi.mock('@/lib/campaign/briefing', () => ({ getActiveCampaignBriefing: async () => null }))
+// The post's kit (null: none); a test gives it a website (039 D17).
+let kitForTest: { website: string | null } | null = null
+vi.mock('@/lib/brandkit/resolve', () => ({ resolveBrandKit: async () => kitForTest }))
 
 const { getDraft, generatePost } = await import('@/mcp/tools/generate')
 const { AGENT_MANIFEST } = await import('@/acp/agent')
-const { publishPost } = await import('@/mcp/tools/publish')
 const copyRoute = await import('@/app/api/generate/copy/route')
 
+const GEN_TEXT = 'The general caption, for any channel.'
 const IG_TEXT = 'Instagram caption #launch'
 const LI_TEXT = 'LinkedIn caption, longer and more formal.'
 // A legacy row (026): the loader must hide it.
 const WA_TEXT = 'WhatsApp *caption*'
 
-type Row = { channel: Channel; text: string; status: 'PENDING' | 'READY' | 'FAILED'; failureReason: string | null }
+type Row = {
+  kind: 'GENERAL' | 'CURATED'
+  channel: Channel | null
+  text: string
+  status: 'PENDING' | 'READY' | 'FAILED'
+  failureReason: string | null
+  deletedAt: Date | null
+  previous: null
+}
 
 function row(channel: Channel, text: string, over: Partial<Row> = {}): Row {
-  return { channel, text, status: 'READY', failureReason: null, ...over }
+  return { kind: 'CURATED', channel, text, status: 'READY', failureReason: null, deletedAt: null, previous: null, ...over }
 }
+
+function general(text: string, over: Partial<Row> = {}): Row {
+  return { kind: 'GENERAL', channel: null, text, status: 'READY', failureReason: null, deletedAt: null, previous: null, ...over }
+}
+
+const OK_RULES = { met: true, unmet: [] }
 
 let rows: Row[]
 let teamId: string
 
 // One draft row that serves the tools' own lookups and the caption loader's
-// select. Every registry channel has a row, so the loader fills nothing in.
+// select.
 function draftRow() {
   return {
     id: 'd1',
@@ -121,6 +125,8 @@ function draftRow() {
     exportUrl: 'exports/d1.png',
     htmlContent: '<html></html>',
     status: 'EXPORTED',
+    generationInputs: null,
+    brief: { teamId, brandKitId: null },
     captions: rows.map((r) => ({ ...r, updatedAt: new Date() })),
   }
 }
@@ -135,29 +141,26 @@ function selected(args?: { select?: Record<string, unknown> }) {
 beforeEach(() => {
   for (const fn of Object.values(h)) fn.mockReset()
   teamId = 'team1'
-  rows = [row('INSTAGRAM', IG_TEXT), row('LINKEDIN', LI_TEXT), row('WHATSAPP', WA_TEXT)]
+  kitForTest = null
+  rows = [general(GEN_TEXT), row('INSTAGRAM', IG_TEXT), row('LINKEDIN', LI_TEXT), row('WHATSAPP', WA_TEXT)]
   h.draftFindUnique.mockImplementation(async (args) => selected(args))
   h.draftFindUniqueOrThrow.mockImplementation(async (args) => selected(args))
   h.resolveExportUrl.mockResolvedValue('https://minio.test/signed.png')
-  h.postFindFirst.mockResolvedValue(null)
-  h.postCreate.mockResolvedValue({ id: 'p1', status: 'PENDING' })
-  h.postUpdate.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({ id: 'p1', ...data }))
-  h.igPublish.mockResolvedValue({ platformId: 'ig-1' })
-  h.liPublish.mockResolvedValue({ platformId: 'li-1' })
   h.withClaudeAuth.mockImplementation((_userId: unknown, _teamId: unknown, fn: () => unknown) => fn())
 })
 
 // ── getDraft (AC-10) ────────────────────────────────────────────────────────
 
 describe('getDraft', () => {
-  it('returns the headline and 2 captions in registry order, hides a legacy WHATSAPP row, and no copyText', async () => {
+  it('returns the headline and the general caption first, then the curated ones in registry order, hides a legacy WHATSAPP row, and no copyText', async () => {
     const out = await getDraft({ id: 'd1', teamId: 'team1' })
     expect(out).not.toHaveProperty('copyText')
     expect(out).toEqual({
       headline: 'Launch day',
       captions: [
-        { channel: 'INSTAGRAM', text: IG_TEXT, status: 'READY' },
-        { channel: 'LINKEDIN', text: LI_TEXT, status: 'READY' },
+        { kind: 'GENERAL', channel: null, text: GEN_TEXT, status: 'READY', facts: null, rules: OK_RULES },
+        { kind: 'CURATED', channel: 'INSTAGRAM', text: IG_TEXT, status: 'READY', facts: null, rules: OK_RULES },
+        { kind: 'CURATED', channel: 'LINKEDIN', text: LI_TEXT, status: 'READY', facts: null, rules: OK_RULES },
       ],
       imageUrl: 'https://minio.test/bg.png',
       exportUrl: 'https://minio.test/signed.png',
@@ -168,13 +171,72 @@ describe('getDraft', () => {
     })
   })
 
-  it("an empty Instagram caption is returned as is, and a row's status is passed through", async () => {
-    rows[0] = row('INSTAGRAM', '')
-    rows[1] = row('LINKEDIN', '', { status: 'FAILED', failureReason: 'missing' })
+  it('a post made before 039 has no GENERAL item (D11)', async () => {
+    rows = [row('INSTAGRAM', IG_TEXT), row('LINKEDIN', LI_TEXT), row('WHATSAPP', WA_TEXT)]
+    const out = await getDraft({ id: 'd1', teamId: 'team1' })
+    expect(out.captions.map((c) => `${c.kind}:${c.channel}`)).toEqual(['CURATED:INSTAGRAM', 'CURATED:LINKEDIN'])
+  })
+
+  it('a deleted curated caption is left out (D14)', async () => {
+    rows[1] = row('INSTAGRAM', IG_TEXT, { deletedAt: new Date() })
+    const out = await getDraft({ id: 'd1', teamId: 'team1' })
+    expect(out.captions.map((c) => c.channel)).toEqual([null, 'LINKEDIN'])
+  })
+
+  it('an empty caption is returned as is with met rules, and a row status is passed through', async () => {
+    rows[0] = general('')
+    rows[1] = row('INSTAGRAM', '', { status: 'FAILED', failureReason: 'missing' })
     const out = await getDraft({ id: 'd1', teamId: 'team1' })
     expect(out).not.toHaveProperty('copyText')
-    expect(out.captions[0]).toEqual({ channel: 'INSTAGRAM', text: '', status: 'READY' })
-    expect(out.captions[1]).toEqual({ channel: 'LINKEDIN', text: '', status: 'FAILED' })
+    expect(out.captions[0]).toEqual({ kind: 'GENERAL', channel: null, text: '', status: 'READY', facts: null, rules: OK_RULES })
+    expect(out.captions[1]).toEqual({ kind: 'CURATED', channel: 'INSTAGRAM', text: '', status: 'FAILED', facts: null, rules: OK_RULES })
+  })
+
+  it('each item carries only its own facts: flagged with its own flags, clear, error, or null when unchecked (AC-20)', async () => {
+    const check = (status: string, flagged: unknown[]) => ({ v: 1, status, checkedAt: '2026-11-02T00:00:00.000Z', flagged })
+    const flag = (where: string, value: string) => ({ kind: 'cur', value, where })
+    h.draftFindUnique.mockImplementation(async (args) => ({
+      ...selected(args),
+      factsCheck: check('flagged', [flag('INSTAGRAM', '$49'), flag('headline', '$5')]),
+    }))
+    const flagged = await getDraft({ id: 'd1', teamId: 'team1' })
+    expect(flagged.captions.map((c) => c.facts)).toEqual([
+      { status: 'clear', flagged: [] },
+      { status: 'flagged', flagged: [{ kind: 'cur', value: '$49' }] },
+      { status: 'clear', flagged: [] },
+    ])
+
+    h.draftFindUnique.mockImplementation(async (args) => ({ ...selected(args), factsCheck: { ...check('error', []), reason: 'boom' } }))
+    const errored = await getDraft({ id: 'd1', teamId: 'team1' })
+    expect(errored.captions.every((c) => c.facts?.status === 'error')).toBe(true)
+
+    h.draftFindUnique.mockImplementation(async (args) => selected(args))
+    expect((await getDraft({ id: 'd1', teamId: 'team1' })).captions.every((c) => c.facts === null)).toBe(true)
+  })
+
+  it('each item has exactly kind, channel, text, status, facts and rules, and the manifest names the same keys', async () => {
+    const out = await getDraft({ id: 'd1', teamId: 'team1' })
+    const capability = AGENT_MANIFEST.capabilities.find((c) => c.name === 'generate_post')!
+    const item = (capability.output as unknown as { properties: { captions: { items: { properties: object } } } }).properties
+      .captions.items
+    for (const caption of out.captions) {
+      expect(Object.keys(caption).sort()).toEqual(['channel', 'facts', 'kind', 'rules', 'status', 'text'])
+      expect(Object.keys(item.properties).sort()).toEqual(Object.keys(caption).sort())
+    }
+  })
+
+  it("a Facebook caption's link rule uses the post's kit website (039 D17)", async () => {
+    const FB = 'Mock Facebook caption.\nhttps://acme.example\n\n#a'
+    rows = [general(GEN_TEXT), row('FACEBOOK', FB)]
+    kitForTest = { website: 'https://acme.example' }
+    const met = await getDraft({ id: 'd1', teamId: 'team1' })
+    expect(met.captions[1].rules.unmet).not.toContain('link-missing')
+    rows = [general(GEN_TEXT), row('FACEBOOK', 'Mock Facebook caption.')]
+    const missing = await getDraft({ id: 'd1', teamId: 'team1' })
+    expect(missing.captions[1].rules.unmet).toContain('link-missing')
+    kitForTest = null
+    const none = await getDraft({ id: 'd1', teamId: 'team1' })
+    expect(none.captions[1].rules.unmet).not.toContain('link-missing')
   })
 
   it('a cross-team draft is still "not found", and its captions are never read', async () => {
@@ -200,7 +262,6 @@ describe('generatePost', () => {
     topic: 'Launch',
     goal: 'awareness',
     tone: 'bold',
-    channels: ['instagram', 'LINKEDIN'],
     designMode: 'GENERATE' as const,
     teamId: 'team1',
   }
@@ -223,8 +284,9 @@ describe('generatePost', () => {
       htmlContent: '<html></html>',
       headline: 'Launch day',
       captions: [
-        { channel: 'INSTAGRAM', text: IG_TEXT, status: 'READY' },
-        { channel: 'LINKEDIN', text: LI_TEXT, status: 'READY' },
+        { kind: 'GENERAL', channel: null, text: GEN_TEXT, status: 'READY', facts: null, rules: OK_RULES },
+        { kind: 'CURATED', channel: 'INSTAGRAM', text: IG_TEXT, status: 'READY', facts: null, rules: OK_RULES },
+        { kind: 'CURATED', channel: 'LINKEDIN', text: LI_TEXT, status: 'READY', facts: null, rules: OK_RULES },
       ],
       // 027 FR-13: the style the brief resolved to (goal 'awareness' maps to nothing) and
       // the stored check; this draft has none.
@@ -247,9 +309,9 @@ describe('generatePost', () => {
     for (const caption of out.captions) {
       expect(Object.keys(caption).sort()).toEqual(Object.keys(item.properties).sort())
     }
-    expect(item.properties.channel.enum).toEqual(out.captions.map((c) => c.channel))
-    // 026 AC-07: the contract names two channels.
-    expect(item.properties.channel.enum).toEqual(['INSTAGRAM', 'LINKEDIN'])
+    // 039 D20: the curatable channels, plus null for the general caption.
+    expect(item.properties.channel.enum).toEqual(['INSTAGRAM', 'LINKEDIN', 'FACEBOOK', null])
+    expect(item.properties.kind.enum).toEqual(['GENERAL', 'CURATED'])
     expect(item.properties.status.enum).toEqual(['PENDING', 'READY', 'FAILED'])
   })
 
@@ -265,7 +327,7 @@ describe('generatePost', () => {
 // ── post styles (027 FR-06, FR-13) ──────────────────────────────────────────
 
 describe('generatePost — post styles', () => {
-  const noStyleArgs = { topic: 'Launch', channels: ['INSTAGRAM'], designMode: 'GENERATE' as const, teamId: 'team1' }
+  const noStyleArgs = { topic: 'Launch', designMode: 'GENERATE' as const, teamId: 'team1' }
   const stored = { v: 1, status: 'flagged', checkedAt: '2026-10-25T00:00:00.000Z', flagged: [{ kind: 'cur', value: '$49', where: 'INSTAGRAM' }] }
 
   beforeEach(() => {
@@ -317,11 +379,11 @@ describe('generatePost — post styles', () => {
     expect((await generatePost(noStyleArgs)).factsCheck).toBeNull()
   })
 
-  it('the manifest is version 1.2.0 and drops goal and tone from required', () => {
-    expect(AGENT_MANIFEST.version).toBe('1.2.0')
+  it('the manifest is version 2.2.0 (037, 038, 039) and drops goal, tone and channels from required', () => {
+    expect(AGENT_MANIFEST.version).toBe('2.2.0')
     const cap = AGENT_MANIFEST.capabilities.find((c) => c.name === 'generate_post')!
     const input = cap.input as unknown as { required: string[]; properties: Record<string, { enum?: string[] }> }
-    expect(input.required).toEqual(['topic', 'channels', 'designMode'])
+    expect(input.required).toEqual(['topic', 'designMode'])
     expect(input.properties.postStyle.enum).toContain('general')
     expect(input.properties).toHaveProperty('goal')
   })
@@ -335,14 +397,12 @@ describe('POST /api/generate/copy', () => {
       id: 'b1',
       teamId: 'team1',
       userId: 'u1',
-      campaignId: null,
       brandKitId: null,
       copyProviderKey: null,
       topic,
       description: null,
       goal: 'awareness',
       tone: 'bold',
-      channels: ['INSTAGRAM', 'LINKEDIN'],
     }
   }
 
@@ -370,38 +430,42 @@ describe('POST /api/generate/copy', () => {
     expect(h.briefCreate).not.toHaveBeenCalled()
   }
 
-  it('returns {headline, captions} for the headline and every channel, with no copyText, writing nothing', async () => {
+  it('returns {headline, captions} for the headline and the general caption, with no copyText, writing nothing', async () => {
     const { status, body } = await post('Launch')
     expect(status).toBe(200)
-    expect(h.generateCaptions.mock.calls[0][1]).toEqual(['HEADLINE', 'INSTAGRAM', 'LINKEDIN'])
+    expect(h.generateCaptions.mock.calls[0][1]).toEqual(['HEADLINE', 'GENERAL'])
     // 008: the CAPTION system default, resolved by the route.
     expect(h.generateCaptions.mock.calls[0][2]).toMatchObject({ surface: 'CAPTION', key: 'HAIKU', source: 'system' })
     expect(body).not.toHaveProperty('copyText')
     expect(body).toEqual({
       headline: 'Mock headline Launch',
       captions: [
-        { channel: 'INSTAGRAM', text: 'Mock Instagram caption [Launch]', status: 'READY', failureReason: null },
-        { channel: 'LINKEDIN', text: 'Mock LinkedIn caption [Launch]', status: 'READY', failureReason: null },
+        { kind: 'GENERAL', channel: null, text: 'Mock General caption [Launch]', status: 'READY', failureReason: null },
       ],
     })
     expectNoWrites()
   })
 
   it('a partial reply keeps the fields that validated and fails the rest', async () => {
-    const { status, body } = await post('Launch __DROP_CAPTION_LINKEDIN__ __DROP_CAPTION_HEADLINE__')
+    const { status, body } = await post('Launch __DROP_CAPTION_GENERAL__')
     expect(status).toBe(200)
-    expect(body.headline).toBeNull()
-    expect(body.captions[1]).toEqual({ channel: 'LINKEDIN', text: '', status: 'FAILED', failureReason: 'missing' })
-    expect(body.captions[0].status).toBe('READY')
+    expect(body.headline).toBe('Mock headline Launch __DROP_CAPTION_GENERAL__'.slice(0, 100))
+    expect(body.captions[0]).toEqual({
+      kind: 'GENERAL',
+      channel: null,
+      text: '',
+      status: 'FAILED',
+      failureReason: 'missing',
+    })
     expect(body).not.toHaveProperty('copyText')
     expectNoWrites()
   })
 
-  it('a failed Instagram caption is reported in captions, with no copyText fallback', async () => {
-    const { body } = await post('Launch __DROP_CAPTION_INSTAGRAM__')
+  it('a dropped headline is null and the general caption still reads', async () => {
+    const { body } = await post('Launch __DROP_CAPTION_HEADLINE__')
     expect(body).not.toHaveProperty('copyText')
-    expect(body.headline).toMatch(/^Mock headline Launch/)
-    expect(body.captions[0]).toMatchObject({ channel: 'INSTAGRAM', text: '', status: 'FAILED' })
+    expect(body.headline).toBeNull()
+    expect(body.captions[0]).toMatchObject({ kind: 'GENERAL', status: 'READY' })
   })
 
   it('a provider error is still a 422 COPY_ERROR', async () => {
@@ -414,72 +478,5 @@ describe('POST /api/generate/copy', () => {
     const res = await copyRoute.POST(req as never, { params: Promise.resolve({}) } as never)
     expect(res.status).toBe(422)
     expect(await res.json()).toEqual({ code: 'COPY_ERROR', message: 'provider down' })
-  })
-})
-
-// ── publishPost (FR-15, FR-17) ──────────────────────────────────────────────
-
-describe('publishPost', () => {
-  function expectNothingSent() {
-    expect(h.resolveExportUrl).not.toHaveBeenCalled()
-    expect(h.igPublish).not.toHaveBeenCalled()
-    expect(h.liPublish).not.toHaveBeenCalled()
-  }
-
-  function reasonFor(channel: Channel, r: Row) {
-    const res = resolveCaptionForPublish(channel, r)
-    if (res.ok) throw new Error('expected a refusal')
-    return res.reason
-  }
-
-  it('WhatsApp is rejected before any lookup or row', async () => {
-    await expect(publishPost({ draftId: 'd1', channel: 'WHATSAPP', teamId: 'team1' })).rejects.toThrow(
-      'channel must be INSTAGRAM or LINKEDIN',
-    )
-    expect(h.draftFindUnique).not.toHaveBeenCalled()
-    expect(h.postCreate).not.toHaveBeenCalled()
-    expectNothingSent()
-  })
-
-  const refusals: Array<[string, Row]> = [
-    ['failed', row('LINKEDIN', '', { status: 'FAILED', failureReason: 'missing' })],
-    ['pending', row('LINKEDIN', LI_TEXT, { status: 'PENDING' })],
-    ['empty', row('LINKEDIN', '   ')],
-    ['over the limit', row('LINKEDIN', 'x'.repeat(3001))],
-  ]
-  it.each(refusals)(
-    'a %s caption leaves one FAILED row with the resolver reason, and nothing is signed or sent',
-    async (_name, r) => {
-      rows[1] = r
-      const reason = reasonFor('LINKEDIN', r)
-      await expect(publishPost({ draftId: 'd1', channel: 'LINKEDIN', teamId: 'team1' })).rejects.toThrow(
-        `Publish failed (${reason}) — recorded as post p1 with status FAILED`,
-      )
-      expect(h.postCreate).toHaveBeenCalledTimes(1)
-      expect(h.postCreate.mock.calls[0][0].data).toMatchObject({ draftId: 'd1', channel: 'LINKEDIN', status: 'PENDING' })
-      expect(h.postUpdate).toHaveBeenCalledTimes(1)
-      expect(h.postUpdate.mock.calls[0][0]).toMatchObject({
-        where: { id: 'p1' },
-        data: { status: 'FAILED', errorReason: reason },
-      })
-      expectNothingSent()
-    },
-  )
-
-  it("the refusal is the channel's own: a failed LinkedIn caption doesn't block Instagram", async () => {
-    rows[1] = row('LINKEDIN', '', { status: 'FAILED', failureReason: 'missing' })
-    await expect(publishPost({ draftId: 'd1', channel: 'INSTAGRAM', teamId: 'team1' })).resolves.toEqual({
-      platformId: 'ig-1',
-    })
-    expect(h.igPublish).toHaveBeenCalledWith('https://minio.test/signed.png', IG_TEXT, 'team1')
-  })
-
-  it('a platform failure keeps the same "recorded as post" format', async () => {
-    h.liPublish.mockRejectedValue(new PublishError('LINKEDIN', 'LinkedIn API 500'))
-    await expect(publishPost({ draftId: 'd1', channel: 'LINKEDIN', teamId: 'team1' })).rejects.toThrow(
-      'Publish failed (LinkedIn API 500) — recorded as post p1 with status FAILED',
-    )
-    expect(h.postCreate).toHaveBeenCalledTimes(1)
-    expect(h.postUpdate.mock.calls.at(-1)![0].data).toMatchObject({ status: 'FAILED', errorReason: 'LinkedIn API 500' })
   })
 })

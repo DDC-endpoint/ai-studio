@@ -5,7 +5,7 @@ import { withTeamAdmin, parseBody } from '@/lib/api/handler'
 import { runBrandKitChat } from '@/lib/brandkit/assistant'
 import { withClaudeAuth } from '@/lib/agent/userToken'
 import { modelError, parseModelField } from '@/lib/models/requests'
-import { AssistantModelError } from '@/lib/campaign/briefingAssistant'
+import { AssistantModelError } from '@/lib/projects/briefingAssistant'
 
 type Params = { id: string }
 

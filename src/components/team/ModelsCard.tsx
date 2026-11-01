@@ -182,8 +182,8 @@ function ModelsForm({ policy, view }: { policy: TeamModelPolicyInfo; view: Model
           </label>
           <div id={gateHelpId} className="mt-1 text-ui-xs text-fg-muted">
             <p>
-              Runs that would use the team&apos;s Claude token can&apos;t use Opus. Scheduled posts,
-              MCP and ACP always use the team token.
+              Runs that would use the team&apos;s Claude token can&apos;t use Opus. MCP and ACP
+              always use the team token.
             </p>
             {!cliMode && <p className="mt-1">Only applies in CLI mode.</p>}
           </div>

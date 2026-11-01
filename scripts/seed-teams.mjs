@@ -19,8 +19,8 @@
  *     adminBTG as TeamRole.ADMIN and editor as TeamRole.EDITOR.
  *   - Team "ClientX" (new) with a new user `clientx.admin` (fixed test
  *     password, platform role ADMIN, TeamRole.ADMIN in ClientX).
- *   - Per team: one BrandKit, one Campaign (linked to that kit), one
- *     uncategorized Brief+Draft (EXPORTED), one campaign-linked Brief+Draft
+ *   - Per team: one BrandKit, one Project (with that kit as its default), one
+ *     unassigned Brief+Draft (EXPORTED), one project-assigned Brief+Draft
  *     (EXPORTED). Drafts are written directly via Prisma (bypassing
  *     generation) — exportUrl is a plausible EXPORTS-bucket key, which
  *     resolveExportUrl can presign without the object needing to actually
@@ -28,7 +28,7 @@
  *     check), so no real upload is needed for these fixtures.
  *   - Team "NoKitCo" (new, final-review C1 guardrail): a third team with a
  *     `nokitco.admin` user (fixed test password, TeamRole.ADMIN) and a 'cli'
- *     COPY provider, but deliberately NO BrandKit, campaign, or drafts. Only
+ *     COPY provider, but deliberately NO BrandKit, project, or drafts. Only
  *     "Bistec" gets a real isDefault=true system kit (via seed-brandkit.mjs,
  *     which runs after this script) — this team exercises resolveBrandKit's
  *     last-resort tier finding NOTHING of its own, which is exactly the
@@ -120,8 +120,8 @@ async function ensureTeamAdminUser(email, username, displayName) {
   return user
 }
 
-// One brand kit, one campaign (linked to it), one uncategorized brief+draft,
-// one campaign-linked brief+draft — all find-or-create by a stable name
+// One brand kit, one project (that kit is its default), one unassigned brief+draft,
+// one project-assigned brief+draft — all find-or-create by a stable name
 // scoped to the team, so re-running this script is a no-op.
 //
 // `kitIsDefault` (final review C1 fixture gap): Bistec keeps isDefault:false
@@ -131,7 +131,7 @@ async function ensureTeamAdminUser(email, username, displayName) {
 // OTHER team fixtured here (ClientX, and any future one) has no such separate
 // default-kit seed script, so ITS "{team} Kit" must be the team's own default
 // — otherwise resolveBrandKit's last-resort tier finds nothing for that team
-// (correctly, post-C1-fix) and any campaign-less generation 422s with
+// (correctly, post-C1-fix) and any project-less generation 422s with
 // NoBrandKit. This was masked before the C1 fix: the team-default tier's
 // missing teamId filter let a kit-less team silently fall through to
 // Bistec's real default kit and "pass" anyway.
@@ -153,30 +153,29 @@ async function ensureTeamFixtures(teamId, teamLabel, ownerId, { kitIsDefault = f
     console.log(`  [${teamLabel}] brand kit "${kitName}" marked as the team default (${kit.id})`)
   }
 
-  const campaignName = `${teamLabel} Campaign`
-  let campaign = await prisma.campaign.findFirst({
-    where: { teamId, name: campaignName, isDeleted: false },
+  const projectName = `${teamLabel} Project`
+  let project = await prisma.project.findFirst({
+    where: { teamId, name: projectName, isDeleted: false },
   })
-  if (!campaign) {
-    campaign = await prisma.campaign.create({
-      data: { teamId, name: campaignName, brandKitId: kit.id },
+  if (!project) {
+    project = await prisma.project.create({
+      data: { teamId, name: projectName, defaultBrandKitId: kit.id },
     })
-    console.log(`  [${teamLabel}] campaign "${campaignName}" (${campaign.id})`)
+    console.log(`  [${teamLabel}] project "${projectName}" (${project.id})`)
   }
 
-  async function ensureExportedBriefDraft(topic, campaignId) {
+  async function ensureExportedBriefDraft(topic, projectId) {
     let brief = await prisma.brief.findFirst({ where: { teamId, topic } })
     if (!brief) {
       brief = await prisma.brief.create({
         data: {
           teamId,
           userId: ownerId,
-          campaignId: campaignId ?? null,
-          brandKitId: campaignId ? null : kit.id,
+          projectId: projectId ?? null,
+          brandKitId: projectId ? null : kit.id,
           topic,
           goal: "Awareness",
           tone: "professional",
-          channels: ["INSTAGRAM"],
           designMode: "GENERATE",
           copyProviderKey: "cli",
         },
@@ -188,20 +187,13 @@ async function ensureTeamFixtures(teamId, teamLabel, ownerId, { kitIsDefault = f
         data: {
           teamId,
           briefId: brief.id,
-          // A native (post-012) draft: a headline and one READY caption per
-          // channel, so nothing here is legacy and the loader never migrates
-          // it. The labels mirror src/lib/channels.ts CAPTION_CHANNELS.
+          // A native (post-039) draft: a headline and its one READY general
+          // caption (src/lib/channels.ts CAPTION_REGISTRY), so nothing is legacy.
           headline: topic,
           captions: {
             create: [
-              ["INSTAGRAM", "Instagram"],
-              ["LINKEDIN", "LinkedIn"],
-              ["WHATSAPP", "WhatsApp"],
-            ].map(([channel, label]) => ({
-              channel,
-              text: `${topic} — seeded fixture ${label} caption.`,
-              status: "READY",
-            })),
+              { kind: "GENERAL", channel: null, text: `${topic} — seeded fixture general caption.`, status: "READY" },
+            ],
           },
           htmlContent: `<div style="font-family:sans-serif;padding:40px">${topic}</div>`,
           status: "EXPORTED",
@@ -223,10 +215,10 @@ async function ensureTeamFixtures(teamId, teamLabel, ownerId, { kitIsDefault = f
     return { brief, draft }
   }
 
-  const uncategorized = await ensureExportedBriefDraft(`${teamLabel} Uncategorized Post`, null)
-  const underCampaign = await ensureExportedBriefDraft(`${teamLabel} Campaign Post`, campaign.id)
+  const unassigned = await ensureExportedBriefDraft(`${teamLabel} Uncategorized Post`, null)
+  const underProject = await ensureExportedBriefDraft(`${teamLabel} Project Post`, project.id)
 
-  return { kit, campaign, uncategorized, underCampaign }
+  return { kit, project, unassigned, underProject }
 }
 
 async function main() {
@@ -267,7 +259,7 @@ async function main() {
   await ensureTeamFixtures(clientx.id, "ClientX", clientxAdmin.id, { kitIsDefault: true })
 
   // NoKitCo deliberately gets NO ensureTeamFixtures call — no brand kit, no
-  // campaign, no drafts. That absence is the fixture (see the file header).
+  // project, no drafts. That absence is the fixture (see the file header).
 
   console.log("\nTeams ready:")
   console.log(`  Bistec   (${bistec.id}) — adminBTG=ADMIN, editor=EDITOR`)

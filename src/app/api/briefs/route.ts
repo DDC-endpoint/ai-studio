@@ -3,8 +3,7 @@ import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import { withTeamAuth, parseBody } from '@/lib/api/handler'
 import { BUCKET_DOCS, headObject, isAllowedAssetUrl } from '@/lib/storage/minio'
-import { Prisma, DesignMode, type AspectRatio, type Channel } from '@prisma/client'
-import { isPublishableChannel, PUBLISHABLE_CHANNELS } from '@/lib/channels'
+import { Prisma, DesignMode, type AspectRatio } from '@prisma/client'
 import { isAspectRatio } from '@/lib/aspectRatio'
 import { validateImageStyle } from '@/lib/brief/imageStyle'
 import {
@@ -27,6 +26,7 @@ import { copyProviderIsClaude } from '@/providers/registry'
 import { loadCaptionRoute } from '@/providers/captionRoute'
 import type { ModelKey, UserSurface } from '@/lib/models/catalogue'
 import { isStyleKey, resolvePostStyle } from '@/lib/postStyles'
+import { PROJECT_NOT_FOUND } from '@/lib/projects/errors'
 import { track } from '@/lib/analytics/track'
 import type { EventPayloadInput } from '@/lib/analytics/catalogue'
 
@@ -37,6 +37,13 @@ const createSchema = z.object({}).passthrough()
 export const POST = withTeamAuth(async (req: NextRequest, _ctx, user) => {
   const parsed = await parseBody(req, createSchema)
   if (parsed.response) return parsed.response
+  // 038 D13: the retired field is refused by name, before any lookup, never ignored.
+  if ('campaignId' in parsed.data || 'campaign' in parsed.data) {
+    return NextResponse.json(
+      { error: 'campaignId is retired; use projectId', code: 'CAMPAIGN_RETIRED' },
+      { status: 400 },
+    )
+  }
   // Untrusted request body — every field is validated at runtime below; the cast
   // just describes the shape those checks assume (no `any`).
   const body = parsed.data as {
@@ -44,10 +51,9 @@ export const POST = withTeamAuth(async (req: NextRequest, _ctx, user) => {
     description?: string
     goal?: string
     tone?: string
-    channels?: unknown
     aspectRatio?: AspectRatio
     designMode?: string
-    campaignId?: string
+    projectId?: unknown
     brandKitId?: string
     copyProviderKey?: string
     imageProviderKey?: string
@@ -67,10 +73,8 @@ export const POST = withTeamAuth(async (req: NextRequest, _ctx, user) => {
     description,
     goal,
     tone,
-    channels,
     aspectRatio,
     designMode,
-    campaignId,
     brandKitId,
     copyProviderKey,
     imageProviderKey,
@@ -94,21 +98,12 @@ export const POST = withTeamAuth(async (req: NextRequest, _ctx, user) => {
   if (tone != null && typeof tone !== 'string') {
     return NextResponse.json({ error: 'tone must be a string' }, { status: 400 })
   }
-  if (!Array.isArray(channels) || channels.length === 0) {
-    return NextResponse.json({ error: 'channels must be a non-empty array' }, { status: 400 })
+  // 039 D21: a `channels` key is ignored (Brief.channels is deprecated: no writer, no reader).
+  if (body.projectId != null && typeof body.projectId !== 'string') {
+    return NextResponse.json({ error: 'projectId must be a string' }, { status: 400 })
   }
-  // Normalize casing (legacy clients sent lowercase) and accept only publishable channels.
-  const normalizedChannels: Channel[] = []
-  for (const ch of channels) {
-    const upper = typeof ch === 'string' ? ch.toUpperCase() : null
-    if (!isPublishableChannel(upper)) {
-      return NextResponse.json(
-        { error: `channels entries must be one of: ${PUBLISHABLE_CHANNELS.join(', ')}` },
-        { status: 400 }
-      )
-    }
-    normalizedChannels.push(upper)
-  }
+  // A blank id is "no project" (a cleared wizard picker).
+  const projectId = typeof body.projectId === 'string' && body.projectId.trim() ? body.projectId.trim() : null
   if (!designMode || !['TEMPLATE', 'GENERATE'].includes(designMode)) {
     return NextResponse.json({ error: 'designMode must be TEMPLATE or GENERATE' }, { status: 400 })
   }
@@ -177,7 +172,7 @@ export const POST = withTeamAuth(async (req: NextRequest, _ctx, user) => {
   // against ANY team's provider row, which would let a brief reference, and
   // then at generation time resolve to, a different team's registered
   // provider/API key; see the matching fix in resolveCopyProvider).
-  const [copyProvider, imageProvider, campaign, template, brandKit] = await Promise.all([
+  const [copyProvider, imageProvider, project, template, brandKit] = await Promise.all([
     mustValidateCopyKey
       ? prisma.availableProvider.findFirst({
           where: { providerKey: resolvedCopyKey, slot: 'COPY', teamId: user.teamId, isEnabled: true },
@@ -195,8 +190,12 @@ export const POST = withTeamAuth(async (req: NextRequest, _ctx, user) => {
           },
         })
       : Promise.resolve(null),
-    campaignId
-      ? prisma.campaign.findFirst({ where: { id: campaignId, isDeleted: false } })
+    // 038 D12: a project id is checked against the caller's team, not deleted.
+    projectId
+      ? prisma.project.findFirst({
+          where: { id: projectId, teamId: user.teamId, isDeleted: false },
+          select: { id: true, defaultPostStyle: true, defaultTone: true },
+        })
       : Promise.resolve(null),
     // I2 (final review): include the template's brand kit so its team can be
     // checked below — an unscoped findUnique let a foreign team's template
@@ -223,8 +222,8 @@ export const POST = withTeamAuth(async (req: NextRequest, _ctx, user) => {
   // referenced record. The old 400-vs-404 split let a caller distinguish "bad
   // id" from "id exists in some other tenant" — a cross-tenant existence
   // oracle — by watching the status code alone.
-  if (campaignId && (!campaign || campaign.teamId !== user.teamId)) {
-    return NextResponse.json({ error: 'Campaign not found' }, { status: 404 })
+  if (projectId && !project) {
+    return NextResponse.json(PROJECT_NOT_FOUND, { status: 404 })
   }
   if (referenceTemplateId && (!template || template.brandKit.teamId !== user.teamId)) {
     return NextResponse.json({ error: 'Reference template not found' }, { status: 404 })
@@ -249,12 +248,12 @@ export const POST = withTeamAuth(async (req: NextRequest, _ctx, user) => {
   }
 
   // 027 FR-06: the one resolution of the post style (explicit key, else the
-  // legacy goal, else the campaign default, else General). An unknown key is a
+  // legacy goal, else the project default, else General). An unknown key is a
   // 400 and never degrades to "no style".
   const resolved = resolvePostStyle({
     style: body.postStyle as string | null | undefined,
     legacyGoal: goal,
-    campaign: campaign ? { defaultPostStyle: campaign.defaultPostStyle, defaultTone: campaign.defaultTone } : null,
+    project: project ? { defaultPostStyle: project.defaultPostStyle, defaultTone: project.defaultTone } : null,
     explicit: { tone, imageStyle: body.imageStyle == null ? null : style.value },
     path: designMode === 'TEMPLATE' ? 'A' : 'B',
     aspectRatio: aspectRatio ?? 'SQUARE',
@@ -318,11 +317,10 @@ export const POST = withTeamAuth(async (req: NextRequest, _ctx, user) => {
       postStyle: resolved.key,
       goal: resolved.goal,
       tone: resolved.tone,
-      channels: normalizedChannels,
       aspectRatio: aspectRatio ?? 'SQUARE',
       designMode: designMode as DesignMode,
       imageStyle,
-      campaignId: campaignId ?? null,
+      projectId: project?.id ?? null,
       brandKitId: brandKitId ?? null,
       copyProviderKey: resolvedCopyKey,
       imageProviderKey: imageProviderKey?.trim() ?? null,

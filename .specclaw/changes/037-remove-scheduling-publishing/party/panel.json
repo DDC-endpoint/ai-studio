@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "sig": "1591161122 5237",
+  "tier": "deep",
+  "tier_source": "classifier",
+  "rationale": "Drops the Post, ChannelToken, ScheduledGeneration and WorkerHeartbeat tables and their enums in a migration, removes the publish_post MCP/ACP capability, and removes the HOLD gate in the publish path, which changes persisted data shape and removes a capability other surfaces assume.",
+  "domains": ["security", "data"],
+  "seats": [
+    { "role": "party-po", "model": "sonnet" },
+    { "role": "party-architect", "model": "opus" },
+    { "role": "party-ba", "model": "sonnet" },
+    { "role": "party-security", "model": "opus" },
+    { "role": "party-visionary", "model": "opus" }
+  ],
+  "dropped": []
+}

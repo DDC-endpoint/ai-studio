@@ -5,15 +5,15 @@ import { prisma } from '@/lib/prisma'
 import { MOCK_AI } from '@/lib/testHooks'
 
 /**
- * Test-only seam: seed or clear the scheduler worker's heartbeat rows (023).
- * No worker runs in E2E, and the tick seams call the runners directly, so they
- * write no heartbeat. Dormant in production: hard 404 in prod builds, 404 unless
+ * Test-only seam: seed or clear the retention heartbeat row (023, 037 D12).
+ * No worker runs in E2E, so nothing writes a heartbeat unless this seam does.
+ * Dormant in production: hard 404 in prod builds, 404 unless
  * MOCK_AI is set, and admin-gated on top.
  */
 const bodySchema = z.union([
   z.object({ clear: z.literal(true) }),
   z.object({
-    loop: z.enum(['scheduler', 'generation']),
+    loop: z.literal('retention'),
     startedAgoMs: z.number().finite(),
     endedAgoMs: z.number().finite().nullable(),
   }),

@@ -98,10 +98,6 @@ describe('inlineEditBlockReason', () => {
     expect(inlineEditBlockReason('EXPORTED', null)).toBeNull()
   })
 
-  it('allows a PUBLISHED draft', () => {
-    expect(inlineEditBlockReason('PUBLISHED', null)).toBeNull()
-  })
-
   it('blocks when an action is pending', () => {
     expect(inlineEditBlockReason('EXPORTED', 'REFINE')).toMatch(/already running/i)
   })

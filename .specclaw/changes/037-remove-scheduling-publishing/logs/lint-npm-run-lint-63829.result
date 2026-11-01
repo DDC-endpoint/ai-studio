@@ -1,0 +1,7 @@
+exit=0
+duration_s=12
+log=.specclaw/changes/037-remove-scheduling-publishing/logs/lint-npm-run-lint-63829.log
+head=87302710c8bf9ab3bd9a5ed7a650354b6b5c95a2
+dirty=true
+cmd=npm run lint
+interrupted=false

@@ -61,7 +61,6 @@ vi.mock('@/lib/storage/minio', async (importOriginal) => ({
 }))
 vi.mock('@/lib/renderer/fontSet', () => ({ getFontSetId: () => 'fonts-test' }))
 vi.mock('@/lib/brandkit/resolve', () => ({ resolveBrandKit: async () => ({ id: 'kit', name: 'Kit' }) }))
-vi.mock('@/lib/campaign/briefing', () => ({ getActiveCampaignBriefing: async () => null }))
 vi.mock('@/lib/agent/briefInput', () => ({
   buildBriefInput: () => ({}),
   briefPostStyleStamp: () => null,
@@ -82,7 +81,7 @@ vi.mock('@/lib/api/handler', () => ({
     (req: unknown, ctx: { params: unknown }) =>
       handler(req, { params: ctx.params }, { userId: 'u1', teamId: 'team1' }),
 }))
-vi.mock('@/lib/authz/visibility', () => ({ canAccessContent: () => true }))
+vi.mock('@/lib/authz/visibility', () => ({ canView: () => true, canEditPost: () => true, NOT_AUTHOR: { code: 'not-author' } }))
 vi.mock('@/lib/drafts/draftActions', () => ({
   claimDraftAction: async () => ({ action: 'REGENERATE_DESIGN', claimId: 'c1' }),
   touchGeneration: async () => {},
@@ -96,7 +95,7 @@ import { discardOnLostClaim, RevisionConflictError } from '@/lib/drafts/revision
 import { DraftClaimLostError } from '@/lib/drafts/claim'
 
 const brief = {
-  id: 'b1', teamId: 'team1', userId: 'u1', campaignId: null, brandKitId: null,
+  id: 'b1', teamId: 'team1', userId: 'u1', brandKitId: null,
   designMode: 'GENERATE', aspectRatio: 'SQUARE', copyProviderKey: null,
 } as never
 const req = new Request('http://test/x', { method: 'POST' }) as never

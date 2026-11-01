@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "sig": "3235075962 4908",
+  "tier": "deep",
+  "tier_source": "classifier",
+  "rationale": "Changes the persisted caption shape by adding general and Facebook caption kinds through Postgres enum ALTERs, repurposes CAPTION_CHANNELS away from the publish list, and drops or ignores the wizard channel picker and Brief.channels, with the data-model choice left open to the plan.",
+  "domains": ["data"],
+  "seats": [
+    { "role": "party-po", "model": "sonnet" },
+    { "role": "party-architect", "model": "opus" },
+    { "role": "party-ba", "model": "sonnet" },
+    { "role": "party-security", "model": "opus" },
+    { "role": "party-visionary", "model": "opus" }
+  ],
+  "dropped": []
+}

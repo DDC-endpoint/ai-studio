@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { withTeamAdmin } from '@/lib/api/handler'
 import { uploadObject, publicUrl, BUCKET_BRANDKITS, validateUpload, RASTER_IMAGE_TYPES } from '@/lib/storage/minio'
-import { isAllowedDocument, parseDocumentText } from '@/lib/campaign/documents'
+import { isAllowedDocument, parseDocumentText } from '@/lib/projects/documents'
 import { shouldBecomePrimary } from '@/lib/brandkit/logos'
 import type { ArtifactType } from '@prisma/client'
 

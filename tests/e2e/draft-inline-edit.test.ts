@@ -25,9 +25,6 @@ async function createExportedDraft(api: ApiClient, topic: string) {
   const kit = await (
     await api.post('/api/admin/brandkits', { name: `Inline Kit ${topic}`, colors: ['#0284c7'] })
   ).json()
-  const camp = await (
-    await api.post('/api/campaigns', { name: `Inline Camp ${topic}`, brandKitId: kit.id })
-  ).json()
   const brief = await (
     await api.post('/api/briefs', {
       topic,
@@ -36,7 +33,7 @@ async function createExportedDraft(api: ApiClient, topic: string) {
       channels: ['INSTAGRAM'],
       designMode: 'GENERATE',
       copyProviderKey: 'cli',
-      campaignId: camp.id,
+      brandKitId: kit.id,
     })
   ).json()
   const assembleRes = await api.post('/api/generate/assemble-b', { briefId: brief.id })

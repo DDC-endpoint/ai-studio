@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test'
-import { loginAs, waitForDraft, waitForAction, findTeamIdByName, addTeamMember, type ApiClient } from '../helpers/api'
+import { loginAs, waitForDraft, waitForAction, curate, findTeamIdByName, addTeamMember, type ApiClient } from '../helpers/api'
 import { prisma, dbAvailable } from '../helpers/db'
 import { expectNoAxeViolations } from '../helpers/axe'
 import { ADMIN_EMAIL, expectNoHorizontalScroll, pageLogin } from '../helpers/ui'
@@ -15,13 +15,11 @@ import { ADMIN_EMAIL, expectNoHorizontalScroll, pageLogin } from '../helpers/ui'
 //   __FAIL_GEN_ALWAYS__    a generation that always fails
 //   __VERIFY_PASS__ / __VERIFY_FAIL_ALWAYS__   the mock verifier
 //   conflict_test          a brand-kit conflict on refine
-//   __FAIL_ALWAYS__        a publish that always fails (in the topic)
-//   POST /api/test/generation-tick   one scheduled-generation tick
 // New in this suite (all in the analytics seam): { failNext: n } makes the next
 // n event inserts fail; { seed: [...] } inserts rows with an explicit `at`;
 // { sweep: true } runs the retention sweep once.
 
-const MOCKED = () => !!(process.env.MOCK_AI && process.env.MOCK_PUPPETEER && process.env.MOCK_SOCIAL)
+const MOCKED = () => !!(process.env.MOCK_AI && process.env.MOCK_PUPPETEER)
 const PASSWORD = 'BistecStudio2026!'
 const EDITOR_EMAIL = 'editor@bisteccare.lk'
 const CLIENTX_EMAIL = 'clientx.admin@users.bistec.internal'
@@ -77,7 +75,7 @@ async function sweep(api: ApiClient): Promise<number> {
   return (await res.json()).deleted
 }
 
-async function createBrief(api: ApiClient, topic: string, campaignId?: string) {
+async function createBrief(api: ApiClient, topic: string, projectId?: string) {
   const res = await api.post('/api/briefs', {
     topic,
     goal: DESC_MARKER,
@@ -86,23 +84,16 @@ async function createBrief(api: ApiClient, topic: string, campaignId?: string) {
     channels: ['INSTAGRAM'],
     designMode: 'GENERATE',
     copyProviderKey: 'cli',
-    ...(campaignId ? { campaignId } : {}),
+    ...(projectId ? { projectId } : {}),
   })
   expect(res.status()).toBe(201)
   return res.json()
 }
 
-async function createCampaign(api: ApiClient, name: string): Promise<{ id: string }> {
-  const kit = await (await api.post('/api/admin/brandkits', { name: `${name} Kit`, colors: ['#0284c7'] })).json()
-  return (await api.post('/api/campaigns', { name, brandKitId: kit.id })).json()
-}
-
 // A rendered, EXPORTED draft; the captions it carries are remembered so the
 // no-text check can look for them.
 async function exportedDraft(api: ApiClient, topic: string): Promise<{ id: string } & Record<string, unknown>> {
-  // No campaign per draft: the team's default kit serves, and a suite that is run
-  // several times must not push the seeded fixtures out of the campaign list
-  // (GET /api/campaigns returns the newest 200; team-isolation reads its fixture there).
+  // No project per draft: the team's default kit serves.
   const brief = await createBrief(api, topic)
   const assemble = await api.post('/api/generate/assemble-b', { briefId: brief.id })
   expect(assemble.status()).toBe(202)
@@ -272,7 +263,7 @@ test.describe('§AD — product observability', () => {
     await clearStore(admin)
     expect((await admin.post(`/api/drafts/${draft.id}/regenerate-design`, {})).status()).toBe(202)
     await waitForAction(admin, draft.id)
-    expect((await admin.post(`/api/drafts/${draft.id}/regenerate-copy`, {})).status()).toBe(202)
+    expect((await admin.post(`/api/drafts/${draft.id}/regenerate-copy`, { kind: 'GENERAL' })).status()).toBe(202)
     await waitForAction(admin, draft.id)
 
     const settled = await waitEvents(admin, { draftId: draft.id }, 'draft_action.settled', 2)
@@ -300,54 +291,9 @@ test.describe('§AD — product observability', () => {
     expect(restored[0].payload).toEqual({ from: 2, to: 1 })
   })
 
-  test('TC-OBS-08: a publish writes one publish.settled per attempt: published, and failed', async () => {
-    if (!MOCKED()) { test.skip(); return }
-    const ok = await exportedDraft(admin, `Obs Publish ${Date.now()}`)
-    await clearStore(admin)
-    const post = await admin.post('/api/posts', { draftId: ok.id, channel: 'INSTAGRAM' })
-    expect(post.status()).toBe(201)
-    const published = byName(await events(admin, { draftId: ok.id as string }), 'publish.settled')
-    expect(published).toHaveLength(1)
-    expect(published[0]).toMatchObject({ outcome: 'published', source: 'web' })
-    expect(published[0].payload).toMatchObject({ channel: 'INSTAGRAM', terminal: true })
-
-    const bad = await exportedDraft(admin, `__FAIL_ALWAYS__ obs publish ${Date.now()}`)
-    await clearStore(admin)
-    const failedPost = await admin.post('/api/posts', { draftId: bad.id, channel: 'INSTAGRAM' })
-    expect(failedPost.status()).toBeGreaterThanOrEqual(400)
-    const failed = byName(await events(admin, { draftId: bad.id as string }), 'publish.settled')
-    expect(failed).toHaveLength(1)
-    expect(failed[0].outcome).toBe('failed')
-  })
-
-  test('TC-OBS-09: a scheduled generation writes generation.finished (scheduler) and scheduled_generation.settled', async () => {
-    if (!MOCKED() || !dbAvailable) { test.skip(); return }
-    const camp = await createCampaign(admin, `Obs Sched ${Date.now()}`)
-    const entry = await (await admin.post(`/api/campaigns/${camp.id}/queue`, {
-      topic: `Obs scheduled ${Date.now()}`,
-      goal: 'Awareness',
-      tone: 'professional',
-      channels: ['INSTAGRAM'],
-      designMode: 'GENERATE',
-      generateAt: new Date(Date.now() + 24 * 3600_000).toISOString(),
-      postAction: 'HOLD',
-    })).json()
-    await prisma!.scheduledGeneration.update({ where: { id: entry.id }, data: { generateAt: new Date(Date.now() - 1000), nextRetryAt: null } })
-    await clearStore(admin)
-    expect((await admin.post('/api/test/generation-tick', {})).status()).toBe(200)
-
-    const list = await events(admin)
-    const finished = byName(list, 'generation.finished')
-    const settled = byName(list, 'scheduled_generation.settled')
-    expect(finished).toHaveLength(1)
-    expect(finished[0]).toMatchObject({ source: 'scheduler', outcome: 'ok', userId: null })
-    expect(settled).toHaveLength(1)
-    expect(settled[0]).toMatchObject({ source: 'scheduler', outcome: 'completed' })
-  })
-
   // ── Failure isolation (AC-08) ────────────────────────────────────────────
 
-  test('TC-OBS-10: with the store failing, a generation, a refine and a publish still finish the same, and the loss is counted', async () => {
+  test('TC-OBS-10: with the store failing, a generation and a refine still finish the same, and the loss is counted', async () => {
     if (!MOCKED()) { test.skip(); return }
     // generation. The brief is created first: POST /api/briefs now writes its own
     // brief.submitted event, which would take the one failure meant for the generation.
@@ -371,13 +317,6 @@ test.describe('§AD — product observability', () => {
     await waitDrop(admin, 'draft_action.settled', 1)
     expect(byName(await events(admin, { draftId: draft.id }), 'draft_action.settled')).toHaveLength(0)
 
-    // publish: the post is still PUBLISHED
-    expect((await admin.post('/api/test/analytics-events', { failNext: 1 })).status()).toBe(200)
-    const post = await admin.post('/api/posts', { draftId: draft.id, channel: 'INSTAGRAM' })
-    expect(post.status()).toBe(201)
-    expect((await post.json()).status).toBe('PUBLISHED')
-    await waitDrop(admin, 'publish.settled', 1)
-    expect(byName(await events(admin, { draftId: draft.id }), 'publish.settled')).toHaveLength(0)
     expect((await admin.post('/api/test/analytics-events', { failNext: 0 })).status()).toBe(200)
   })
 
@@ -568,27 +507,17 @@ test.describe('§AD — product observability', () => {
     expect(await sweep(admin)).toBe(0)
   })
 
-  test('TC-OBS-16: the retention loop does not disturb the scheduler banner, and its own health shows on the page', async ({ page }) => {
-    if (!MOCKED() || !dbAvailable) { test.skip(); return }
-    expect((await admin.post('/api/test/worker-heartbeat', { loop: 'scheduler', startedAgoMs: 20_000, endedAgoMs: 10_000 })).status()).toBe(200)
-    expect((await admin.post('/api/test/worker-heartbeat', { loop: 'generation', startedAgoMs: 20_000, endedAgoMs: 10_000 })).status()).toBe(200)
-    // a retention loop that stopped an hour ago: it must not turn the banner on
-    await prisma!.workerHeartbeat.upsert({
-      where: { loop: 'retention' },
-      create: { loop: 'retention', lastTickStartedAt: new Date(Date.now() - 3_600_000), lastTickEndedAt: new Date(Date.now() - 3_599_000) },
-      update: { lastTickStartedAt: new Date(Date.now() - 3_600_000), lastTickEndedAt: new Date(Date.now() - 3_599_000) },
-    })
-    const status = await (await admin.get('/api/scheduler/status')).json()
-    expect(status.offline).toBe(false)
-    expect(status.loops.map((l: { loop: string }) => l.loop)).toEqual(['scheduler', 'generation'])
-
+  test('TC-OBS-16: the retention loop health shows on the page', async ({ page }) => {
+    if (!MOCKED()) { test.skip(); return }
+    // a retention loop that stopped an hour ago
+    expect((await admin.post('/api/test/worker-heartbeat', { loop: 'retention', startedAgoMs: 3_600_000, endedAgoMs: 3_599_000 })).status()).toBe(200)
     await pageLogin(page)
     await page.goto('/admin/insights')
     await expect(page.getByTestId('retention-loop-state')).toHaveText('stale')
-    await prisma!.workerHeartbeat.update({ where: { loop: 'retention' }, data: { lastTickStartedAt: new Date(), lastTickEndedAt: new Date() } })
+    expect((await admin.post('/api/test/worker-heartbeat', { loop: 'retention', startedAgoMs: 20_000, endedAgoMs: 10_000 })).status()).toBe(200)
     await page.reload()
     await expect(page.getByTestId('retention-loop-state')).toHaveText('online')
-    await prisma!.workerHeartbeat.delete({ where: { loop: 'retention' } })
+    await admin.post('/api/test/worker-heartbeat', { clear: true })
   })
 
   // ── Deletes (AC-14) ──────────────────────────────────────────────────────
@@ -715,7 +644,7 @@ test.describe('§AD — product observability', () => {
 
   async function walkWizardTo(page: Page, last: number) {
     const cont = page.getByRole('button', { name: /continue/i })
-    await expect(page.getByRole('heading', { name: 'Select a campaign' })).toBeVisible({ timeout: 20_000 })
+    await expect(page.getByRole('heading', { name: 'Select a project' })).toBeVisible({ timeout: 20_000 })
     if (last >= 1) {
       await cont.click()
       await expect(page.getByRole('heading', { name: 'Size & Design' })).toBeVisible()
@@ -780,7 +709,7 @@ test.describe('§AD — product observability', () => {
   test('TC-OBS-24: resuming a brief draft reports no steps up to where it stopped, then the next forward step with its draft id; Generate then writes brief.submitted resumed', async ({ page }) => {
     if (!MOCKED()) { test.skip(); return }
     const put = await admin.put('/api/brief-drafts', {
-      payload: { step: 3, campaignId: '', aspectRatio: 'SQUARE', brandKitId: '', designMode: 'GENERATE', templateId: '', referenceTemplateId: '', topic: WIZ_TOPIC, prompt: WIZ_PROMPT, goal: 'awareness', tone: 'professional', images: [] },
+      payload: { step: 3, projectId: '', aspectRatio: 'SQUARE', brandKitId: '', designMode: 'GENERATE', templateId: '', referenceTemplateId: '', topic: WIZ_TOPIC, prompt: WIZ_PROMPT, goal: 'awareness', tone: 'professional', images: [] },
     })
     expect(put.status()).toBe(200)
     const draftId = (await put.json()).id as string
@@ -808,7 +737,7 @@ test.describe('§AD — product observability', () => {
   test('TC-OBS-25: discarding a brief draft writes brief.abandoned discarded with its last step; a foreign id and the Generate-success delete write nothing', async ({ request }) => {
     if (!MOCKED()) { test.skip(); return }
     const draft = (step: number) => ({
-      payload: { step, campaignId: '', aspectRatio: 'SQUARE', brandKitId: '', designMode: 'GENERATE', templateId: '', referenceTemplateId: '', topic: WIZ_TOPIC, prompt: WIZ_PROMPT, goal: 'awareness', tone: 'professional', images: [] },
+      payload: { step, projectId: '', aspectRatio: 'SQUARE', brandKitId: '', designMode: 'GENERATE', templateId: '', referenceTemplateId: '', topic: WIZ_TOPIC, prompt: WIZ_PROMPT, goal: 'awareness', tone: 'professional', images: [] },
     })
     const id = (await (await admin.put('/api/brief-drafts', draft(3))).json()).id as string
     const keep = (await (await admin.put('/api/brief-drafts', draft(2))).json()).id as string
@@ -833,7 +762,7 @@ test.describe('§AD — product observability', () => {
   test('TC-OBS-26: a brief draft idle for 8 days is swept by the dashboard read and writes brief.abandoned expired', async ({ page }) => {
     if (!MOCKED() || !dbAvailable) { test.skip(); return }
     const put = await admin.put('/api/brief-drafts', {
-      payload: { step: 2, campaignId: '', aspectRatio: 'SQUARE', brandKitId: '', designMode: 'GENERATE', templateId: '', referenceTemplateId: '', topic: WIZ_TOPIC, prompt: WIZ_PROMPT, goal: 'awareness', tone: 'professional', images: [] },
+      payload: { step: 2, projectId: '', aspectRatio: 'SQUARE', brandKitId: '', designMode: 'GENERATE', templateId: '', referenceTemplateId: '', topic: WIZ_TOPIC, prompt: WIZ_PROMPT, goal: 'awareness', tone: 'professional', images: [] },
     })
     const id = (await put.json()).id as string
     await prisma!.briefDraft.update({ where: { id }, data: { updatedAt: new Date(Date.now() - 8 * 86_400_000) } })
@@ -871,7 +800,7 @@ test.describe('§AD — product observability', () => {
     const other = await freshEditor(request)
     try {
       const theirs = (await (await other.api.put('/api/brief-drafts', {
-        payload: { step: 1, campaignId: '', aspectRatio: 'SQUARE', brandKitId: '', designMode: 'GENERATE', templateId: '', referenceTemplateId: '', topic: 'theirs', prompt: 'their private prompt text', goal: 'awareness', tone: 'professional', images: [] },
+        payload: { step: 1, projectId: '', aspectRatio: 'SQUARE', brandKitId: '', designMode: 'GENERATE', templateId: '', referenceTemplateId: '', topic: 'theirs', prompt: 'their private prompt text', goal: 'awareness', tone: 'professional', images: [] },
       })).json()).id as string
       expect((await admin.post('/api/events', { name: 'wizard.step', payload: { step: 1, briefDraftId: theirs } })).status()).toBe(404)
       expect((await other.api.post('/api/events', { name: 'wizard.step', payload: { step: 1, briefDraftId: theirs } })).status()).toBe(204)
@@ -991,7 +920,7 @@ test.describe('§AD — product observability', () => {
 
   // ── Post styles (027 FR-14, AC-14) ───────────────────────────────────────
 
-  test('TC-OBS-31: brief.submitted, generation.finished and scheduled_generation.settled carry the post style, the facts status and held; none holds a flagged value', async () => {
+  test('TC-OBS-31: brief.submitted and generation.finished carry the post style and the facts status; none holds a flagged value', async () => {
     if (!MOCKED() || !dbAvailable) { test.skip(); return }
     const generate = async (topic: string, postStyle: string) => {
       const res = await admin.post('/api/briefs', { topic, postStyle, channels: ['INSTAGRAM'], designMode: 'GENERATE', copyProviderKey: 'cli' })
@@ -1010,43 +939,144 @@ test.describe('§AD — product observability', () => {
     const submitted = byName(await events(admin), 'brief.submitted')
     expect(submitted.map((e) => e.payload.postStyle).sort()).toEqual(['promotion', 'tip'])
 
-    // two invented values, each placed in the headline and both captions: six flags
+    // two invented values, each placed in the headline and the general caption: four flags
     const [f] = await waitEvents(admin, { draftId: flagged.id }, 'generation.finished', 1)
-    expect(f.payload).toMatchObject({ postStyle: 'promotion', factsStatus: 'flagged', factsFlagCount: 6 })
+    expect(f.payload).toMatchObject({ postStyle: 'promotion', factsStatus: 'flagged', factsFlagCount: 4 })
     const [c] = await waitEvents(admin, { draftId: clear.id }, 'generation.finished', 1)
     expect(c.payload).toMatchObject({ postStyle: 'tip', factsStatus: 'clear', factsFlagCount: 0 })
 
-    // The scheduler: a flagged check holds a PUBLISH_NOW entry, a HOLD entry is not held.
-    const camp = await createCampaign(admin, `Obs Style Sched ${Date.now()}`)
-    const addEntry = async (topic: string, postAction: string) => {
-      const entry = await (await admin.post(`/api/campaigns/${camp.id}/queue`, {
-        topic, postStyle: 'launch', channels: ['INSTAGRAM'], designMode: 'GENERATE',
-        generateAt: new Date(Date.now() + 24 * 3600_000).toISOString(), postAction,
-      })).json()
-      await prisma!.scheduledGeneration.update({ where: { id: entry.id }, data: { generateAt: new Date(Date.now() - 1000), nextRetryAt: null } })
-      return entry.id as string
-    }
-    await clearStore(admin)
-    await addEntry(`__MOCK_FACT_PRICE__ Obs held ${Date.now()}`, 'PUBLISH_NOW')
-    expect((await admin.post('/api/test/generation-tick', {})).status()).toBe(200)
-    const heldEvent = byName(await events(admin), 'scheduled_generation.settled')
-    expect(heldEvent).toHaveLength(1)
-    expect(heldEvent[0]).toMatchObject({ outcome: 'completed' })
-    expect(heldEvent[0].payload).toMatchObject({ postStyle: 'launch', held: true })
-
-    await clearStore(admin)
-    await addEntry(`Obs hold ${Date.now()}`, 'HOLD')
-    expect((await admin.post('/api/test/generation-tick', {})).status()).toBe(200)
-    const holdEvent = byName(await events(admin), 'scheduled_generation.settled')
-    expect(holdEvent).toHaveLength(1)
-    expect(holdEvent[0].payload).toMatchObject({ postStyle: 'launch', held: false })
-
     // NFR-05: the invented values the mock wrote never reach an event.
-    for (const e of [...submitted, f, c, ...heldEvent, ...holdEvent]) {
+    for (const e of [...submitted, f, c]) {
       const text = JSON.stringify(e.payload)
       expect(text, `${e.name} payload`).not.toContain('$49')
       expect(text, `${e.name} payload`).not.toContain('30 March 2027')
     }
+  })
+
+  // ── Captions (039 D22, D23, AC-21, AC-22) ────────────────────────────────
+
+  test('TC-OBS-32: Copy on the general caption writes one caption.copied with the draft id; a repeat within 10 s is dropped; a foreign draft is 404 and a non-registry pair is 400', async ({ page, playwright }) => {
+    if (!MOCKED() || !dbAvailable) { test.skip(); return }
+    await page.context().grantPermissions(['clipboard-read', 'clipboard-write'])
+    const draft = await exportedDraft(admin, `Obs Copy ${Date.now()}`)
+    await pageLogin(page)
+    await page.goto(`/drafts/${draft.id}`)
+    await expect(page.getByTestId('download-button')).toBeVisible({ timeout: 20_000 })
+
+    const send = page.waitForResponse((r) => r.url().endsWith('/api/events') && r.request().method() === 'POST')
+    await page.getByRole('button', { name: 'Copy general caption', exact: true }).click()
+    expect((await send).status()).toBe(204)
+    const copied = await waitEvents(admin, {}, 'caption.copied', 1)
+    expect(copied).toHaveLength(1)
+    expect(copied[0]).toMatchObject({ source: 'web', outcome: null, draftId: draft.id, payload: { kind: 'GENERAL', channel: null } })
+    expect(copied[0].teamId).toBeTruthy()
+    expect(copied[0].userId).toBeTruthy()
+
+    // A second copy of the same caption inside 10 s: 204, not stored, counted as dropped.
+    const again = page.waitForResponse((r) => r.url().endsWith('/api/events') && r.request().method() === 'POST')
+    await page.getByRole('button', { name: 'Copy general caption', exact: true }).click()
+    expect((await again).status()).toBe(204)
+    await waitDrop(admin, 'caption.copied', 1)
+    expect(byName(await events(admin), 'caption.copied')).toHaveLength(1)
+
+    // A non-registry pair is 400, a missing or unknown draft is 404; nothing is stored for either.
+    for (const payload of [{ kind: 'CURATED', channel: 'WHATSAPP' }, { kind: 'GENERAL', channel: 'INSTAGRAM' }, { kind: 'CURATED', channel: null }, { kind: 'GENERAL' }]) {
+      expect((await admin.post('/api/events', { name: 'caption.copied', draftId: draft.id, payload })).status(), JSON.stringify(payload)).toBe(400)
+    }
+    const good = { kind: 'GENERAL', channel: null }
+    expect((await admin.post('/api/events', { name: 'caption.copied', payload: good })).status()).toBe(404)
+    expect((await admin.post('/api/events', { name: 'caption.copied', draftId: 'no-such-draft', payload: good })).status()).toBe(404)
+    const outsider = await loginAs(await playwright.request.newContext({ baseURL: process.env.TEST_BASE_URL }), CLIENTX_EMAIL, PASSWORD)
+    try {
+      expect((await outsider.post('/api/events', { name: 'caption.copied', draftId: draft.id, payload: good })).status()).toBe(404)
+    } finally {
+      await outsider.dispose()
+    }
+    // No session: 401 (a bogus cookie reaches the route's own check).
+    const anon = await playwright.request.newContext({ baseURL: process.env.TEST_BASE_URL, extraHTTPHeaders: { cookie: 'better-auth.session_token=not-a-real-session' } })
+    try {
+      expect((await anon.post('/api/events', { data: { name: 'caption.copied', draftId: draft.id, payload: good } })).status()).toBe(401)
+    } finally {
+      await anon.dispose()
+    }
+    await new Promise((r) => setTimeout(r, 400))
+    expect(byName(await events(admin), 'caption.copied')).toHaveLength(1)
+  })
+
+  test('TC-OBS-33: a Facebook curate writes one draft_action.settled with captionKind CURATED, channel FACEBOOK, captionOp create and ok; a second writes replace', async () => {
+    if (!MOCKED()) { test.skip(); return }
+    const draft = await exportedDraft(admin, `Obs Curate ${Date.now()}`)
+    const id = draft.id as string
+    const settled = async (n: number) =>
+      (await waitEvents(admin, { draftId: id }, 'draft_action.settled', n)).filter((e) => e.payload.action === 'REGENERATE_COPY')
+
+    rememberText(await curate(admin, id, 'FACEBOOK'))
+    const first = await settled(1)
+    expect(first).toHaveLength(1)
+    expect(first[0]).toMatchObject({ outcome: 'ok', source: 'web', payload: { action: 'REGENERATE_COPY', captionKind: 'CURATED', channel: 'FACEBOOK', captionOp: 'create' } })
+
+    rememberText(await curate(admin, id, 'FACEBOOK'))
+    const both = await settled(2)
+    expect(both).toHaveLength(2)
+    expect(both.map((e) => e.payload.captionOp).sort()).toEqual(['create', 'replace'])
+    expect(both.every((e) => e.outcome === 'ok' && e.payload.captionKind === 'CURATED' && e.payload.channel === 'FACEBOOK')).toBe(true)
+  })
+
+  test('TC-OBS-34: the Captions section equals a hand count over a seeded set, and the copies column reads client-reported', async ({ page }) => {
+    if (!MOCKED()) { test.skip(); return }
+    const team = await findTeamIdByName(admin, 'Bistec')
+    const at = (hoursAgo: number) => new Date(Date.now() - hoursAgo * 3600_000).toISOString()
+    const row = (name: string, outcome: string | null, payload: Record<string, unknown>, draftId: string | null = null, hoursAgo = 2) =>
+      ({ name, source: 'web', teamId: team, userId: 'u1', draftId, outcome, at: at(hoursAgo), payload })
+    const settled = (outcome: string, payload: Record<string, unknown>, draftId: string, hoursAgo = 2) =>
+      row('draft_action.settled', outcome, { action: 'REGENERATE_COPY', ...payload }, draftId, hoursAgo)
+    const downloaded = { rendered: false, factsStatus: null, headlineState: 'fresh' }
+    const rows = [
+      ...Array.from({ length: 4 }, () => row('generation.finished', 'ok', {})),
+      row('generation.finished', 'failed', {}),
+      settled('ok', { captionKind: 'GENERAL' }, 'sd1'),
+      settled('ok', { captionKind: 'CURATED', channel: 'INSTAGRAM', captionOp: 'create' }, 'sd1'),
+      settled('ok', { captionKind: 'CURATED', channel: 'INSTAGRAM', captionOp: 'create' }, 'sd2'),
+      settled('failed', { captionKind: 'CURATED', channel: 'LINKEDIN', captionOp: 'create' }, 'sd3'),
+      settled('ok', { captionKind: 'CURATED', channel: 'FACEBOOK', captionOp: 'create' }, 'sd1'),
+      settled('ok', { captionKind: 'CURATED', channel: 'FACEBOOK', captionOp: 'replace' }, 'sd1'),
+      ...Array.from({ length: 3 }, () => row('caption.copied', null, { kind: 'GENERAL', channel: null }, 'sd1')),
+      ...Array.from({ length: 2 }, () => row('caption.copied', null, { kind: 'CURATED', channel: 'INSTAGRAM' }, 'sd1')),
+      row('caption.copied', null, { kind: 'CURATED', channel: 'FACEBOOK' }, 'sd1'),
+      ...Array.from({ length: 5 }, () => row('draft.downloaded', 'ok', downloaded, 'sd1')),
+      ...Array.from({ length: 2 }, () => row('draft.downloaded', 'failed', downloaded, 'sd1')),
+      // outside the 30-day range: counted by nothing
+      settled('ok', { captionKind: 'CURATED', channel: 'INSTAGRAM', captionOp: 'create' }, 'sd9', 24 * 40),
+    ]
+    await seed(admin, rows)
+
+    // The 4 ok generations are the general written, plus one general regenerate.
+    const expected = [
+      { key: 'GENERAL', label: 'General', written: 5, failed: 0, copied: 3 },
+      { key: 'INSTAGRAM', label: 'Instagram', written: 2, failed: 0, copied: 2 },
+      { key: 'LINKEDIN', label: 'LinkedIn', written: 0, failed: 1, copied: 0 },
+      { key: 'FACEBOOK', label: 'Facebook', written: 2, failed: 0, copied: 1 },
+    ]
+    const captions = (await (await admin.get('/api/admin/insights?range=30d')).json()).captions
+    expect(captions.rows).toEqual(expected)
+    expect(captions.downloads).toEqual({ ok: 5, failed: 2 })
+    // sd1 and sd2 hold a created curated caption; 4 posts were generated ok.
+    expect(captions.curateRate).toEqual({ curated: 2, generated: 4, rate: 0.5 })
+
+    await pageLogin(page)
+    await page.goto('/admin/insights')
+    await expect(page.getByTestId('insights-body')).toBeVisible()
+    const section = page.getByTestId('section-captions')
+    await expect(section.getByRole('columnheader', { name: 'Copied (client-reported)' })).toBeVisible()
+    for (const e of expected) {
+      const r = page.getByTestId(`caption-row-${e.key}`)
+      await expect(r).toContainText(e.label)
+      await expect(r.getByRole('cell').nth(1)).toHaveText(String(e.written))
+      await expect(r.getByRole('cell').nth(2)).toHaveText(String(e.failed))
+      await expect(r.getByRole('cell').nth(3)).toHaveText(String(e.copied))
+    }
+    await expect(page.getByTestId('captions-downloads')).toContainText('5 ok, 2 failed')
+    await expect(page.getByTestId('captions-curate-rate')).toContainText('50%')
   })
 
   // ── Privacy (AC-04) ──────────────────────────────────────────────────────
@@ -1055,6 +1085,10 @@ test.describe('§AD — product observability', () => {
     if (!MOCKED()) { test.skip(); return }
     expect(collected.length).toBeGreaterThan(10)
     expect(forbiddenText.size).toBeGreaterThan(0)
+    // 039 D22: the caption events hold enums only (kind and channel), never text.
+    const copies = collected.filter((e) => e.name === 'caption.copied')
+    expect(copies.length).toBeGreaterThan(0)
+    for (const e of copies) expect(Object.keys(e.payload).sort(), 'caption.copied keys').toEqual(['channel', 'kind'])
     for (const e of collected) {
       const text = JSON.stringify(e.payload)
       expect(text, `${e.name} payload`).not.toContain(DESC_MARKER)

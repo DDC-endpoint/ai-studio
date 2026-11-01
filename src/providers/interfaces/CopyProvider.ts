@@ -10,17 +10,22 @@ export interface BriefInput {
   description: string
   goal: string
   tone: string
-  channels: string[]
   // Resolved brand identity (kit name + active voice prompt), when available —
   // lets copy match the selected kit's voice instead of a hardcoded brand.
   brandName?: string
   brandVoice?: string
-  // Active campaign briefing (campaign-level context shared by every post in
-  // the campaign), when the brief belongs to a campaign that has one.
-  campaignBriefing?: string
+  // Active project briefing (project-level context shared by every post in
+  // the project), when the brief belongs to a project that has one.
+  projectBriefing?: string
   // 027 FR-09: the caption-scope rules of the brief's post style, already
   // rendered by checklistPromptText. Absent for a brief with no style.
   captionRules?: string
+  // 039 D18: the post's general caption, passed to a curate so the channel
+  // caption keeps its facts. Absent when the post has none (or for a generation).
+  generalCaption?: string
+  // 039 D17: set when the post's brand kit has a website, so the prompt says that the
+  // app adds the link (the model never writes one).
+  kitWebsite?: string
 }
 
 // The COPY slot keeps its name (it also drives brand-voice drafting). One call

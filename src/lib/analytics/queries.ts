@@ -20,13 +20,16 @@
 //                    step's count over step 0's.
 //   durations      = successful (`ok`) events only, p50 and p90 by surface.
 import { prisma } from '@/lib/prisma'
-import { OFFLINE_THRESHOLD_MS } from '@/lib/scheduler/heartbeatStatus'
 import { getStyle, POST_STYLE_KEYS } from '@/lib/postStyles'
+import { CAPTION_REGISTRY } from '@/lib/channels'
 
 export const RANGES = ['7d', '30d', '90d'] as const
 export type InsightsRange = (typeof RANGES)[number]
 export const DEFAULT_RANGE: InsightsRange = '30d'
 const DAY_MS = 86_400_000
+
+/** Three missed 60 s polls: how long the retention loop may stay silent before Insights calls it stalled. */
+export const OFFLINE_THRESHOLD_MS = 180_000
 
 export interface DateRange {
   from: Date
@@ -128,7 +131,6 @@ export interface PostStyleRow {
   chosen: number
   generations: number
   flagged: number
-  held: number
 }
 
 /**
@@ -147,9 +149,46 @@ export function shapePostStyles(rows: PostStyleRow[]) {
       generations,
       flagged,
       flagRate: ratio(flagged, generations),
-      held: r?.held ?? 0,
     }
   })
+}
+
+export interface CaptionCountRow {
+  kind: string
+  channel: string | null
+  written: number
+  failed: number
+  copied: number
+}
+export interface CaptionsInput {
+  rows: CaptionCountRow[]
+  downloads: { ok: number; failed: number }
+  /** Posts with a curated caption created (distinct), and posts generated ok. */
+  curated: number
+  generated: number
+}
+
+/**
+ * One row per registry entry, in registry order, zeros for an entry no event
+ * names (039 FR-20). `copied` is client-reported. curateRate = curated posts /
+ * posts generated, null with no generations; reading it is a judgement on the
+ * page, not a rule (a rate under 10% over 30 days suggests curation is not wanted).
+ */
+export function shapeCaptions(input: CaptionsInput) {
+  return {
+    rows: CAPTION_REGISTRY.map((spec) => {
+      const r = input.rows.find((x) => x.kind === spec.kind && x.channel === spec.channel)
+      return {
+        key: spec.channel ?? spec.kind,
+        label: spec.label,
+        written: r?.written ?? 0,
+        failed: r?.failed ?? 0,
+        copied: r?.copied ?? 0,
+      }
+    }),
+    downloads: input.downloads,
+    curateRate: { curated: input.curated, generated: input.generated, rate: ratio(input.curated, input.generated) },
+  }
 }
 
 export const WIZARD_STEPS = [0, 1, 2, 3, 4] as const
@@ -326,10 +365,9 @@ async function postStyles({ from, to }: DateRange) {
     SELECT payload->>'postStyle' AS style,
            (count(*) FILTER (WHERE name = 'brief.submitted'))::int AS chosen,
            (count(*) FILTER (WHERE name = 'generation.finished'))::int AS generations,
-           (count(*) FILTER (WHERE name = 'generation.finished' AND payload->>'factsStatus' = 'flagged'))::int AS flagged,
-           (count(*) FILTER (WHERE name = 'scheduled_generation.settled' AND payload->>'held' = 'true'))::int AS held
+           (count(*) FILTER (WHERE name = 'generation.finished' AND payload->>'factsStatus' = 'flagged'))::int AS flagged
     FROM "AnalyticsEvent"
-    WHERE name IN ('brief.submitted', 'generation.finished', 'scheduled_generation.settled')
+    WHERE name IN ('brief.submitted', 'generation.finished')
       AND payload->>'postStyle' IS NOT NULL
       AND "at" >= ${from} AND "at" < ${to}
     GROUP BY 1`
@@ -442,15 +480,73 @@ async function retentionHealth(now: Date) {
   }
 }
 
+async function captions({ from, to }: DateRange) {
+  const [settled, generated, copied, downloads, curated] = await Promise.all([
+    prisma.$queryRaw<{ kind: string; channel: string | null; written: number; failed: number }[]>`
+      SELECT COALESCE(payload->>'captionKind', 'CURATED') AS kind, payload->>'channel' AS channel,
+             (count(*) FILTER (WHERE outcome = 'ok'))::int AS written,
+             (count(*) FILTER (WHERE outcome = 'failed'))::int AS failed
+      FROM "AnalyticsEvent"
+      WHERE name = 'draft_action.settled' AND payload->>'action' = 'REGENERATE_COPY'
+        AND (payload->>'captionKind' IS NOT NULL OR payload->>'channel' IS NOT NULL)
+        AND "at" >= ${from} AND "at" < ${to}
+      GROUP BY 1, 2`,
+    prisma.$queryRaw<{ n: number }[]>`
+      SELECT (count(*) FILTER (WHERE outcome = 'ok'))::int AS n
+      FROM "AnalyticsEvent"
+      WHERE name = 'generation.finished' AND "at" >= ${from} AND "at" < ${to}`,
+    prisma.$queryRaw<{ kind: string; channel: string | null; n: number }[]>`
+      SELECT payload->>'kind' AS kind, payload->>'channel' AS channel, count(*)::int AS n
+      FROM "AnalyticsEvent"
+      WHERE name = 'caption.copied' AND "at" >= ${from} AND "at" < ${to}
+      GROUP BY 1, 2`,
+    prisma.$queryRaw<{ ok: number; failed: number }[]>`
+      SELECT (count(*) FILTER (WHERE outcome = 'ok'))::int AS ok,
+             (count(*) FILTER (WHERE outcome = 'failed'))::int AS failed
+      FROM "AnalyticsEvent"
+      WHERE name = 'draft.downloaded' AND "at" >= ${from} AND "at" < ${to}`,
+    prisma.$queryRaw<{ n: number }[]>`
+      SELECT count(DISTINCT "draftId")::int AS n
+      FROM "AnalyticsEvent"
+      WHERE name = 'draft_action.settled' AND payload->>'action' = 'REGENERATE_COPY'
+        AND payload->>'captionKind' = 'CURATED' AND payload->>'captionOp' = 'create'
+        AND outcome = 'ok' AND "draftId" IS NOT NULL
+        AND "at" >= ${from} AND "at" < ${to}`,
+  ])
+  const generalGenerated = generated[0]?.n ?? 0
+  const rows = new Map<string, CaptionCountRow>()
+  const rowFor = (kind: string, channel: string | null) => {
+    const key = `${kind}|${channel ?? ''}`
+    let r = rows.get(key)
+    if (!r) rows.set(key, (r = { kind, channel, written: 0, failed: 0, copied: 0 }))
+    return r
+  }
+  for (const r of settled) {
+    const row = rowFor(r.kind, r.channel)
+    row.written += r.written
+    row.failed += r.failed
+  }
+  // A generation writes the general caption; a regenerate is counted above.
+  rowFor('GENERAL', null).written += generalGenerated
+  for (const r of copied) rowFor(r.kind, r.channel).copied += r.n
+  return shapeCaptions({
+    rows: [...rows.values()],
+    downloads: downloads[0] ?? { ok: 0, failed: 0 },
+    curated: curated[0]?.n ?? 0,
+    generated: generalGenerated,
+  })
+}
+
 // ── The one entry point ────────────────────────────────────────────────────
 
 export async function insights(range: InsightsRange, now: Date = new Date()) {
   const window = rangeFor(range, now)
-  const [refineSection, failureSection, styles, postStyleRows, durationRows, funnelSection, teams, lost, retention] = await Promise.all([
+  const [refineSection, failureSection, styles, postStyleRows, captionSection, durationRows, funnelSection, teams, lost, retention] = await Promise.all([
     refine(window),
     failures(window),
     imageStyles(window),
     postStyles(window),
+    captions(window),
     durations(window),
     funnel(window),
     teamActivity(window),
@@ -465,6 +561,7 @@ export async function insights(range: InsightsRange, now: Date = new Date()) {
     failures: failureSection,
     styles,
     postStyles: postStyleRows,
+    captions: captionSection,
     durations: durationRows,
     funnel: funnelSection,
     teams,

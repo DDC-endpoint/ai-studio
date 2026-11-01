@@ -27,8 +27,6 @@ const EDITOR_PASSWORD = 'BistecStudio2026!'
 async function createExportedDraft(api: ApiClient) {
   const kitRes = await api.post('/api/admin/brandkits', { name: 'AGUI Test Kit', colors: ['#0284c7'] })
   const kit = await kitRes.json()
-  const campRes = await api.post('/api/campaigns', { name: 'AGUI Campaign', brandKitId: kit.id })
-  const camp = await campRes.json()
   const briefRes = await api.post('/api/briefs', {
     topic: 'AGUI Refinement Test',
     goal: 'Test AGUI',
@@ -36,7 +34,7 @@ async function createExportedDraft(api: ApiClient) {
     channels: ['INSTAGRAM'],
     designMode: 'GENERATE',
     copyProviderKey: 'cli',
-    campaignId: camp.id,
+    brandKitId: kit.id,
   })
   const brief = await briefRes.json()
   // Generation is async: assemble returns 202 { draftId }; poll until EXPORTED.
@@ -186,32 +184,26 @@ test.describe('AGUI design refinement', () => {
     numbers.forEach((n: number, i: number) => expect(n).toBe(i + 1))
   })
 
-  // TC-AGUI-06 — team tenancy D6: "team-shared" is precisely "the brief has a
-  // non-null campaignId" — createExportedDraft's fixture is campaign-scoped,
-  // so an in-team editor CAN refine it (canAccessContent allows own OR
-  // under-a-campaign). Rewritten from the pre-team-tenancy "always 403" to
-  // match D6, plus a second case with a non-campaign (private, uncategorized)
-  // fixture proving the boundary still holds for in-team-but-private drafts.
-  test('an in-team editor CAN refine a campaign-shared draft owned by the admin (D6)', async ({ request }) => {
+  // TC-AGUI-06 — 038 D10/D11: every team member sees every post, but only the
+  // author and team admins change one. An in-team editor refining the admin's
+  // draft gets 403 `not-author` (the full per-route matrix is post-permissions).
+  test('an in-team editor cannot refine a draft owned by the admin (403 not-author)', async ({ request }) => {
     if (!process.env.MOCK_AI || !process.env.MOCK_PUPPETEER) { test.skip(); return }
-    const draft = await createExportedDraft(api) // owned by the admin, under a campaign (beforeEach loginAs)
+    const draft = await createExportedDraft(api) // owned by the admin (beforeEach loginAs)
     if (!draft) { test.skip(); return }
 
     const editor = await loginAs(request, EDITOR_EMAIL, EDITOR_PASSWORD)
     try {
       const res = await editor.post(`/api/drafts/${draft.id}/refine`, { instruction: 'Make it pop' })
-      expect(res.status()).toBe(202)
-      await waitForAction(editor, draft.id as string)
+      expect(res.status()).toBe(403)
+      expect((await res.json()).code).toBe('not-author')
     } finally {
       await editor.dispose()
     }
   })
 
-  // TC-AGUI-06b — the D6 boundary still holds for a PRIVATE (uncategorized,
-  // no campaign) draft: an in-team editor gets 404 (not 403 — cross-boundary
-  // access must not leak existence, per canAccessContent/Task 9), same as
-  // any other by-id route.
-  test('an in-team editor cannot refine a PRIVATE (uncategorized) draft owned by the admin', async ({ request }) => {
+  // TC-AGUI-06b — the same holds for a draft with no project: 403 not-author.
+  test('an in-team editor cannot refine an uncategorized draft owned by the admin (403)', async ({ request }) => {
     if (!process.env.MOCK_AI || !process.env.MOCK_PUPPETEER) { test.skip(); return }
     const kitRes = await api.post('/api/admin/brandkits', { name: 'AGUI Private Kit', colors: ['#0284c7'] })
     const kit = await kitRes.json()
@@ -222,7 +214,7 @@ test.describe('AGUI design refinement', () => {
       channels: ['INSTAGRAM'],
       designMode: 'GENERATE',
       copyProviderKey: 'cli',
-      brandKitId: kit.id, // no campaignId — private, uncategorized
+      brandKitId: kit.id, // no projectId — uncategorized
     })
     const brief = await briefRes.json()
     const assembleRes = await api.post('/api/generate/assemble-b', { briefId: brief.id })
@@ -234,7 +226,7 @@ test.describe('AGUI design refinement', () => {
     const editor = await loginAs(request, EDITOR_EMAIL, EDITOR_PASSWORD)
     try {
       const res = await editor.post(`/api/drafts/${draft.id}/refine`, { instruction: 'Make it pop' })
-      expect(res.status()).toBe(404)
+      expect(res.status()).toBe(403)
     } finally {
       await editor.dispose()
     }
@@ -358,7 +350,7 @@ async function rejectedCount(draftId: string): Promise<number> {
 
 let fidelityKitId: string | null = null
 
-// An EXPORTED private draft (no campaign — keeps the campaign list small),
+// An EXPORTED private draft (no project),
 // optionally moved onto a specific before-document through inline-edit.
 async function fidelityDraft(api: ApiClient, tag: string, beforeHtml?: string): Promise<Arranged> {
   if (!fidelityKitId) {
@@ -835,7 +827,7 @@ test.describe('§V — refine fidelity contract', () => {
     expect(afterDesign.notApplied).toBeNull()
     expect(afterDesign.currentRevisionNumber).toBe(draft.pointer + 1)
 
-    const copy = await api.post(`/api/drafts/${draft.id}/regenerate-copy`, {})
+    const copy = await api.post(`/api/drafts/${draft.id}/regenerate-copy`, { kind: 'GENERAL' })
     expect(copy.status()).toBe(202)
     expect(await copy.json()).toEqual({ ok: true })
     const afterCopy = await waitForAction(api, draft.id)

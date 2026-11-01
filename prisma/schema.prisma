@@ -29,7 +29,6 @@ enum AspectRatio {
 enum DraftStatus {
   IN_PROGRESS
   EXPORTED
-  PUBLISHED
   FAILED
 }
 
@@ -48,43 +47,24 @@ enum Channel {
   INSTAGRAM
   LINKEDIN
   WHATSAPP
+  FACEBOOK
 }
 
 // One caption row's state (012 FR-02). PENDING = a generation or regenerate is
 // writing it now; READY = validated model output or the user's own text (may
 // be empty); FAILED = the last attempt produced no usable text AND the row has
 // none — the DraftCaption_failed_has_no_text CHECK constraint enforces that.
+// 039 D1: a caption is the one general caption of a post, or a curated caption
+// for one channel. GENERAL has no channel (CHECK DraftCaption_kind_channel).
+enum CaptionKind {
+  GENERAL
+  CURATED
+}
+
 enum CaptionStatus {
   PENDING
   READY
   FAILED
-}
-
-enum PostStatus {
-  PENDING
-  SCHEDULED
-  PUBLISHING
-  PUBLISHED
-  FAILED
-  CANCELLED
-}
-
-// Lifecycle of a scheduled post generation (mirrors Post's H12 machinery:
-// RUNNING overloads nextRetryAt as the worker lease deadline).
-enum GenerationStatus {
-  PENDING
-  RUNNING
-  COMPLETED
-  FAILED
-  CANCELLED
-}
-
-// What happens after a scheduled generation completes: hold the draft for
-// human review, auto-create SCHEDULED posts at publishAt, or publish at once.
-enum PostGenerationAction {
-  HOLD
-  SCHEDULE_PUBLISH
-  PUBLISH_NOW
 }
 
 enum ProviderSlot {
@@ -157,8 +137,6 @@ model User {
   accounts      Account[]
   // app relations
   briefs        Brief[]
-  posts         Post[]
-  scheduledGenerations ScheduledGeneration[]
   claudeToken   UserClaudeToken?
   briefDrafts   BriefDraft[]
   teamMemberships TeamMembership[]
@@ -360,45 +338,27 @@ model Project {
   defaultBrandKitId String?
   defaultBrandKit   BrandKit?         @relation("ProjectBrandKit", fields: [defaultBrandKitId], references: [id])
   defaultTone       String?
+  // 038: pre-fills the wizard and (as the default) MCP/ACP. Plain TEXT, validated in
+  // code (src/lib/postStyles), so a retired key needs no migration.
+  defaultPostStyle  String?
   isDeleted         Boolean           @default(false)
   deletedAt         DateTime?
   createdAt         DateTime          @default(now())
-  campaigns         ProjectCampaign[]
+  briefs            Brief[]
+  briefings         ProjectBriefing[]
+  documents         ProjectDocument[]
 
   @@index([teamId])
 }
 
-model Campaign {
-  id           String             @id @default(cuid())
-  teamId       String
-  name         String
-  brandKitId   String?
-  brandKit     BrandKit?          @relation("CampaignBrandKit", fields: [brandKitId], references: [id])
-  defaultTone  String?
-  // 027: pre-fills the wizard, the queue and (as the default) MCP/ACP. Plain TEXT,
-  // validated in code (src/lib/postStyles), so a retired key needs no migration.
-  defaultPostStyle String?
-  isDeleted    Boolean            @default(false)
-  deletedAt    DateTime?
-  createdAt    DateTime           @default(now())
-  projects     ProjectCampaign[]
-  briefs       Brief[]
-  briefings    CampaignBriefing[]
-  scheduledGenerations ScheduledGeneration[]
-  documents    CampaignDocument[]
-
-  @@index([teamId])
-}
-
-// A source document (strategy deck, product one-pager, …) handed in by an
-// admin to ground the AI briefing assistant. The original file lives in the
-// private campaign-docs MinIO bucket; parsedText is the extracted plain text
-// (capped — `truncated` marks a cut) injected into briefing chat/enhance prompts.
-model CampaignDocument {
+// 038: the project's source documents (moved here from CampaignDocument). The original
+// file lives in the private BUCKET_DOCS under projects/<projectId>/; parsedText is the
+// extracted plain text (capped, `truncated` marks a cut) fed to the briefing assistant.
+model ProjectDocument {
   id          String   @id @default(cuid())
   teamId      String
-  campaignId  String
-  campaign    Campaign @relation(fields: [campaignId], references: [id])
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id])
   name        String
   contentType String
   sizeBytes   Int
@@ -408,83 +368,23 @@ model CampaignDocument {
   createdBy   String
   createdAt   DateTime @default(now())
 
-  @@index([campaignId])
+  @@index([projectId])
   @@index([teamId])
 }
 
-// A planned post under a campaign: per-post brief specifics + a generation
-// time. The scheduler worker claims due entries (FOR UPDATE SKIP LOCKED, same
-// pattern as Post publishing), generates a Draft via the shared pipeline, then
-// executes postAction. Retries with backoff on failure; FAILED is re-runnable.
-model ScheduledGeneration {
-  id          String               @id @default(cuid())
-  teamId      String
-  campaignId  String
-  campaign    Campaign             @relation(fields: [campaignId], references: [id])
-  createdById String
-  createdBy   User                 @relation(fields: [createdById], references: [id])
-  // Per-post brief specifics (the campaign briefing carries the rest).
-  topic       String
-  description String?
-  goal        String
-  tone        String
-  // 027: the post style key (TEXT, validated in code). Null = before 027.
-  postStyle   String?
-  channels    Channel[]
-  aspectRatio AspectRatio          @default(SQUARE)
-  designMode  DesignMode
-  templateId  String?
-  template    BrandKitTemplate?    @relation("ScheduledGenerationTemplate", fields: [templateId], references: [id])
-  // Scheduling
-  generateAt  DateTime
-  postAction  PostGenerationAction @default(HOLD)
-  publishAt   DateTime?
-  // Lifecycle — mirrors Post's H12 fields (nextRetryAt doubles as the RUNNING lease).
-  status      GenerationStatus     @default(PENDING)
-  errorReason String?
-  // 027: why a post action was not run (the facts check). Null otherwise.
-  heldReason  String?
-  retryCount  Int                  @default(0)
-  nextRetryAt DateTime?
-  // Results: the Brief is created on the first run attempt and reused across
-  // retries; the Draft is set on success.
-  briefId     String?
-  brief       Brief?               @relation(fields: [briefId], references: [id])
-  draftId     String?
-  draft       Draft?               @relation(fields: [draftId], references: [id])
-  createdAt   DateTime             @default(now())
-  updatedAt   DateTime             @default(now()) @updatedAt
+// 038: the versioned project briefing (moved here from CampaignBriefing). Exactly one
+// isActive row per project; restore = re-activate an old version.
+model ProjectBriefing {
+  id        String   @id @default(cuid())
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id])
+  content   String   @db.Text
+  version   Int      @default(1)
+  isActive  Boolean  @default(false)
+  createdBy String
+  createdAt DateTime @default(now())
 
-  @@index([status, generateAt])
-  @@index([status, nextRetryAt])
-  @@index([campaignId])
-  @@index([teamId])
-}
-
-// Versioned free-text campaign briefing — the campaign-level "80% of the brief"
-// injected into copy/design prompts for every post under the campaign, on top of
-// the brand kit's voice prompt. Versioning mirrors BrandKitPrompt: exactly one
-// isActive row per campaign; restore = re-activate an old version.
-model CampaignBriefing {
-  id         String   @id @default(cuid())
-  campaignId String
-  campaign   Campaign @relation(fields: [campaignId], references: [id])
-  content    String   @db.Text
-  version    Int      @default(1)
-  isActive   Boolean  @default(false)
-  createdBy  String
-  createdAt  DateTime @default(now())
-
-  @@unique([campaignId, version])
-}
-
-model ProjectCampaign {
-  projectId  String
-  campaignId String
-  project    Project  @relation(fields: [projectId], references: [id])
-  campaign   Campaign @relation(fields: [campaignId], references: [id])
-
-  @@id([projectId, campaignId])
+  @@unique([projectId, version])
 }
 
 model Brief {
@@ -492,14 +392,16 @@ model Brief {
   teamId              String
   userId              String
   user                User               @relation(fields: [userId], references: [id])
-  campaignId          String?
-  campaign            Campaign?          @relation(fields: [campaignId], references: [id])
+  // 038: a post belongs to zero or one project. Deleting a project unassigns its posts in code.
+  projectId           String?
+  project             Project?           @relation(fields: [projectId], references: [id], onDelete: SetNull)
   brandKitId          String?
   brandKit            BrandKit?          @relation("BriefBrandKit", fields: [brandKitId], references: [id])
   topic               String
   description         String?
   goal                String
   tone                String
+  /// Deprecated (039): ignored; no writer or reader. Never reuse.
   channels            Channel[]
   aspectRatio         AspectRatio        @default(SQUARE)
   designMode          DesignMode
@@ -525,10 +427,9 @@ model Brief {
   postStyle           String?
   createdAt           DateTime           @default(now())
   drafts              Draft[]
-  scheduledGenerations ScheduledGeneration[]
 
   @@index([userId])
-  @@index([campaignId])
+  @@index([projectId])
   @@index([brandKitId])
   @@index([teamId])
 }
@@ -549,6 +450,9 @@ model Draft {
   // AND forward without losing states. Null for legacy rows created before this
   // field existed (treated as "latest revision").
   currentRevisionNumber Int?
+  // 038: the inputs (kit, project, briefing version, post style) this post was generated
+  // with, written at generation. Null = made before 038.
+  generationInputs Json?
   // Prompt revision that produced the current design (prompts/shared.ts
   // PROMPT_VERSION) — lets output quality be correlated with prompt changes.
   promptVersion   String?
@@ -631,9 +535,7 @@ model Draft {
   createdAt       DateTime        @default(now())
   // @default(now()) keeps the added column valid for pre-existing rows
   updatedAt       DateTime        @default(now()) @updatedAt
-  posts           Post[]
   revisions       DraftRevision[] @relation("DraftRevisions")
-  scheduledGenerations ScheduledGeneration[]
   // Per-channel captions (012 FR-02). Read only through captions/store.ts
   // loadDraftCaptions, which materializes legacy drafts first.
   captions        DraftCaption[]
@@ -644,32 +546,6 @@ model Draft {
   @@index([notAppliedRevisionId])
 }
 
-model Post {
-  id          String     @id @default(cuid())
-  teamId      String
-  draftId     String
-  draft       Draft      @relation(fields: [draftId], references: [id])
-  userId      String
-  user        User       @relation(fields: [userId], references: [id])
-  channel     Channel
-  status      PostStatus @default(PENDING)
-  scheduledAt DateTime?
-  publishedAt DateTime?
-  platformId  String?
-  errorReason String?
-  retryCount  Int        @default(0)
-  nextRetryAt DateTime?
-  createdAt   DateTime   @default(now())
-  // @default(now()) keeps the added column valid for pre-existing rows
-  updatedAt   DateTime   @default(now()) @updatedAt
-
-  @@index([status, scheduledAt])
-  @@index([status, nextRetryAt])
-  @@index([draftId])
-  @@index([userId])
-  @@index([teamId])
-}
-
 model BrandKit {
   id        String              @id @default(cuid())
   teamId    String
@@ -677,6 +553,8 @@ model BrandKit {
   colors    Json?
   fonts     Json?
   logoUrl   String?
+  // 039 D6: the brand's https website; code inserts it into the Facebook call to action.
+  website   String?
   // 031 FR-21: the font per script, { [script]: family }, keyed by the catalogue's
   // script id (only `sinhala` is offered). Null = none (the default).
   scriptFonts Json?
@@ -689,7 +567,6 @@ model BrandKit {
   templates BrandKitTemplate[]
   documents BrandKitDocument[]
   projects  Project[]           @relation("ProjectBrandKit")
-  campaigns Campaign[]          @relation("CampaignBrandKit")
   briefs    Brief[]             @relation("BriefBrandKit")
 
   @@index([isDefault, isDeleted])
@@ -726,7 +603,6 @@ model BrandKitTemplate {
   aspectRatio        AspectRatio @default(SQUARE)
   createdAt          DateTime @default(now())
   referencedByBriefs Brief[]  @relation("BriefReferenceTemplate")
-  scheduledGenerations ScheduledGeneration[] @relation("ScheduledGenerationTemplate")
 
   @@index([brandKitId])
 }
@@ -778,19 +654,6 @@ model AvailableProvider {
   createdAt       DateTime     @default(now())
 
   @@unique([teamId, slot, providerKey])
-  @@index([teamId])
-}
-
-model ChannelToken {
-  id                String   @id @default(cuid())
-  teamId            String
-  channel           Channel
-  encryptedToken    String
-  encryptedMetadata String
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-
-  @@unique([teamId, channel])
   @@index([teamId])
 }
 
@@ -875,7 +738,9 @@ model DraftCaption {
   id            String        @id @default(cuid())
   draftId       String
   draft         Draft         @relation(fields: [draftId], references: [id], onDelete: Cascade)
-  channel       Channel
+  // 039 D1: GENERAL has no channel; CURATED has one (CHECK DraftCaption_kind_channel).
+  kind          CaptionKind
+  channel       Channel?
   text          String        @default("") @db.Text
   status        CaptionStatus @default(PENDING)
   // Why the last write attempt for this channel failed — also set on a failed
@@ -892,10 +757,20 @@ model DraftCaption {
   // OTHER), as TEXT, beside model. Written only with validated text. Null =
   // before 024, or no text.
   route                String?
+  // 039 D14: soft delete (CURATED only; CHECK DraftCaption_general_not_deleted).
+  deletedAt     DateTime?
+  // 039 D4/D15: the one-step undo snapshot (src/lib/captions/undo.ts).
+  previous      Json?
+  // 039 D4: hash of the general caption a CURATED row was written from; null = none.
+  generalHash   String?
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @default(now()) @updatedAt
 
-  @@unique([draftId, channel])
+  // Uniqueness is two PARTIAL unique indexes, which Prisma does not model
+  // (migration 20261102120000_caption_kind; precedent: Team_name_active_key):
+  //   DraftCaption_draftId_general_key         ("draftId")            WHERE kind = 'GENERAL'
+  //   DraftCaption_draftId_channel_curated_key ("draftId","channel")  WHERE kind = 'CURATED'
+  // Lookups use findFirst({ draftId, kind, channel }), never findUnique.
   @@index([draftId])
 }
 

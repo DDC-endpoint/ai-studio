@@ -86,7 +86,7 @@ describe('track (006 FR-02, AC-02)', () => {
 
   it('also throws under the seam for a wrong source, a wrong outcome and an outcome on an outcome-less event', async () => {
     await expect(
-      track('scheduled_generation.settled', { ...base, outcome: 'completed', payload: {} }),
+      track('revision.adopted', { ...base, source: 'mcp', payload: {} }),
     ).rejects.toBeInstanceOf(AnalyticsSchemaError)
     await expect(track('revision.adopted', { ...base, outcome: 'nope', payload: {} })).rejects.toBeInstanceOf(
       AnalyticsSchemaError,

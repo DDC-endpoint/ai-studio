@@ -8,7 +8,7 @@ import { MOCK_AI } from '@/lib/testHooks'
  * can assert which model each action ran. GET returns `{ calls }`, oldest first
  * (newest last); DELETE clears it.
  *
- * Dormant in production, gated like /api/test/scheduler-tick: a hard 404 when
+ * Dormant in production, gated like the other /api/test seams: a hard 404 when
  * NODE_ENV is production, a 404 unless MOCK_AI (never set in prod — and the
  * recorder keeps nothing without it), and admin-only.
  */

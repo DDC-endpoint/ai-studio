@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test'
 import { loginAs, type ApiClient } from '../helpers/api'
 
-// §S — Team settings: team-admin-only team credentials/channels/API keys
+// §S — Team settings: team-admin-only team credentials/API keys
 // (/api/team/*, team-tenancy Task 10/12/13), and super-admin team management
 // (/api/admin/teams, Task 17).
 
@@ -55,35 +55,6 @@ test.describe('Team settings — team-admin-only credentials', () => {
     expect((await admin.del('/api/team/claude-token')).status()).toBe(200)
     expect(await (await admin.get('/api/team/claude-token')).json()).toEqual({ connected: false })
     expect((await admin.del('/api/team/claude-token')).status()).toBe(200)
-  })
-
-  test('team admin can connect/revoke Social Channels; editor is 403 throughout', async () => {
-    expect((await editor.get('/api/team/channels')).status()).toBe(403)
-    expect(
-      (await editor.post('/api/team/channels', { channel: 'INSTAGRAM', token: 'x', metadata: 'y' })).status(),
-    ).toBe(403)
-    expect((await editor.del('/api/team/channels/INSTAGRAM')).status()).toBe(403)
-
-    const before = await (await admin.get('/api/team/channels')).json()
-    expect(before.INSTAGRAM.connected).toBe(false)
-
-    const created = await admin.post('/api/team/channels', {
-      channel: 'INSTAGRAM',
-      token: 'ig-token-value',
-      metadata: JSON.stringify({ accountId: '123' }),
-    })
-    expect(created.status()).toBe(201)
-
-    const after = await (await admin.get('/api/team/channels')).json()
-    expect(after.INSTAGRAM.connected).toBe(true)
-
-    expect((await admin.del('/api/team/channels/INSTAGRAM')).status()).toBe(204)
-    // Idempotent on the re-delete? The route 404s a second delete (no row) —
-    // pin the actual contract rather than assume.
-    expect((await admin.del('/api/team/channels/INSTAGRAM')).status()).toBe(404)
-
-    const cleared = await (await admin.get('/api/team/channels')).json()
-    expect(cleared.INSTAGRAM.connected).toBe(false)
   })
 
   test('team admin can create and revoke API keys; editor is 403 throughout', async ({ request }) => {

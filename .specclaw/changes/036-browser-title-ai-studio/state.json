@@ -1,0 +1,13 @@
+{
+  "change": "036-browser-title-ai-studio",
+  "phase": "verify",
+  "branch": "",
+  "size": "bounded",
+  "phases": {
+    "proposal": { "status": "approved", "at": "2026-10-28T15:08:28Z" },
+    "spec": { "status": "done", "at": "2026-10-28T15:08:38Z" },
+    "tasks": { "status": "done", "at": "2026-10-28T15:08:39Z" },
+    "build": { "status": "done", "at": "2026-10-28T15:45:04Z" },
+    "verify": { "status": "pass", "at": "2026-10-28T15:45:05Z" }
+  }
+}

@@ -32,14 +32,13 @@ describe('draft.text_applied coverage', () => {
     expect(CATALOGUE['draft.text_applied'].outcomes).toEqual(['ok', 'failed'])
     expect(CATALOGUE['draft.text_applied'].source).toEqual(['web'])
   })
-  it("headline_edited accepts via 'apply' with the schemaVersion unchanged", () => {
+  it("headline_edited accepts via 'apply' (additive in 031; the version is 2 since 037)", () => {
     const ok = CATALOGUE['draft.headline_edited'].schema.safeParse({
       via: 'apply',
       state: 'fresh',
-      scheduledPending: false,
     })
     expect(ok.success).toBe(true)
-    expect(CATALOGUE['draft.headline_edited'].schemaVersion).toBe(1)
+    expect(CATALOGUE['draft.headline_edited'].schemaVersion).toBe(2)
   })
   it('the draft action APPLY_TEXT is carried by the settled and swept events', () => {
     expect(Object.values(DraftAction)).toContain('APPLY_TEXT')

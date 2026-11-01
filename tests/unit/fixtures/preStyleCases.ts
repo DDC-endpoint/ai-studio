@@ -16,7 +16,7 @@ import { buildPathBSystemPrompt, buildPathBUserMessage } from '@/lib/agent/promp
 import { buildBackgroundDecisionPrompt } from '@/lib/agent/prompts/background'
 import { buildRefineSystemPrompt } from '@/lib/agent/prompts/refine'
 import { buildBriefInput } from '@/lib/agent/briefInput'
-import { CAPTION_CHANNELS } from '@/lib/channels'
+import { ctxFor } from '../../helpers/postContext'
 
 const kit: ResolvedBrandKit = {
   id: 'kit-1',
@@ -26,6 +26,7 @@ const kit: ResolvedBrandKit = {
   logoUrl: 'https://cdn.example/logo.png',
   logos: [{ label: 'Primary mark', url: 'https://cdn.example/logo.png', primary: true }],
   voicePrompt: 'Warm and direct. Keep clear space of 1.5 wordmark letters.',
+  website: null,
   source: 'explicit',
 }
 const BRIEFING = 'Industry Readiness Programme: name the programme in the headline.'
@@ -40,17 +41,18 @@ const brief = {
   channels: ['INSTAGRAM', 'LINKEDIN'],
 } as unknown as Parameters<typeof buildBriefInput>[0]
 
-const input = buildBriefInput(brief, kit, BRIEFING)
-const targets = ['HEADLINE', ...CAPTION_CHANNELS.map((s) => s.channel)] as const
+const input = buildBriefInput(brief, ctxFor(kit, BRIEFING))
+// Pinned: a channel added to the registry later (Facebook, 039 T4) does not move this golden.
+const targets = ['HEADLINE', 'INSTAGRAM', 'LINKEDIN'] as const
 
 export const PRE_STYLE_CASES: Record<string, () => string> = {
-  briefInput: () => JSON.stringify(buildBriefInput(brief, kit, BRIEFING)),
-  briefInputBare: () => JSON.stringify(buildBriefInput(brief)),
+  briefInput: () => JSON.stringify(buildBriefInput(brief, ctxFor(kit, BRIEFING))),
+  briefInputBare: () => JSON.stringify(buildBriefInput(brief, ctxFor(null))),
   captionSystem: () => buildCaptionPrompt(input, targets).system,
   captionUser: () => buildCaptionPrompt(input, targets).user,
   captionUserOneTarget: () => buildCaptionPrompt(input, ['LINKEDIN']).user,
   pathASystemApi: () =>
-    buildPathASystemPrompt({ kit, mode: 'api', width: 1080, height: 1080, hasInlineAssets: true, campaignBriefing: BRIEFING }),
+    buildPathASystemPrompt({ kit, mode: 'api', width: 1080, height: 1080, hasInlineAssets: true, projectBriefing: BRIEFING }),
   pathASystemCli: () =>
     buildPathASystemPrompt({
       kit,
@@ -97,13 +99,12 @@ export const PRE_STYLE_CASES: Record<string, () => string> = {
       description: 'We ship the new app',
       goal: 'awareness',
       tone: 'bold',
-      channels: ['INSTAGRAM', 'LINKEDIN'],
       headline: 'Ship it today',
       mode: 'cli',
       width: 1080,
       height: 1080,
       briefImages: [{ url: 'https://cdn.example/p.png', intent: 'embed' }],
-      campaignBriefing: BRIEFING,
+      projectBriefing: BRIEFING,
     }),
   pathBUserBare: () =>
     buildPathBUserMessage({
@@ -111,7 +112,6 @@ export const PRE_STYLE_CASES: Record<string, () => string> = {
       description: null,
       goal: 'awareness',
       tone: 'bold',
-      channels: ['INSTAGRAM'],
       headline: 'Ship it today',
       mode: 'api',
       width: 1080,
@@ -125,7 +125,7 @@ export const PRE_STYLE_CASES: Record<string, () => string> = {
       goal: 'awareness',
       tone: 'bold',
       headline: 'Ship it today',
-      campaignBriefing: BRIEFING,
+      projectBriefing: BRIEFING,
     }).system,
   backgroundUser: () =>
     buildBackgroundDecisionPrompt({
@@ -135,7 +135,7 @@ export const PRE_STYLE_CASES: Record<string, () => string> = {
       goal: 'awareness',
       tone: 'bold',
       headline: 'Ship it today',
-      campaignBriefing: BRIEFING,
+      projectBriefing: BRIEFING,
     }).user,
   refineSystemCli: () =>
     buildRefineSystemPrompt({ kit, mode: 'cli', width: 1080, height: 1080, hasInlineAssets: true, backgroundImageUrl: 'https://cdn.example/n.png' }),

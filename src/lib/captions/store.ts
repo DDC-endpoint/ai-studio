@@ -1,23 +1,42 @@
 // The caption store (012 FR-02/FR-10, design §6): the only module that reads
 // or writes DraftCaption rows. Every reader gets captions through
-// loadDraftCaptions, which returns one row per registry channel.
+// loadDraftCaptions, which returns the rows in registry order (retired
+// channels left out). A row is keyed by (draftId, kind, channel) (039 D1): the
+// partial unique indexes are not modelled by Prisma, so lookups use findFirst,
+// never findUnique.
 //
 // What to write is decided by a pure module (actionTargets.ts for a caption
 // write's settle). This file only issues the queries.
 
-import type { CaptionStatus, Channel, Prisma, PrismaClient } from '@prisma/client'
+import type { CaptionKind, CaptionStatus, Channel, Prisma, PrismaClient } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
-import { CAPTION_CHANNELS, type CaptionTarget } from '@/lib/channels'
+import {
+  CAPTION_REGISTRY,
+  captionSpec,
+  targetOf,
+  type CaptionTarget,
+  type CuratedChannel,
+} from '@/lib/channels'
 import type { FieldResult } from '@/lib/captions/extract'
 import { settleCaptionRow, type CaptionStamp } from '@/lib/captions/actionTargets'
-import { resolveCaptionForPublish, type CaptionResolution } from '@/lib/captions/resolve'
-import { claimData, claimWhere, logLostClaim, newClaimId, type DraftClaim } from '@/lib/drafts/claim'
+import {
+  claimData,
+  claimWhere,
+  logLostClaim,
+  newClaimId,
+  type DraftClaim,
+} from '@/lib/drafts/claim'
 import { refreshFactsCheck } from '@/lib/factsCheck/refresh'
 import { postStyleColumn } from '@/lib/drafts/revisions'
 import type { PostStyleStamp } from '@/lib/postStyles'
+import { parseCaptionSnapshot, snapshotOf } from '@/lib/captions/undo'
 
 export interface CaptionRow {
-  channel: Channel
+  kind: CaptionKind
+  /** Null for the general caption. */
+  channel: Channel | null
+  /** The registry target of this row. */
+  target: Exclude<CaptionTarget, 'HEADLINE'>
   text: string
   status: CaptionStatus
   failureReason: string | null
@@ -27,14 +46,24 @@ export interface CaptionRow {
   modelSubstitutedFrom: string | null
   /** 024 FR-04: the credential route that wrote this row's text (null = before 024, or none). */
   route: string | null
+  /** 039 D14: a soft-deleted curated caption (its text is kept for Undo). */
+  deleted: boolean
+  /** 039 D15: the row holds a readable one-step undo snapshot. */
+  canUndo: boolean
 }
 
 export interface DraftCaptions {
-  /** One per registry channel, in registry order. */
-  captions: CaptionRow[]
+  /** Null for a post made before 039 (it is not backfilled; D11). */
+  general: CaptionRow | null
+  /** Registry order; retired channels left out. */
+  curated: CaptionRow[]
 }
 
+/** Which caption a write names (039 D13). */
+export type CaptionRef = { kind: 'GENERAL' } | { kind: 'CURATED'; channel: CuratedChannel }
+
 const ROW_SELECT = {
+  kind: true,
   channel: true,
   text: true,
   status: true,
@@ -43,20 +72,29 @@ const ROW_SELECT = {
   model: true,
   modelSubstitutedFrom: true,
   route: true,
+  deletedAt: true,
+  previous: true,
 } satisfies Prisma.DraftCaptionSelect
 
-// ── Reading ─────────────────────────────────────────────────────────────────
+type StoredRow = Prisma.DraftCaptionGetPayload<{ select: typeof ROW_SELECT }>
 
-function orderByRegistry(rows: CaptionRow[]): CaptionRow[] {
-  return CAPTION_CHANNELS.flatMap(({ channel }) => rows.filter((r) => r.channel === channel))
-}
-
-function findRows(draftId: string, db: PrismaClient): Promise<CaptionRow[]> {
-  return db.draftCaption.findMany({ where: { draftId }, select: ROW_SELECT })
+// Registry order; a row with no registry entry (a retired channel) is left out.
+function toCaptionRows(rows: StoredRow[]): CaptionRow[] {
+  return CAPTION_REGISTRY.flatMap(({ target }) =>
+    rows
+      .filter((r) => targetOf(r) === target)
+      .map(({ deletedAt, previous, ...r }) => ({
+        ...r,
+        target,
+        deleted: deletedAt !== null,
+        canUndo: parseCaptionSnapshot(previous) !== null,
+      })),
+  )
 }
 
 // The only way to read a draft's captions. Returns null when the draft does
-// not exist; callers have already checked access to it.
+// not exist; callers have already checked access to it. It creates nothing: a
+// caption that was never written is simply absent (039 FR-05).
 export async function loadDraftCaptions(
   draftId: string,
   db: PrismaClient = prisma,
@@ -66,62 +104,11 @@ export async function loadDraftCaptions(
     select: { captions: { select: ROW_SELECT } },
   })
   if (!draft) return null
-
-  // A registry channel the draft lacks (a channel added after the draft was
-  // created) gets an empty READY row, so every reader sees one per channel.
-  let rows = draft.captions
-  const missing = CAPTION_CHANNELS.filter((s) => !rows.some((r) => r.channel === s.channel))
-  if (missing.length > 0) {
-    await db.draftCaption.createMany({
-      data: missing.map((s) => ({ draftId, channel: s.channel, text: '', status: 'READY' as const })),
-      skipDuplicates: true,
-    })
-    rows = await findRows(draftId, db)
+  const rows = toCaptionRows(draft.captions)
+  return {
+    general: rows.find((r) => r.kind === 'GENERAL') ?? null,
+    curated: rows.filter((r) => r.kind === 'CURATED'),
   }
-  return { captions: orderByRegistry(rows) }
-}
-
-// ── Publishing (FR-14) ──────────────────────────────────────────────────────
-
-// The publish-time decision for one channel: the draft's row for it, through
-// the loader, run through the pure resolver. A missing draft has no row, so it
-// is refused like one.
-export async function loadCaptionForPublish(
-  draftId: string,
-  channel: Channel,
-  db: PrismaClient = prisma,
-): Promise<CaptionResolution> {
-  const loaded = await loadDraftCaptions(draftId, db)
-  return resolveCaptionForPublish(channel, loaded?.captions.find((r) => r.channel === channel))
-}
-
-// The text the posts routes show for a post's channel, or '' (FR-13).
-export async function loadCaptionText(
-  draftId: string,
-  channel: Channel,
-  db: PrismaClient = prisma,
-): Promise<string> {
-  const loaded = await loadDraftCaptions(draftId, db)
-  return loaded?.captions.find((r) => r.channel === channel)?.text ?? ''
-}
-
-// loadCaptionText for a page of posts in one query (017 FR-06): the text keyed
-// `${draftId}/${channel}`. A missing row reads as '', the value loadCaptionText
-// returns for it; the fill is left to the single-draft readers.
-export async function loadCaptionTexts(
-  posts: readonly { draftId: string; channel: Channel }[],
-  db: PrismaClient = prisma,
-): Promise<Map<string, string>> {
-  const draftIds = [...new Set(posts.map((p) => p.draftId))]
-  const rows =
-    draftIds.length === 0
-      ? []
-      : await db.draftCaption.findMany({
-          where: { draftId: { in: draftIds } },
-          select: { draftId: true, channel: true, text: true },
-        })
-  const byKey = new Map(rows.map((r) => [`${r.draftId}/${r.channel}`, r.text]))
-  return new Map(posts.map((p) => [`${p.draftId}/${p.channel}`, byKey.get(`${p.draftId}/${p.channel}`) ?? '']))
 }
 
 // ── Writers ─────────────────────────────────────────────────────────────────
@@ -143,7 +130,8 @@ async function refreshAfterWrite(draftId: string, db: PrismaClient): Promise<voi
 export type { CaptionStamp }
 
 export interface GenerationCaptionData {
-  channel: Channel
+  kind: CaptionKind
+  channel: Channel | null
   text: string
   status: 'READY' | 'FAILED'
   failureReason: string | null
@@ -152,7 +140,7 @@ export interface GenerationCaptionData {
   route: string | null
 }
 
-// The row values a generation's caption result gives each registry channel it
+// The row values a generation's caption result gives each registry caption it
 // covers: validated text → READY, stamped with the model that wrote it; a
 // failed field → FAILED with no text (failed model output is never stored) and
 // no stamp — a stamp names the model whose output is the row's text, and a
@@ -162,12 +150,13 @@ export function captionRowsFromFields(
   fields: Partial<Record<CaptionTarget, FieldResult>>,
   stamp: CaptionStamp,
 ): GenerationCaptionData[] {
-  return CAPTION_CHANNELS.flatMap<GenerationCaptionData>(({ channel }) => {
-    const field = fields[channel]
+  return CAPTION_REGISTRY.flatMap<GenerationCaptionData>(({ target, kind, channel }) => {
+    const field = fields[target]
     if (!field) return []
     return field.ok
       ? [
           {
+            kind,
             channel,
             text: field.text,
             status: 'READY',
@@ -179,6 +168,7 @@ export function captionRowsFromFields(
         ]
       : [
           {
+            kind,
             channel,
             text: '',
             status: 'FAILED',
@@ -204,7 +194,7 @@ export function headlineStampFields(stamp: CaptionStamp): {
   }
 }
 
-// The async generation's write (design §4): every channel's row and the
+// The async generation's write (design §4): every target's row and the
 // headline (when it validated) in one transaction, each with its 008 stamp.
 // Row writes are guarded on PENDING, the state createPendingDraft and retry
 // leave them in.
@@ -215,8 +205,11 @@ export async function saveGenerationCaptions(
 ): Promise<void> {
   const headline = fields.HEADLINE
   await prisma.$transaction([
-    ...captionRowsFromFields(fields, stamp).map(({ channel, ...data }) =>
-      prisma.draftCaption.updateMany({ where: { draftId, channel, status: 'PENDING' }, data }),
+    ...captionRowsFromFields(fields, stamp).map(({ kind, channel, ...data }) =>
+      prisma.draftCaption.updateMany({
+        where: { draftId, kind, channel, status: 'PENDING' },
+        data,
+      }),
     ),
     ...(headline?.ok
       ? [
@@ -232,21 +225,40 @@ export async function saveGenerationCaptions(
   await refreshAfterWrite(draftId, prisma)
 }
 
+// The registry caption targets among the targets (the headline has no row).
+function captionTargets(targets: readonly CaptionTarget[]): Exclude<CaptionTarget, 'HEADLINE'>[] {
+  return targets.filter((t): t is Exclude<CaptionTarget, 'HEADLINE'> => t !== 'HEADLINE')
+}
+
+// The row filter for a set of caption targets: the general row, and the curated
+// rows of the named channels.
+function targetRowFilter(
+  targets: readonly Exclude<CaptionTarget, 'HEADLINE'>[],
+): Prisma.DraftCaptionWhereInput {
+  const channels = targets.filter((t): t is CuratedChannel => t !== 'GENERAL')
+  return {
+    OR: [
+      ...(targets.includes('GENERAL') ? [{ kind: 'GENERAL' as const }] : []),
+      ...(channels.length > 0 ? [{ kind: 'CURATED' as const, channel: { in: channels } }] : []),
+    ],
+  }
+}
+
 // Claim the draft-level caption action (A2, design §5): REGENERATE_COPY,
 // guarded on no action in flight, and the target rows marked PENDING in the
-// same transaction. Returns the claim (action and fresh token, 019) or null when
-// another action holds the draft (the caller answers 409). Released by
-// startDraftAction as today.
+// same transaction. A target row that does not exist yet is created inside the
+// claim (039 D12: the general caption of an old post), so a row is never half
+// made. Returns the claim (action and fresh token, 019) and the targets it
+// created (D25), or null when another action holds the draft (the caller
+// answers 409). Released by startDraftAction as today.
 //
-// The rows must exist: call loadDraftCaptions first, so a channel the draft
-// lacks gets its row before it is claimed. Otherwise the PENDING update finds
-// nothing and the settle has no row to write.
+// The lock order is the draft row, then the caption rows.
 export async function claimCaptionAction(
   draftId: string,
   targets: readonly CaptionTarget[],
   db: PrismaClient = prisma,
-): Promise<DraftClaim | null> {
-  const channels = targetChannels(targets)
+): Promise<{ claim: DraftClaim; created: CaptionTarget[] } | null> {
+  const rowTargets = captionTargets(targets)
   const claim: DraftClaim = { action: 'REGENERATE_COPY', claimId: newClaimId() }
   return db.$transaction(async (tx) => {
     const { count } = await tx.draft.updateMany({
@@ -254,21 +266,33 @@ export async function claimCaptionAction(
       data: claimData(claim),
     })
     if (count !== 1) return null
-    if (channels.length > 0) {
+    const created: CaptionTarget[] = []
+    if (rowTargets.length > 0) {
+      const existing = await tx.draftCaption.findMany({
+        where: { draftId, ...targetRowFilter(rowTargets) },
+        select: { kind: true, channel: true },
+      })
+      const missing = rowTargets.filter((t) => !existing.some((r) => targetOf(r) === t))
+      if (missing.length > 0) {
+        await tx.draftCaption.createMany({
+          data: missing.map((t) => {
+            const { kind, channel } = captionSpec(t)
+            return { draftId, kind, channel, text: '', status: 'PENDING' as const }
+          }),
+          skipDuplicates: true,
+        })
+        created.push(...missing)
+      }
       await tx.draftCaption.updateMany({
-        where: { draftId, channel: { in: channels } },
+        where: { draftId, ...targetRowFilter(rowTargets) },
         data: { status: 'PENDING' },
       })
     }
-    return claim
+    return { claim, created }
   })
 }
 
-function targetChannels(targets: readonly CaptionTarget[]): Channel[] {
-  return targets.filter((t): t is Channel => t !== 'HEADLINE')
-}
-
-// Settle the PENDING rows (all of the draft's, or only `channels`) per
+// Settle the PENDING rows (all of the draft's, or only the `targets`') per
 // settleCaptionRow. Each write is guarded on PENDING, so a row an edit or a
 // newer write already settled is left alone, and a deleted draft is a no-op.
 // A caption action's reply stamp is written on the rows whose field validated
@@ -277,18 +301,33 @@ function targetChannels(targets: readonly CaptionTarget[]): Channel[] {
 async function settlePendingRows(
   tx: Prisma.TransactionClient,
   draftId: string,
-  channels: Channel[] | null,
-  fieldFor: (channel: Channel) => FieldResult,
+  targets: readonly Exclude<CaptionTarget, 'HEADLINE'>[] | null,
+  fieldFor: (target: string) => FieldResult,
   stamp: CaptionStamp | null = null,
+  extra?: { generalHash?: string | null; website?: string | null },
 ): Promise<void> {
   const rows = await tx.draftCaption.findMany({
-    where: { draftId, status: 'PENDING', ...(channels ? { channel: { in: channels } } : {}) },
-    select: { channel: true, text: true },
+    where: {
+      draftId,
+      status: 'PENDING',
+      ...(targets ? targetRowFilter(targets) : {}),
+    },
+    select: {
+      id: true,
+      kind: true,
+      channel: true,
+      text: true,
+      deletedAt: true,
+      model: true,
+      modelSubstitutedFrom: true,
+      route: true,
+      generalHash: true,
+    },
   })
   for (const row of rows) {
     await tx.draftCaption.updateMany({
-      where: { draftId, channel: row.channel, status: 'PENDING' },
-      data: settleCaptionRow(row, fieldFor(row.channel), stamp),
+      where: { id: row.id, status: 'PENDING' },
+      data: settleCaptionRow(row, fieldFor(row.channel ?? 'GENERAL'), stamp, extra),
     })
   }
 }
@@ -325,6 +364,8 @@ export async function settleCaptionAction(
   stamp: CaptionStamp | null = null,
   db: PrismaClient = prisma,
   postStyle?: PostStyleStamp | null,
+  // 039 D4: the hash of the general caption a curate was written from.
+  extra?: { generalHash?: string | null; website?: string | null },
 ): Promise<SettleResult> {
   const headline = targets.includes('HEADLINE') ? fields.HEADLINE : undefined
   let settled = false
@@ -345,13 +386,17 @@ export async function settleCaptionAction(
     await settlePendingRows(
       tx,
       draftId,
-      targetChannels(targets),
-      (channel) => fields[channel] ?? { ok: false, reason: 'missing' },
+      captionTargets(targets),
+      (target) => fields[target as CaptionTarget] ?? { ok: false, reason: 'missing' },
       stamp,
+      extra,
     )
     if (headline?.ok) {
       // 030 FR-15: the value before, read in the same transaction.
-      const before = await tx.draft.findUnique({ where: { id: draftId }, select: { headline: true } })
+      const before = await tx.draft.findUnique({
+        where: { id: draftId },
+        select: { headline: true },
+      })
       const wrote = await tx.draft.updateMany({
         where: { id: draftId, ...claimWhere(claim) },
         data: { headline: headline.text, ...(stamp ? headlineStampFields(stamp) : {}) },
@@ -375,21 +420,59 @@ export async function settlePendingCaptions(
   await db.$transaction((tx) => settlePendingRows(tx, draftId, null, () => ({ ok: false, reason })))
 }
 
-// A user's edit to one caption (FR-12): stored exactly as typed, READY, the
-// failure cleared. Refused (false) while the row is PENDING, so an edit never
-// races the write that claimed it.
+// A user's edit to one caption (FR-12, D13): stored exactly as typed, READY, the
+// failure cleared, and the row as it was kept for one-step Undo (039 D15; an
+// edit that changes nothing keeps the old snapshot and answers 'unchanged').
+// Refused while the row is PENDING, so an edit never races the write that
+// claimed it ('pending'), when it is deleted ('deleted'), when it does not
+// exist ('missing'), and when a newer write lands between the read and this
+// write ('pending' again: the row is busy or changed).
+export type CaptionEditResult = 'saved' | 'unchanged' | 'pending' | 'deleted' | 'missing'
+
 export async function saveCaptionEdit(
   draftId: string,
-  channel: Channel,
+  ref: CaptionRef,
   text: string,
   db: PrismaClient = prisma,
-): Promise<boolean> {
-  const { count } = await db.draftCaption.updateMany({
-    where: { draftId, channel, status: { not: 'PENDING' } },
-    data: { text, status: 'READY', failureReason: null },
+): Promise<CaptionEditResult> {
+  const result = await db.$transaction(async (tx): Promise<CaptionEditResult> => {
+    const row = await tx.draftCaption.findFirst({
+      where: {
+        draftId,
+        ...(ref.kind === 'GENERAL'
+          ? { kind: 'GENERAL' }
+          : { kind: 'CURATED', channel: ref.channel }),
+      },
+      select: {
+        id: true,
+        status: true,
+        updatedAt: true,
+        text: true,
+        deletedAt: true,
+        model: true,
+        modelSubstitutedFrom: true,
+        route: true,
+        generalHash: true,
+      },
+    })
+    if (!row) return 'missing'
+    if (row.status === 'PENDING') return 'pending'
+    if (row.deletedAt !== null) return 'deleted'
+    if (row.text === text) return 'unchanged'
+    const { count } = await tx.draftCaption.updateMany({
+      where: { id: row.id, status: { not: 'PENDING' }, updatedAt: row.updatedAt },
+      data: {
+        text,
+        status: 'READY',
+        failureReason: null,
+        // An empty row (a failed first write) has nothing to go back to.
+        ...(row.text !== '' ? { previous: snapshotOf(row) } : {}),
+      },
+    })
+    return count === 1 ? 'saved' : 'pending'
   })
-  if (count === 1) await refreshAfterWrite(draftId, db)
-  return count === 1
+  if (result === 'saved') await refreshAfterWrite(draftId, db)
+  return result
 }
 
 // A user's edit to the headline (FR-12). Refused (false) while a caption
@@ -410,4 +493,99 @@ export async function saveHeadlineEdit(
   })
   if (count === 1) await refreshAfterWrite(draftId, db)
   return count === 1
+}
+
+// The columns a delete or an undo reads from a row.
+const MOVE_SELECT = {
+  id: true,
+  status: true,
+  updatedAt: true,
+  text: true,
+  deletedAt: true,
+  model: true,
+  modelSubstitutedFrom: true,
+  route: true,
+  generalHash: true,
+  previous: true,
+} satisfies Prisma.DraftCaptionSelect
+
+// Delete one curated caption (039 D14). A row that holds text is soft-deleted
+// and keeps its live state in `previous` for Undo ('deleted'); a row with no
+// text (a failed first curate) has nothing to undo and is removed ('removed').
+// Refused while the row is PENDING, or when a newer write lands between the
+// read and this write ('pending': busy or changed). A missing or already
+// deleted row is 'missing'.
+export type CaptionDeleteResult = 'deleted' | 'removed' | 'pending' | 'missing'
+
+export async function deleteCaption(
+  draftId: string,
+  channel: CuratedChannel,
+  db: PrismaClient = prisma,
+): Promise<CaptionDeleteResult> {
+  const result = await db.$transaction(async (tx): Promise<CaptionDeleteResult> => {
+    const row = await tx.draftCaption.findFirst({
+      where: { draftId, kind: 'CURATED', channel },
+      select: MOVE_SELECT,
+    })
+    if (!row || row.deletedAt !== null) return 'missing'
+    if (row.status === 'PENDING') return 'pending'
+    const guard = { id: row.id, status: { not: 'PENDING' as const }, updatedAt: row.updatedAt }
+    if (row.text === '') {
+      const { count } = await tx.draftCaption.deleteMany({ where: guard })
+      return count === 1 ? 'removed' : 'pending'
+    }
+    const { count } = await tx.draftCaption.updateMany({
+      where: guard,
+      data: { deletedAt: new Date(), previous: snapshotOf(row) },
+    })
+    return count === 1 ? 'deleted' : 'pending'
+  })
+  if (result === 'deleted' || result === 'removed') await refreshAfterWrite(draftId, db)
+  return result
+}
+
+// One step of undo (039 D15): swap the row's live state with `previous`, so a
+// second Undo brings back what the first replaced and no text is lost. 'nothing'
+// when there is no readable snapshot, 'pending' while the row is being written,
+// 'changed' when a newer write lands between the read and this write.
+export type CaptionUndoResult = 'undone' | 'nothing' | 'pending' | 'changed' | 'missing'
+
+export async function undoCaption(
+  draftId: string,
+  ref: CaptionRef,
+  db: PrismaClient = prisma,
+): Promise<CaptionUndoResult> {
+  const result = await db.$transaction(async (tx): Promise<CaptionUndoResult> => {
+    const row = await tx.draftCaption.findFirst({
+      where: {
+        draftId,
+        ...(ref.kind === 'GENERAL'
+          ? { kind: 'GENERAL' }
+          : { kind: 'CURATED', channel: ref.channel }),
+      },
+      select: MOVE_SELECT,
+    })
+    if (!row) return 'missing'
+    if (row.status === 'PENDING') return 'pending'
+    const prev = parseCaptionSnapshot(row.previous)
+    if (!prev) return 'nothing'
+    const { count } = await tx.draftCaption.updateMany({
+      where: { id: row.id, status: { not: 'PENDING' }, updatedAt: row.updatedAt },
+      data: {
+        text: prev.text,
+        // The general caption is never deleted (its CHECK), whatever the snapshot says.
+        deletedAt: prev.deleted && ref.kind === 'CURATED' ? new Date() : null,
+        status: 'READY',
+        failureReason: null,
+        model: prev.model,
+        modelSubstitutedFrom: prev.modelSubstitutedFrom,
+        route: prev.route,
+        generalHash: prev.generalHash,
+        previous: snapshotOf(row),
+      },
+    })
+    return count === 1 ? 'undone' : 'changed'
+  })
+  if (result === 'undone') await refreshAfterWrite(draftId, db)
+  return result
 }

@@ -129,7 +129,7 @@ const {
 const { runWithClaudeAuth } = await import('@/lib/agent/claudeAuth')
 const { ClaudeCliCopyProvider } = await import('@/providers/implementations/copy/claude-cli')
 const { runDesignAgentCli, runDesignAgentCliRefine } = await import('@/lib/agent/designAgentCli')
-const { runBriefingModel } = await import('@/lib/campaign/briefingAssistant')
+const { runBriefingModel } = await import('@/lib/projects/briefingAssistant')
 const { validateClaudeToken } = await import('@/lib/agent/userToken')
 const { decideModel, internalModel } = await import('@/lib/models/resolve')
 const { SYSTEM_DEFAULTS, entryFor } = await import('@/lib/models/catalogue')
@@ -240,7 +240,6 @@ describe('AC-13: every text-mode call site spawns with --tools "" and never --al
           description: 'd',
           goal: 'g',
           tone: 'friendly',
-          channels: ['INSTAGRAM'],
         }, ['INSTAGRAM'], siteModel('CAPTION')),
       )
       expectNoTools(h.spawnCalls[0].args, '')

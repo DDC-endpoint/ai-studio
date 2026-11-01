@@ -173,7 +173,7 @@ export function ClaudeConnectGuide({ variant }: { variant: 'personal' | 'team' }
           ))}
           <li>
             {variant === 'team'
-              ? 'Paste it below. It becomes the team’s fallback for members without their own token, and the only credential for scheduled posts, MCP and ACP.'
+              ? 'Paste it below. It becomes the team’s fallback for members without their own token, and the only credential for MCP and ACP.'
               : 'Paste it below.'}
           </li>
         </ol>

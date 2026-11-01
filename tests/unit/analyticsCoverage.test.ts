@@ -2,17 +2,19 @@
 // action, a channel or a source has no event that can carry it, and when a
 // payload copies a vocabulary that already has an owner.
 import { describe, it, expect } from 'vitest'
-import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
-import { AspectRatio, CaptionRoute, Channel, DraftAction } from '@prisma/client'
-import { CATALOGUE, EVENT_NAMES } from '@/lib/analytics/catalogue'
+import { readFileSync, readdirSync } from 'node:fs'
+import { join, relative, sep } from 'node:path'
+import { AspectRatio, CaptionKind, CaptionRoute, Channel, DraftAction } from '@prisma/client'
+import { CAPTION_REGISTRY } from '@/lib/channels'
+import { CATALOGUE, CLIENT_EVENTS, EVENT_NAMES, RETIRED_EVENT_NAMES, RETIRED_SOURCES } from '@/lib/analytics/catalogue'
 import { MODEL_KEYS } from '@/lib/models/catalogue'
 import { INSTRUCTION_CLASS_KEYS } from '@/lib/agent/instructionClasses'
 import { archetypes, FALLBACK_REASONS } from '@/lib/designData'
 import { POST_STYLE_KEYS } from '@/lib/postStyles'
 import { HEADLINE_CHECKS, HEADLINE_STATES } from '@/lib/renderedText/vocab'
 
-const SOURCES = ['web', 'scheduler', 'mcp'] as const
+// Live sources; `scheduler` is retired (037 D5, RETIRED_SOURCES).
+const SOURCES = ['web', 'mcp'] as const
 
 // Every value that has an owner elsewhere. A quoted copy of one of these inside
 // the catalogue means a vocabulary was copied rather than imported.
@@ -21,6 +23,7 @@ const OWNED: Record<string, readonly string[]> = {
   Channel: Object.values(Channel),
   AspectRatio: Object.values(AspectRatio),
   CaptionRoute: Object.values(CaptionRoute),
+  CaptionKind: Object.values(CaptionKind),
   MODEL_KEYS,
   INSTRUCTION_CLASS_KEYS,
   FALLBACK_REASONS,
@@ -52,14 +55,62 @@ describe('analytics coverage guard (006 FR-13, AC-03)', () => {
 
   it('has an event that carries every Channel value', () => {
     for (const channel of Object.values(Channel)) {
-      expect(CATALOGUE['publish.settled'].schema.safeParse({ channel, terminal: true }).success).toBe(true)
+      expect(CATALOGUE['draft_action.settled'].schema.safeParse({ action: 'REGENERATE_COPY', channel }).success, channel).toBe(true)
     }
+  })
+
+  // 039 D22: a curate is `draft_action.settled` with { captionKind, channel, captionOp }.
+  it('has an event that carries every CaptionKind value (039 D22)', () => {
+    for (const captionKind of Object.values(CaptionKind)) {
+      const parsed = CATALOGUE['draft_action.settled'].schema.safeParse({ action: 'REGENERATE_COPY', captionKind })
+      expect(parsed.success, captionKind).toBe(true)
+    }
+  })
+
+  it('draft_action.settled keeps schemaVersion 1 and accepts captionKind and captionOp (additive, 039 D22)', () => {
+    expect(CATALOGUE['draft_action.settled'].schemaVersion).toBe(1)
+    for (const captionOp of ['create', 'replace']) {
+      const parsed = CATALOGUE['draft_action.settled'].schema.safeParse({
+        action: 'REGENERATE_COPY',
+        captionKind: 'CURATED',
+        channel: 'INSTAGRAM',
+        captionOp,
+      })
+      expect(parsed.success, captionOp).toBe(true)
+    }
+    expect(
+      CATALOGUE['draft_action.settled'].schema.safeParse({ action: 'REGENERATE_COPY', captionOp: 'delete' }).success,
+    ).toBe(false)
+  })
+
+  it('no payload schema of draft_action.settled accepts a caption text field (NFR-04)', () => {
+    const parsed = CATALOGUE['draft_action.settled'].schema.parse({ action: 'REGENERATE_COPY', text: 'a caption', captionKind: 'GENERAL' })
+    expect(parsed).not.toHaveProperty('text')
+  })
+
+  it('catches a planted copy of the CaptionKind list (asserted on a fixture)', () => {
+    expect(findCopiedVocabulary(`z.enum(['GENERAL', 'CURATED'])`)).toEqual(['CaptionKind:GENERAL', 'CaptionKind:CURATED'])
   })
 
   it('has an event that can carry every source value', () => {
     for (const source of SOURCES) {
       const carriers = EVENT_NAMES.filter((n) => (CATALOGUE[n].source as readonly string[]).includes(source))
       expect(carriers.length, `source ${source}`).toBeGreaterThan(0)
+    }
+  })
+
+  it('retires the scheduler source: no event carries it (037 D5)', () => {
+    expect([...RETIRED_SOURCES]).toEqual(['scheduler'])
+    for (const name of EVENT_NAMES) {
+      expect(CATALOGUE[name].source as readonly string[], name).not.toContain('scheduler')
+    }
+  })
+
+  it('keeps every retired event name out of the catalogue (037 D6)', () => {
+    expect([...RETIRED_EVENT_NAMES]).toEqual(expect.arrayContaining(['scheduled_generation.settled', 'publish.settled']))
+    for (const name of RETIRED_EVENT_NAMES) {
+      expect(EVENT_NAMES as readonly string[], name).not.toContain(name)
+      expect(name in CATALOGUE, name).toBe(false)
     }
   })
 
@@ -97,19 +148,67 @@ describe('analytics coverage guard (006 FR-13, AC-03)', () => {
 // 030 FR-18: every headline state and check has an event field that can carry it,
 // and no payload of these events can hold the headline text (NFR-05).
 describe('analytics coverage guard: the headline vocabularies (030 FR-18)', () => {
-  it('carries every HEADLINE_STATES value in publish.settled and draft.headline_edited', () => {
-    for (const headlineState of HEADLINE_STATES) {
-      expect(
-        CATALOGUE['publish.settled'].schema.safeParse({ channel: 'LINKEDIN', terminal: true, headlineState }).success,
-        `publish.settled ${headlineState}`,
-      ).toBe(true)
-      expect(
-        CATALOGUE['draft.headline_edited'].schema.safeParse({ via: 'edit', state: headlineState, scheduledPending: false })
-          .success,
-        `draft.headline_edited ${headlineState}`,
-      ).toBe(true)
+  it('carries every HEADLINE_STATES value in draft.headline_edited, at schemaVersion 2 without scheduledPending (037 D5)', () => {
+    expect(CATALOGUE['draft.headline_edited'].schemaVersion).toBe(2)
+    for (const state of HEADLINE_STATES) {
+      const parsed = CATALOGUE['draft.headline_edited'].schema.safeParse({ via: 'edit', state, scheduledPending: false })
+      expect(parsed.success, `draft.headline_edited ${state}`).toBe(true)
+      expect(JSON.stringify(parsed.success && parsed.data)).not.toContain('scheduledPending')
     }
-    expect(CATALOGUE['publish.settled'].schema.safeParse({ channel: 'LINKEDIN', terminal: true, headlineState: 'x' }).success).toBe(false)
+    expect(CATALOGUE['draft.headline_edited'].schema.safeParse({ via: 'edit', state: 'x' }).success).toBe(false)
+  })
+
+  it('draft.downloaded has exactly one emitter file in src (037 D7)', () => {
+    const hits: string[] = []
+    const walk = (dir: string) => {
+      for (const e of readdirSync(dir, { withFileTypes: true })) {
+        const full = join(dir, e.name)
+        if (e.isDirectory()) walk(full)
+        else if (/\.tsx?$/.test(e.name) && /track\(\s*['"]draft\.downloaded['"]/.test(readFileSync(full, 'utf8'))) hits.push(full)
+      }
+    }
+    walk(join(process.cwd(), 'src'))
+    expect(hits).toHaveLength(1)
+  })
+
+  // 038 D14, AC-24: each new event has exactly one emitter file, and no
+  // catalogue key or payload field name says "campaign".
+  it.each(['draft.project_changed', 'draft.inputs_applied'])('%s has exactly one emitter file in src (038 D14)', (name) => {
+    const hits: string[] = []
+    const re = new RegExp(`track\\(\\s*['"]${name.replace('.', '\\.')}['"]`)
+    const walk = (dir: string) => {
+      for (const e of readdirSync(dir, { withFileTypes: true })) {
+        const full = join(dir, e.name)
+        if (e.isDirectory()) walk(full)
+        else if (/\.tsx?$/.test(e.name) && re.test(readFileSync(full, 'utf8'))) hits.push(full)
+      }
+    }
+    walk(join(process.cwd(), 'src'))
+    expect(hits).toHaveLength(1)
+  })
+
+  it('the 038 events are web events and carry ids, enums and counts only', () => {
+    expect(CATALOGUE['draft.project_changed'].source).toEqual(['web'])
+    expect(CATALOGUE['draft.project_changed'].outcomes).toEqual([])
+    expect(CATALOGUE['draft.inputs_applied'].outcomes).toEqual(['ok'])
+    const parsed = CATALOGUE['draft.project_changed'].schema.safeParse({
+      change: 'move',
+      fromProjectId: 'a',
+      toProjectId: 'b',
+      name: 'Secret project name',
+    })
+    expect(parsed.success && JSON.stringify(parsed.data)).not.toContain('Secret')
+    expect(CATALOGUE['draft.project_changed'].schema.safeParse({ change: 'x', fromProjectId: null, toProjectId: null }).success).toBe(false)
+  })
+
+  it('no catalogue key or payload field name matches /campaign/i (038 AC-24)', () => {
+    const keys: string[] = []
+    for (const name of EVENT_NAMES) {
+      keys.push(name)
+      const shape = (CATALOGUE[name].schema as unknown as { shape?: Record<string, unknown> }).shape ?? {}
+      keys.push(...Object.keys(shape))
+    }
+    expect(keys.filter((k) => /campaign/i.test(k))).toEqual([])
   })
 
   it('carries every HEADLINE_CHECKS value in generation.finished', () => {
@@ -127,8 +226,7 @@ describe('analytics coverage guard: the headline vocabularies (030 FR-18)', () =
   it('no payload schema of these events accepts a headline text field (NFR-05)', () => {
     const TEXT = { headline: 'Secret line', text: 'Secret line', renderedHeadline: 'Secret line', renderedText: { headline: { text: 'Secret line' } } }
     const bases: Record<string, Record<string, unknown>> = {
-      'draft.headline_edited': { via: 'edit', state: 'stale', scheduledPending: true },
-      'publish.settled': { channel: 'LINKEDIN', terminal: true, headlineState: 'stale' },
+      'draft.headline_edited': { via: 'edit', state: 'stale' },
       'generation.finished': { headlineCheck: 'painted' },
     }
     for (const [name, base] of Object.entries(bases)) {
@@ -139,5 +237,65 @@ describe('analytics coverage guard: the headline vocabularies (030 FR-18)', () =
       const keys = Object.keys((schema as unknown as { shape: Record<string, unknown> }).shape)
       expect(keys.filter((k) => /headline(?!State|Check)|text|html/i.test(k)), name).toEqual([])
     }
+  })
+})
+
+
+// 039 D22, AC-21: caption.copied is a client event with one emitter, carries every
+// CaptionKind and every registry entry, and cannot hold text.
+describe('analytics coverage guard: caption.copied (039 D22, AC-21)', () => {
+  const emitters = (sources: Record<string, string>, name: string) => {
+    const re = new RegExp(`track\\(\\s*['"]${name.replace('.', '\\.')}['"]`)
+    return Object.keys(sources).filter((f) => re.test(sources[f]))
+  }
+  const srcFiles = () => {
+    const out: Record<string, string> = {}
+    const walk = (dir: string) => {
+      for (const e of readdirSync(dir, { withFileTypes: true })) {
+        const full = join(dir, e.name)
+        if (e.isDirectory()) walk(full)
+        else if (/\.tsx?$/.test(e.name)) out[relative(process.cwd(), full).split(sep).join('/')] = readFileSync(full, 'utf8')
+      }
+    }
+    walk(join(process.cwd(), 'src'))
+    return out
+  }
+
+  it('is in CLIENT_EVENTS, a web event with no outcome', () => {
+    expect([...CLIENT_EVENTS]).toContain('caption.copied')
+    expect(CATALOGUE['caption.copied'].source).toEqual(['web'])
+    expect(CATALOGUE['caption.copied'].outcomes).toEqual([])
+  })
+
+  it('has exactly one emitter file, src/app/api/events/route.ts', () => {
+    expect(emitters(srcFiles(), 'caption.copied')).toEqual(['src/app/api/events/route.ts'])
+  })
+
+  it('the emitter count fails on a second emitter (asserted on a fixture)', () => {
+    const files = { ...srcFiles(), 'src/components/Planted.tsx': `track('caption.copied', { source: 'web' })` }
+    expect(emitters(files, 'caption.copied')).toHaveLength(2)
+  })
+
+  it('carries every CaptionKind value, and every registry entry', () => {
+    const schema = CATALOGUE['caption.copied'].schema
+    const seen = new Set<string>()
+    for (const spec of CAPTION_REGISTRY) {
+      expect(schema.safeParse({ kind: spec.kind, channel: spec.channel }).success, spec.target).toBe(true)
+      seen.add(spec.kind)
+    }
+    expect([...seen].sort()).toEqual(Object.values(CaptionKind).sort())
+  })
+
+  it('refuses a retired channel, a general caption with a channel and a curated one without', () => {
+    const schema = CATALOGUE['caption.copied'].schema
+    expect(schema.safeParse({ kind: 'CURATED', channel: 'WHATSAPP' }).success).toBe(false)
+    expect(schema.safeParse({ kind: 'GENERAL', channel: 'INSTAGRAM' }).success).toBe(false)
+    expect(schema.safeParse({ kind: 'CURATED', channel: null }).success).toBe(false)
+  })
+
+  it('no payload schema of caption.copied accepts a text field (NFR-04)', () => {
+    const parsed = CATALOGUE['caption.copied'].schema.parse({ kind: 'GENERAL', channel: null, text: 'Secret caption', caption: 'Secret caption' })
+    expect(JSON.stringify(parsed)).not.toContain('Secret')
+    expect(Object.keys(parsed).sort()).toEqual(['channel', 'kind'])
   })
 })
