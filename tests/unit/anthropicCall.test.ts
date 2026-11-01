@@ -246,12 +246,40 @@ describe('AC-13: AnthropicCopyProvider', () => {
     expect(records).toEqual([expect.objectContaining({ surface: 'CAPTION', key: 'SONNET', label: 'copy' })])
   })
 
+  it('sends the token budget derived from captionMaxTokens(targets) (039 AC-24b)', async () => {
+    const { captionMaxTokens } = await import('@/lib/agent/prompts/caption')
+    // Haiku has no thinking floor, so the request carries the derived budget unchanged.
+    for (const targets of [['LINKEDIN'], ['HEADLINE', 'INSTAGRAM', 'LINKEDIN', 'FACEBOOK']] as const) {
+      const { client, create } = fakeClient(reply({}))
+      const provider = await providerWith(client)
+      await provider.generateCaptions(brief, targets, HAIKU)
+      expect(create.mock.calls[0][0].max_tokens).toBe(captionMaxTokens(targets))
+    }
+    expect(captionMaxTokens(['LINKEDIN'])).not.toBe(captionMaxTokens(['HEADLINE', 'INSTAGRAM', 'LINKEDIN', 'FACEBOOK']))
+  })
+
   it('a reply with no text block is an empty response, not a crash on content[0]', async () => {
     const { client } = fakeClient(reply({ content: [{ type: 'thinking', thinking: 'hm', signature: 's' }] }))
     const provider = await providerWith(client)
     await expect(provider.generateCaptions(brief, ['LINKEDIN'], HAIKU)).rejects.toThrow(
       'Anthropic returned an empty response',
     )
+  })
+})
+
+// 039 AC-24b: the OpenAI caption provider sends the same derived budget.
+describe('AC-24b: OpenAICopyProvider', () => {
+  it('sends max_tokens equal to captionMaxTokens(targets)', async () => {
+    const { OpenAICopyProvider } = await import('@/providers/implementations/copy/openai')
+    const { captionMaxTokens } = await import('@/lib/agent/prompts/caption')
+    const brief = { topic: 't', description: '', goal: 'g', tone: 'x', channels: [] }
+    for (const targets of [['LINKEDIN'], ['HEADLINE', 'INSTAGRAM', 'LINKEDIN', 'FACEBOOK']] as const) {
+      const provider = new OpenAICopyProvider('sk-FAKE-unit-test')
+      const create = vi.fn(async () => ({ choices: [{ message: { content: '{}' } }] }))
+      ;(provider as unknown as { client: unknown }).client = { chat: { completions: { create } } }
+      await provider.generateCaptions(brief, targets)
+      expect((create.mock.calls[0] as unknown as [{ max_tokens: number }])[0].max_tokens).toBe(captionMaxTokens(targets))
+    }
   })
 })
 

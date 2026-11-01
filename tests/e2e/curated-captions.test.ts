@@ -134,20 +134,22 @@ test.describe('§AN — curated captions', () => {
     const topic = `Cur Replace ${Date.now()}`
     const draft = await mint(api, topic)
     const id = draft.id as string
-    await curate(api, id, 'INSTAGRAM')
+    const first = captionOf(await curate(api, id, 'INSTAGRAM'), 'INSTAGRAM')!
+    expect(first.text).toBe(`Mock Instagram caption [${topic}] [from general]`)
 
-    // A hand edit, so the second curate's text differs from what it replaces.
-    const edited = await api.patch(`/api/drafts/${id}`, { channel: 'INSTAGRAM', text: 'Hand edit' })
-    expect(edited.status()).toBe(200)
+    // A new topic reaches the next call, so the second curate's text differs from the first's.
+    const topic2 = `${topic} Two`
+    await setBriefTopic(draft.briefId as string, topic2)
     const second = await curate(api, id, 'INSTAGRAM')
     const ig = captionOf(second, 'INSTAGRAM')!
-    expect(ig.text).toBe(`Mock Instagram caption [${topic}] [from general]`)
+    expect(ig.text).toBe(`Mock Instagram caption [${topic2}] [from general]`)
+    expect(ig.text).not.toBe(first.text)
     expect(ig.canUndo).toBe(true)
     const stored = await row(id, 'INSTAGRAM')
-    expect((stored.previous as { text: string }).text).toBe('Hand edit')
+    expect((stored.previous as { text: string }).text).toBe(first.text)
 
     // The topic now makes the mock omit every curated key: the next curate fails.
-    await setBriefTopic(draft.briefId as string, `${topic} __FAIL_CURATED__`)
+    await setBriefTopic(draft.briefId as string, `${topic2} __FAIL_CURATED__`)
     const third = await curate(api, id, 'INSTAGRAM')
     const failed = captionOf(third, 'INSTAGRAM')!
     expect(failed.text).toBe(ig.text)

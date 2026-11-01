@@ -360,7 +360,8 @@ describe('runGenerationForDraft (async)', () => {
     const failed = db.draftUpdates.at(-1)!.data
     expect(failed.status).toBe('FAILED')
     expect(failed.failureReason).toMatch(/No Claude token is connected/)
-    expect(failed.captions).toMatchObject({ updateMany: { where: { status: 'PENDING' } } })
+    // Scoped to the general row only (039 AC-04): a curated row is never failed with the draft.
+    expect(failed.captions).toMatchObject({ updateMany: { where: { status: 'PENDING', kind: 'GENERAL' } } })
   })
 })
 

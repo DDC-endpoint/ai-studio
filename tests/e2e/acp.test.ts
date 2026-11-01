@@ -146,6 +146,10 @@ test.describe('ACP surface', () => {
       const body = await res.json()
       expect(body.output?.draftId).toBeTruthy() // Brief+Draft created under the system user
       expect(body.output?.exportUrl).toMatch(/^https?:\/\//) // signed (H10)
+      // 039 AC-20: `channels` is ignored; the result lists exactly the general caption (D20 keys).
+      expect(body.output.captions).toHaveLength(1)
+      expect(body.output.captions[0]).toMatchObject({ kind: 'GENERAL', channel: null })
+      expect(Object.keys(body.output.captions[0]).sort()).toEqual(['channel', 'facts', 'kind', 'rules', 'status', 'text'])
 
       // Cross-tenant proof: this key belongs to Bistec, so the generated draft
       // must be readable via the key itself (getDraft is team-bound) — a

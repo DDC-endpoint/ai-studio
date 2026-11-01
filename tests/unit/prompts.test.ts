@@ -101,6 +101,14 @@ describe('buildPathBUserMessage', () => {
     height: 1080,
   }
 
+  it('has no "Channels:" line, even for a brief that still carries legacy channels (039 AC-24a)', () => {
+    expect(base.channels.length).toBeGreaterThan(0)
+    for (const mode of ['cli', 'api'] as const) {
+      const msg = buildPathBUserMessage({ ...base, mode })
+      expect(msg).not.toMatch(/^Channels:/m)
+    }
+  })
+
   it('carries the fenced headline behind the guard, never a caption label (012 FR-09)', () => {
     const msg = buildPathBUserMessage({ ...base, mode: 'cli' })
     expect(msg).toContain(onImageHeadline('We are live!'))

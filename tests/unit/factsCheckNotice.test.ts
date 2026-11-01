@@ -54,5 +54,13 @@ describe('factsNoticeFor labels (039 AC-03)', () => {
       flagged: [{ kind: 'cur', value: '$49', where: 'GENERAL' }],
     })
     expect(general?.message).toContain('$49 (general caption)')
+    const facebook = factsNoticeFor({
+      v: 1,
+      status: 'flagged',
+      checkedAt: at,
+      flagged: [{ kind: 'cur', value: '$49', where: 'FACEBOOK' }],
+    })
+    expect(FACT_WHERE).toContain('FACEBOOK')
+    expect(facebook?.message).toContain('$49 (Facebook caption)')
   })
 })

@@ -564,6 +564,27 @@ test.describe('§W — wave 2: the headline and the caption panels', () => {
     expect(captionsOf(after).map((c) => c.target)).toEqual(['GENERAL', 'INSTAGRAM', 'LINKEDIN'])
   })
 
+  // TC-CAP-25b — 039 AC-06 clause 6: curating an old post (no general caption) is written
+  // from the brief alone, so the row records no general hash and carries no general marker.
+  test('curating an old post with no general caption stores no generalHash and no [from general]', async () => {
+    if (!MOCKED()) { test.skip(); return }
+    test.skip(!dbAvailable, 'requires test DB access')
+    const topic = `Cap Old Curate ${Date.now()}`
+    const draft = await exportedDraft(api, topic)
+    const id = draft.id as string
+    await makeOldPost(id)
+    expect(await prisma!.draftCaption.count({ where: { draftId: id, kind: 'GENERAL' } })).toBe(0)
+
+    const done = await curate(api, id, 'INSTAGRAM')
+    expect(done.pendingActionError).toBeNull()
+
+    const ig = await prisma!.draftCaption.findFirstOrThrow({ where: { draftId: id, kind: 'CURATED', channel: 'INSTAGRAM' } })
+    expect(ig.status).toBe('READY')
+    expect(ig.text).not.toBe('An old Instagram caption.')
+    expect(ig.generalHash).toBeNull()
+    expect(ig.text).not.toContain('[from general]')
+  })
+
   // 039 D12 (T3): a regenerate of a curated channel with no row makes the row (curate).
   test('a regenerate of a curated channel with no row makes it, and the post then has two captions', async () => {
     if (!MOCKED()) { test.skip(); return }

@@ -142,6 +142,29 @@ Every draft has an on-image **headline** and one **general caption**. Since 039 
   - `facts` is `{ status: 'clear' | 'flagged' | 'error', flagged: [{ kind, value }] }` for that caption, or `null` when the post was never checked. **Treat `facts.status` `flagged` or `error` as needing review** before the caption is used. The check never blocks anything.
   - `rules` is `{ met, unmet }`: the caption's rules (length, words, hashtags and, for Facebook, the link) and which ones it misses. `link-missing` means the kit has a website and the Facebook caption does not carry it. A kit with no website has no link to check.
   - The list is open: later kinds, a language field or other per-entry fields are additive, so read by name.
+    For example (a post with a general caption and a flagged Facebook caption):
+
+  ```json
+  "captions": [
+    {
+      "kind": "GENERAL",
+      "channel": null,
+      "text": "...",
+      "status": "READY",
+      "facts": { "status": "clear", "flagged": [] },
+      "rules": { "met": true, "unmet": [] }
+    },
+    {
+      "kind": "CURATED",
+      "channel": "FACEBOOK",
+      "text": "...",
+      "status": "READY",
+      "facts": { "status": "flagged", "flagged": [{ "kind": "cur", "value": "$49" }] },
+      "rules": { "met": false, "unmet": ["words-over"] }
+    }
+  ]
+  ```
+
 - **An old post** (made before 039) has no `GENERAL` entry, and its Instagram and LinkedIn entries stay as they were. A generation through MCP or ACP always writes the general caption, so a new post has exactly one entry. An absent general entry means "none yet".
 - **Curated captions are made in the app**, not through MCP or ACP: there is no curate tool, and `get_draft` shows a curated caption once a member made it.
 - **`headline`** is the text drawn on the image (at most 100 characters). It is null only while it has not been written yet (a generation still running, or one that failed before the headline was stored); a design made for such a draft falls back to the brief topic.
