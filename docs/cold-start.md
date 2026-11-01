@@ -302,3 +302,9 @@ Migration `20261101130000_drop_campaigns` is fail-closed: it refuses to run whil
 6. `DATABASE_URL=... MINIO_ENDPOINT=... MINIO_ACCESS_KEY=... MINIO_SECRET_KEY=... MINIO_BUCKET_DOCS=campaign-docs node scripts/sweep-campaign-documents.mjs` (dry run, exit 3 when keys exist, exit 4 before the migration finished, exit 2 for a missing or `minioadmin` key), then again with `--yes`.
 
 Down scripts (schema only): `prisma/rollback/038-project-inputs.down.sql`, `prisma/rollback/038-drop-campaigns.down.sql`.
+
+## Upgrading a database that ran a build with per-channel captions (change 039)
+
+The three 039 migrations (`20261102120000_caption_kind`, `20261102130000_channel_facebook`, `20261102140000_kit_website`) are additive. A local database that ran an older build needs only `npm run db:migrate`, after the 037 and 038 steps above if it has not had them. Old Instagram and LinkedIn captions become curated captions; a post has no general caption until "Generate general caption". A kit has no website until a team admin sets one.
+
+Down script (schema only, and it deletes the new data): `prisma/rollback/039-general-and-curated-captions.down.sql`. It refuses to run unless the session sets `app.allow_caption_loss = 'on'`; take a `pg_dump` first and read the script's header.

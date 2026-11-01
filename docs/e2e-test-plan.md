@@ -24,6 +24,13 @@ Last full run on `main` (2026-07-13, post brief-draft-recovery §P): **132 passe
 > - **`removed-routes.test.ts` (TC-RM, 038 AC-20)** also covers `/api/campaigns`, `/api/campaigns/[id]`, `.../brandkit`, `.../briefing`, `.../documents` and the `/campaigns` page.
 > - **MCP and ACP are `2.1.0`:** `projectId` is accepted, `campaignId` is `400` `CAMPAIGN_RETIRED`, an unknown project is `404` `PROJECT_NOT_FOUND`.
 
+> **Update (2026-11-02, change 039 general and curated captions):** a post has one general caption, and Instagram, LinkedIn and Facebook captions are curated on demand. Read "caption" in the catalog below as the general caption unless it names a channel.
+>
+> - **Rewritten `captions.test.ts` (§W):** TC-CAP-23 to 26 are new; "Regenerate all" is gone.
+> - **New `curated-captions.test.ts` (§AN, TC-CUR-01 to 12).**
+> - **New cases elsewhere:** TC-BK-30 and TC-BK-31 (`brand-kit.test.ts`, the kit Website), TC-OBS-32 to 34 (`analytics.test.ts`, §AD) and TC-PERM-08 (`post-permissions.test.ts`). TC-MODEL-07 is removed.
+> - **MCP and ACP are `2.2.0`:** `captions` is `[{ kind, channel, text, status, facts, rules }]`; `channels` is ignored.
+
 > **Update (2026-10-13, change 017 publish API fixes):** a publish the platform refuses is no longer a 2xx. `POST /api/posts` (immediate) and `POST /api/posts/[id]/publish` (retry) answer **502** `{error, code:'PUBLISH_FAILED', postId, status:'FAILED'}`; the FAILED row is still written. **TC-PUB-03** now expects the 502 (and a failing retry's 502), and new **TC-PUB-10** drives the publish dialog: the failed channel shows "✕ failed" with its reason and the dialog stays open.
 
 > **Update (2026-10-24, change 027 post styles and the facts check):** new suite **`post-styles.test.ts` (§AE, TC-PS-01 to TC-PS-40)**, driven by the mock fact sentinels `__MOCK_FACT_PRICE__`, `__MOCK_FACT_PCT__`, `__MOCK_FACT_DATE__`, `__MOCK_FACT_NUM__`, `__MOCK_FACT_HEADLINE__` and `__MOCK_FACT_ERROR__` and the existing `POST /api/test/generation-tick` (see §AE); §AD gains TC-OBS-31. Gate: 517/3/0/0 (unit 3737/3737, render 47/47, CI green at `c199270` (run 40111923100)).
@@ -540,71 +547,37 @@ Refine writes by its own rule: it resolves the provider **first** and, with none
 
 ---
 
-### W. Per-channel captions (`captions.test.ts`, change 012 T10 + T13 — AC-12 → AC-24)
+### W. Captions (`captions.test.ts`, change 012 T10 + T13; rewritten by 039 T2)
 
-Every draft carries an on-image **headline** and one **`DraftCaption` row per channel** (Instagram and LinkedIn since 026; WhatsApp until 2026-10-23), each `PENDING` / `READY` / `FAILED`. **026 (2026-10-23):** WhatsApp left the caption registry, so new drafts carry two captions and an old WhatsApp row is hidden, not deleted; TC-CAP-21 and TC-CAP-22 are new and the cases below were retargeted to two channels (`.specclaw/changes/026-drop-whatsapp-caption-refine-under-preview/reports/T2.md`). `GET /api/drafts/[id]` returns `headline` and `captions[]` and has **no `copyText` key**. Every publish path resolves the matching channel's caption first and refuses a failed, pending, empty, over-limit or WhatsApp one **terminally**. **Removed by 016 (2026-10-13):** the legacy single-caption migration (boot backfill, lazy read, `captionMigration`, `legacyCaptionText`) and the 012 rollback are gone, and so are the cases that tested them (TC-CAP-11, -12, -13, -19).
+Every post carries an on-image **headline** and one **general caption** (`DraftCaption`, `kind` `GENERAL`, no channel). Curated captions (Instagram, LinkedIn, Facebook) are made on demand and are covered by §AN. Each row is `PENDING`, `READY` or `FAILED`. 039 (2026-11-02) replaced the per-channel pair: a generation writes one general row, a post made before 039 has none until "Generate general caption", and `{}` on `regenerate-copy` is `400`. "Regenerate all" is retired (039 Q2). `GET /api/drafts/[id]` returns `headline`, `general` and `curated[]`, with no `copyText` key.
 
-Each case uses a unique topic, `waitForDraft` / `waitForAction` from `tests/helpers/api.ts`, and one kit + one campaign per worker (keeps the campaign count under the 200-row listing cap). Needs `MOCK_AI` + `MOCK_PUPPETEER` + `MOCK_SOCIAL` and test-DB access. The scheduler cases drive `POST /api/test/scheduler-tick`.
+Each case uses a unique topic and `waitForDraft` / `waitForAction` from `tests/helpers/api.ts`. The suite needs `MOCK_AI` and `MOCK_PUPPETEER`, and test-DB access for the cases that read rows. Seeded curated rows come from `seedCuratedCaption` (`tests/helpers/db.ts`).
 
-**New seams (all dormant in production):**
+**Seams (all dormant in production):**
 
-- **`buildMockCaptionReply(topic, targets)`** (`src/lib/testHooks.ts`, returned by the `MOCK_AI` `CopyProvider`): a raw reply with a preamble, a `json`-fenced object holding only the requested keys, and a trailer, so **the real extractor parses it**. Captions are `Mock <Label> caption [<topic>]` (WhatsApp was removed by 026); the headline is `Mock headline <topic>`.
-- **`__DROP_CAPTION_INSTAGRAM__` / `__DROP_CAPTION_LINKEDIN__` / `__DROP_CAPTION_HEADLINE__`** (the WhatsApp sentinel was removed by 026) in the brief topic omit that key, **only in a reply that requests every channel**. So a generation yields a `FAILED` row (or, for the headline, a `FAILED` draft), and a single-channel regenerate of that channel then succeeds, with no stored state.
-- **The hashed mock `platformId`:** `mockPlatformId(channel, caption)` = `mock-<channel>-<Date.now()>-<sha256(caption)[0:12]>`, used by the mock publishers, so a case can prove which text a channel received.
-- **Removed by 016:** `makeLegacyDraft` (`tests/helpers/db.ts`), the `captions:backfill` / `captions:report` script runs and the rollback scratch DB, with TC-CAP-11/12/13/19. The two bullets below are kept as history.
-- ~~**The scripts:**~~ (historical) TC-CAP-12 ran `npm run captions:backfill` / `captions:report` through `spawnSync` with `.env.test` **overriding** the runner env (`dotenv -o` semantics; the runner already has `MOCK_AI` and the dev `.env`'s `DESIGN_PROVIDER=cli`). `testDbUrl()` throws unless the DB name ends in `_test`.
-- ~~**The rollback check**~~ (historical) (TC-CAP-13) built a scratch DB `bistec_studio_test_012_rollback` with `prisma migrate deploy` (a `TEMPLATE` copy is refused while the test server holds the source), seeds it through Prisma, applies the real file with `prisma db execute --file prisma/rollback/012-per-channel-captions.down.sql`, and drops it `WITH (FORCE)` in `finally`. It needs only Prisma, so it also runs in CI.
+- **`buildMockCaptionReply(topic, targets, { hasGeneral })`** (`src/lib/testHooks.ts`): a raw reply with a preamble, a `json`-fenced object holding only the requested keys and a trailer, so the real extractor parses it. A curate reply appends `[from general]` when a general caption was passed.
+- **`__DROP_CAPTION_GENERAL__` and `__DROP_CAPTION_HEADLINE__`** in the brief topic omit that key, only in a reply that requests every target. `__FAIL_CURATED__` omits the curated keys (§AN).
 
-**Wave 1 (T10):**
+**Cases:**
 
-- **TC-CAP-01 — A generated draft (AC-12).** EXPORTED; `headline` = `Mock headline <topic>`; two READY captions in registry order (Instagram, LinkedIn), each with the topic and no `**`; no `copyText` key (026: no WhatsApp caption).
-- **TC-CAP-02 — Partial failure and a single-channel retry (AC-13, AC-16 a).** `__DROP_CAPTION_LINKEDIN__`: EXPORTED, LI `FAILED` (`missing`, empty text), IG READY. `POST /api/posts {LINKEDIN}` → 422 `CAPTION_UNPUBLISHABLE`, the reason names LinkedIn, no Post row. `regenerate-copy {channel:'LINKEDIN'}` → 202 → LI READY; IG `text` and `updatedAt` unchanged; headline and revision pointer unchanged.
-- **TC-CAP-03 — A missing headline fails the draft (AC-14).** `__DROP_CAPTION_HEADLINE__`: draft FAILED, `failureReason` mentions the headline, `headline` null, the two captions READY.
-- **TC-CAP-04 — Each channel gets only its own caption (AC-15).** Publish LINKEDIN then INSTAGRAM immediately: each `platformId` suffix equals `sha256(own caption)[0:12]` and differs from the other's; each post's `draft.caption` is its own text.
-- **TC-CAP-05 — The scheduler refuses an emptied caption, terminally (AC-16 b).** Schedule IG on a READY caption, PATCH IG to `''`, make it due through the test DB, tick → FAILED, `errorReason` contains "caption is empty", `retryCount` 0, `nextRetryAt` null; a second tick leaves the row byte-identical.
-- **TC-CAP-06 — WhatsApp fails closed (AC-17).** `POST /api/posts {WHATSAPP}` → 400, no row; the draft's captions are Instagram and LinkedIn only (no READY WhatsApp caption). A due SCHEDULED WHATSAPP Post inserted through the test DB → tick → FAILED "WhatsApp publishing isn't available." (026 wording), `retryCount` 0, `nextRetryAt` null, unchanged by a second tick.
-- **TC-CAP-07 — WhatsApp is not an input (AC-18, API).** `POST /api/briefs {channels:['WHATSAPP']}` → 400; a queue create with WHATSAPP → 400.
-- **TC-CAP-08 — WhatsApp is in no picker (AC-18, UI).** The draft page's Publish dialog and the campaign's Plan a post modal (`QueueEntryModal`) each show exactly two "Channels" checkboxes, Instagram and LinkedIn. **010 changes this to 3.**
-- **TC-CAP-09 — Single-flight (AC-20).** With `pendingAction = REGENERATE_COPY` and the LI row PENDING seeded through the test DB: `regenerate-copy {channel:'INSTAGRAM'}` (WHATSAPP is now a 400, TC-CAP-21), `{headline:true}`, `regenerate-design` and restore each 409 "Another action is already running on this draft"; a PATCH on the PENDING LI row 409s "This caption is being generated", while a PATCH on READY IG is 200.
-- **TC-CAP-10 — Restore never touches captions (AC-22).** Refine → revision 2, PATCH LI, restore revision 1: `captions` (every field, `updatedAt` included) and `headline` equal their pre-restore values.
-- ~~**TC-CAP-11 — Lazy migration on first read**~~, ~~**TC-CAP-12 — The backfill and report scripts**~~, ~~**TC-CAP-13 — The rollback down.sql**~~ **(AC-23): removed by 016 (2026-10-13)** with the legacy caption machinery and the 012 rollback.
-- **TC-CAP-14 — ACP outputs (AC-26, AC-17 ACP).** ACP `generate_post` output has `headline` and `captions` (2: INSTAGRAM, LINKEDIN, registry order, READY). ACP `publish_post {channel:'WHATSAPP'}` → 400 (`channel must be INSTAGRAM or LINKEDIN`), no Post row.
-- **AC-19** is the rewritten **TC-ASYNC-10** in `async-actions.test.ts` (§Q): PATCH `{channel:'INSTAGRAM', text}` then `text:''` keep the draft EXPORTED, in the library, regenerable and refinable, and the empty IG panel is an editable textarea with no skeleton.
+- **TC-CAP-01 - A generated draft.** `EXPORTED`; `headline` = `Mock headline <topic>`; one `READY` general caption with the topic and no `**`; no `copyText` key.
+- **TC-CAP-03 - A missing headline fails the draft.** `__DROP_CAPTION_HEADLINE__`: the draft is `FAILED`, `headline` null, and the general caption that validated is kept.
+- **TC-CAP-09 - Single flight.** With `pendingAction = REGENERATE_COPY`, every other action is `409` and a `PENDING` row refuses its edit.
+- **TC-CAP-10 - Restore never touches captions.** Refine, edit the general caption, restore revision 1: the caption rows and the headline are unchanged.
+- **TC-CAP-14 - ACP.** `generate_post` returns `headline` and the caption list (one general entry); `channels` is ignored; `publish_post` is an unknown capability.
+- **TC-CAP-15 - Regenerate the general caption.** `{ kind: 'GENERAL' }` rewrites it and leaves the headline and the revision alone; `{}` is `400`.
+- **TC-CAP-16 - Regenerate the headline only.** `{ headline: true }` sets the headline and leaves every caption row unchanged.
+- **TC-CAP-17 - The caption desk.** Headings, names, counters and the Instagram limit (axe: 0 violations).
+- **TC-CAP-18 - Copy and Undo.** "Copy general caption" fills the clipboard; Regenerate replaces a hand edit and Undo brings it back.
+- **TC-CAP-20 - A `FAILED` general row.** The error notice, an editable empty field and a Generate button that fills it.
+- **TC-CAP-21 - A legacy WhatsApp row.** Hidden from the API and the page, and left unchanged.
+- **TC-CAP-22 - The draft-page layout.** Refine design sits under the Preview card from `xl`, and between Preview and Captions below it.
+- **TC-CAP-23 - The generation contract (039 AC-04).** One caption row, `GENERAL`, no channel, `READY` with text.
+- **TC-CAP-24 - The general caption fails alone (039 AC-05, AC-13).** `__DROP_CAPTION_GENERAL__` leaves the headline and the draft; a general regenerate fixes only that row.
+- **TC-CAP-25 - A post made before 039 (039 AC-06).** The page lists its curated captions and no general one; "Generate general caption" makes it. A regenerate of a curated channel with no row makes the row.
+- **TC-CAP-26 - `channels` is ignored (039 AC-07).** A `channels` key (WhatsApp included) on `POST /api/briefs` is never refused and `Brief.channels` stays null.
 
-**Wave 2 (T13), the panels:**
-
-- **TC-CAP-15 — Regenerate all (AC-21 a).** A hand-set headline first; `regenerate-copy {}` → 202 → two READY captions with a strictly later `updatedAt`; the hand-set headline and `currentRevisionNumber` unchanged; `pendingActionError` null.
-- **TC-CAP-16 — Regenerate the headline only (AC-21 b).** A generated draft whose headline is nulled directly through the test DB (`prisma.draft.update`, since 016); `{headline:true}` → 202 → `headline` = `Mock headline <topic>`; `captions` deep-equal the read before the regenerate; revision pointer unchanged.
-- **TC-CAP-17 — The caption desk structure and counters (AC-24 a–d).** Under the "Captions" h2 the h3s are exactly Headline, Instagram, LinkedIn, and one textbox is named "Headline". Each caption textarea is named by its h3 and holds the GET text. Counters `n / 2,200 (Instagram)` and `n / 3,000 (LinkedIn)`; no WhatsApp text appears (026 removed the soft-guide counter). 2,201 Instagram characters show "Over the Instagram limit" and still save. Then the axe scan.
-- **TC-CAP-18 — Copy and per-panel Undo (AC-24 e, f).** Clipboard permission granted on the context. "Copy Instagram caption" → toast "Caption copied", clipboard = IG text. LinkedIn hand-edited, then "Regenerate LinkedIn caption" → "Undo LinkedIn caption" appears (no other Undo); Undo restores the hand-written text in the field and the GET; IG and the headline untouched.
-- **TC-CAP-21 — A legacy WhatsApp row stays hidden and unchanged (026 AC-05).** A READY WhatsApp `DraftCaption` row with text is inserted through Prisma. `GET /api/drafts/[id]` lists two captions (no WhatsApp), the page shows no WhatsApp panel or text, and `PATCH` and `regenerate-copy` with `{channel:'WHATSAPP'}` are each 400. The row's text, status and `updatedAt` are unchanged in the DB. MCP `get_draft` is covered by the unit test `mcpGetDraft`.
-- **TC-CAP-22 — The draft-page layout (026 AC-09).** At 1440 px the Refine Design card sits at or below the Preview card's bottom with the same left edge (±1 px), and Captions is in the right column. At 390 px the order is Preview, Refine Design, Captions (bounding boxes and `compareDocumentPosition`). Axe runs at both widths.
-- ~~**TC-CAP-19 — The review notice (AC-24 g).**~~ **Removed by 016 (2026-10-13)** with the notice and `makeLegacyDraft`.
-- **TC-CAP-20 — A FAILED row (AC-24 h).** `__DROP_CAPTION_LINKEDIN__`: the error notice "The LinkedIn caption failed to generate (<reason>)." starts the LI description; the field is empty and editable; the button is "Generate" (named "Generate LinkedIn caption"). Axe scan. Generate fills LI with `Mock LinkedIn caption [<topic>]` and the notice goes.
-
-TC-CAP-17 and -20 (and TC-CAP-19 until 016) run 014's 12 AC-19 axe rules over the caption states 014's own draft-page scan never sees (0 violations). The rule list is copied from `a11y.test.ts` (importing a spec file would register its tests twice); a shared helper is a follow-up.
-
-**Existing cases edited by 012** (reasons in `.specclaw/changes/012-per-channel-captions/reports/T10.md` and `T14.md`): `async-actions` TC-ASYNC-02, -06, -09, -10; `team-isolation` cross-team draft PATCH body; `surfaces` T9 at 375 px (placeholder, "Regenerate all") and "Brief & Caption Direction"; `a11y` rows 26/27 and the three "Brief & Caption Direction" headings.
-
-**AC → case map (change 012).** The unit side is AC-01 → AC-11 (`channels`, `captionExtract`, `captionHeadline`, `captionResolve`, `jobRunner`, `draftRecovery`, `captionWording`, `mcpGetDraft`, `testHooks`; `captionMigrationPlan`, `captionBackfill` and `legacyCaptionGuard` were deleted by 016).
-
-| AC                                                         | E2E                             |
-| ---------------------------------------------------------- | ------------------------------- |
-| AC-12 generated draft: headline + 2 READY (026), no `**`   | TC-CAP-01                       |
-| AC-13 partial failure, single-channel retry                | TC-CAP-02                       |
-| AC-14 missing headline fails the draft                     | TC-CAP-03                       |
-| AC-15 each channel publishes its own caption               | TC-CAP-04                       |
-| AC-16 publishing refuses a failed / emptied caption        | TC-CAP-02, TC-CAP-05            |
-| AC-17 WhatsApp fails closed (API, scheduler, ACP)          | TC-CAP-06, TC-CAP-14            |
-| AC-18 WhatsApp in no input or picker                       | TC-CAP-07, TC-CAP-08            |
-| AC-19 the TC-ASYNC-10 contract on captions                 | TC-ASYNC-10 (§Q)                |
-| AC-20 single-flight 409s                                   | TC-CAP-09                       |
-| AC-21 Regenerate all; headline-only regenerate             | TC-CAP-15, TC-CAP-16            |
-| AC-22 restore never touches captions                       | TC-CAP-10                       |
-| AC-23 migration, backfill, report, rollback                | removed by 016 (no case)        |
-| AC-24 the panels: structure, counters, copy, undo, notices | TC-CAP-17, TC-CAP-18, TC-CAP-20 |
-
----
+**Removed by 039:** the Regenerate-all case (TC-CAP-15 in its old form) and TC-MODEL-07 (§Y). **Removed earlier:** TC-CAP-02, 04 to 08 (publishing, 037); TC-CAP-11, 12, 13 and 19 (016).
 
 ### Y. Model selection (`model-selection.test.ts`, change 008 T12 — wave 1, AC-15 → AC-23)
 
@@ -656,11 +629,7 @@ Each case uses a unique topic and `waitForDraft` / `waitForAction`, with one kit
   - `regenerate-copy {channel:'LINKEDIN'}` → LinkedIn is Haiku, with `modelSubstitutedFrom` = Opus. The IG row deep-equals its seeded read (026: WA is no longer a row).
   - **Recorder:** no Opus record after the PUT. The two records are `[Sonnet, system, Opus]` and `[Haiku, system, Opus]`.
   - **Mutation-checked:** letting the stamp tier skip the effective set makes this case fail (Opus received).
-- **TC-MODEL-07 — Regenerate all is like for like (AC-18).**
-  - **(a)** Stamps `[S,S]` (026: two rows), then `{}` → two Sonnet rows; recorder `stamp`.
-  - **(b)** Mixed stamps `[S,O]` with a team `CAPTION: HAIKU` → two Haiku rows; `team`; `modelSubstitutedFrom` null.
-  - **(c)** Null stamps and no team default → two Haiku rows; `system`.
-  - The headline and `headlineModel` are never touched.
+- **TC-MODEL-07 — removed by 039 (Q2).** "Regenerate all" is retired, and with it the mixed-stamp case.
 - **TC-MODEL-08 — Refine and the verifier (AC-19).**
   - A Path B refine ("Include a human character") → revision 2 and `designModel` are Sonnet. Recorder: `REFINE` → Sonnet (`system`) and `INTERNAL_VERIFIER` → Haiku (label `verify`).
   - A Path A refine → revision 2 is Haiku.
@@ -699,7 +668,7 @@ Each case uses a unique topic and `waitForDraft` / `waitForAction`, with one kit
 | AC-15 generation stamps on system defaults             | TC-MODEL-01, TC-MODEL-02                                |
 | AC-16 the team policy                                  | TC-MODEL-03, TC-MODEL-04, TC-MODEL-05                   |
 | AC-17 a removal applies to stored values               | TC-MODEL-06                                             |
-| AC-18 regenerate is like for like                      | TC-MODEL-07                                             |
+| AC-18 regenerate is like for like                      | (TC-MODEL-07 removed by 039)                            |
 | AC-19 refine and the verifier                          | TC-MODEL-08                                             |
 | AC-20 non-interactive callers use the team default     | TC-MODEL-09                                             |
 | AC-21 the assistants and the stamp-less surfaces       | TC-MODEL-10                                             |
@@ -976,7 +945,7 @@ Serial (`test.describe.configure({ mode: 'serial' })`). Needs `MOCK_AI` and `MOC
 - **TC-OBS-19 — API access (AC-11).** `/api/admin/insights` answers 401 to a bogus session cookie and 403 to an editor and a team admin. A request with no cookie at all is redirected to `/login` by the proxy, so the case sends a bogus cookie (the TC-HB-06 pattern).
 - **TC-OBS-20 — Page access (AC-11).** An editor and a team admin see the gate and no nav item.
 - **TC-OBS-21 — Layout and axe (AC-16).** The super admin has the nav item; the page has no horizontal scroll at 390 px and passes the axe rules.
-- **TC-OBS-22 — Privacy (AC-04).** No event the suite collected holds the brief text, a caption, the headline or HTML. It runs last, so it covers every event the suite wrote.
+- **TC-OBS-22 — Privacy (AC-04).** No event the suite collected holds the brief text, a caption, the headline or HTML. (039: `caption.copied` carries only `kind` and `channel`.) It runs last, so it covers every event the suite wrote.
 - **TC-OBS-23 — Wizard steps (AC-09).** Walking the wizard writes one `wizard.step` per step reached; going back and forward again adds none; Generate writes `brief.submitted`.
 - **TC-OBS-24 — Resume (AC-09).** Resuming a brief draft reports no steps up to where it stopped, then the next forward step with its draft id; Generate writes `brief.submitted` with `resumed`.
 - **TC-OBS-25 — Discard (AC-09).** Discarding a brief draft writes `brief.abandoned` `discarded` with its last step; a foreign id and the Generate-success delete write nothing.
@@ -985,6 +954,9 @@ Serial (`test.describe.configure({ mode: 'serial' })`). Needs `MOCK_AI` and `MOC
 - **TC-OBS-28 — The rate limit (AC-09).** The 61st event in a minute is dropped and counted (`AnalyticsDrop` reason `rate-limit`); the first 60 are stored. The client still gets 204.
 - **TC-OBS-29 — The funnel (AC-09, AC-11).** The funnel on the API and the page equals a hand count over a seeded set.
 - **TC-OBS-30 — Tokens (AC-10).** Token totals count reported events only, and the page shows the not-reported share. The `MOCK_AI` seam bypasses `createMessage`, so the case seeds events; the summing itself is proven by the unit test `analyticsUsage.test.ts`.
+- **TC-OBS-32 - `caption.copied` (039 AC-21).** Copy on the general caption writes one `caption.copied` with the draft id; a repeat within 10 s is dropped and counted (`rate-limit`); a foreign draft is `404` and a pair outside the registry (WhatsApp) is `400`.
+- **TC-OBS-33 - Caption action fields (039 AC-22).** A Facebook curate writes one `draft_action.settled` with `captionKind` `CURATED`, `channel` `FACEBOOK`, `captionOp` `create` and `ok`; a second writes `replace`.
+- **TC-OBS-34 - The Captions section (039 AC-22).** The section equals a hand count over a seeded set, and the copies column reads "client-reported".
 
 **Notes.**
 
@@ -1356,3 +1328,27 @@ Mock mode (`MOCK_AI` + `MOCK_PUPPETEER`), the seeded team, serial. The mock desi
 | TC-AP-10 | AC-40, FR-35 | No "Beta" chip while the measured rate is at or above 80% (`APPLY_TEXT_BETA` is false); the chip itself is covered by the unit test `applyTextRoute.test.ts`                          |
 
 Unit: `applyTextRoute.test.ts` (each refusal is 422 with nothing claimed; 409; the 202 path; the event once per verdict; the verdict fails closed on a null absent check) and `applyTextCoverage.test.ts` (every `APPLY_FAILURES` value is carried by the event). Render: `tests/render/applyCheck.test.ts` (T14).
+
+### AN. Curated captions (`curated-captions.test.ts`, change 039 T3 and T4 — AC-08 to AC-18, AC-23)
+
+Mock mode (`MOCK_AI` + `MOCK_PUPPETEER`), the seeded team, serial. A curate is `POST /api/drafts/[id]/regenerate-copy { channel }`. The mock reply appends `[from general]` when the general caption was passed.
+
+**The seams** (dormant in prod). `__FAIL_CURATED__` in the topic omits the curated keys. `__MOCK_CURATE_SHORT__`, `__MOCK_CURATE_HASHTAGS__` and `__MOCK_CURATE_LINK__` shape a Facebook reply (short, too many hashtags, a link in the body). `POST /api/test/caption-limit` (`{ limit }` or `null`) overrides the per-user caption limit (404 without `MOCK_AI`, 403 to a non-admin, 400 for a bad body).
+
+| Case       | AC    | What it checks                                                                                                                        |
+| ---------- | ----- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| TC-CUR-01  | AC-08 | A curate of Instagram makes a `READY` curated row written from the general caption; the settle stores `generalHash`                   |
+| TC-CUR-02  | AC-09 | A second curate replaces the text and keeps the earlier text in `previous`; a failed curate leaves the row alone                      |
+| TC-CUR-03  | AC-10 | An edit and an undo swap the text, a second undo swaps it back, and the general caption edits too                                     |
+| TC-CUR-04  | AC-11 | A delete is soft: the caption leaves the facts check, the editor and the MCP list, the general caption stays, and undo brings it back |
+| TC-CUR-05  | AC-12 | While a curate holds the post, another curate and a delete of its `PENDING` row get `409`                                             |
+| TC-CUR-06  | AC-13 | A curate over the per-user limit gets `429` with `Retry-After`; nothing is claimed and no model is called                             |
+| TC-CUR-06b | AC-13 | The limit seam answers `403` to a non-admin and rejects a bad body                                                                    |
+| TC-CUR-07  | AC-16 | A value the sources do not state is flagged on the general caption and on a curated one, and the page says so                         |
+| TC-CUR-08  | AC-17 | A Facebook curate on a kit with a website carries the link once, on its own line, before the hashtags                                 |
+| TC-CUR-09  | AC-17 | On a kit with no website the text has no link, and the button and the card show the no-website line                                   |
+| TC-CUR-10  | AC-17 | A link in the model's Facebook reply is refused: the first curate is `FAILED` with no text, and a regenerate keeps the text           |
+| TC-CUR-11  | AC-18 | A short or over-hashtagged Facebook caption is stored with its rule notice, which clears after an edit into range                     |
+| TC-CUR-12  | AC-23 | The caption desk: curate, copy, delete and undo from the page                                                                         |
+
+Unit: `captionRegistryGuard`, `captionWriters`, `factsSourcesBoundary`, `captionRateLimit`, `captionLimitSeam`, `captionMoveRoutes`, `captionExtract`, `captionRules`, `kitWebsite` and `briefChannelsDeprecated`. Down script: `prisma/rollback/039-general-and-curated-captions.down.sql` (checked by `npm run test:upgrade`, scenario 6).

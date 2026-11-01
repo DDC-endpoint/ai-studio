@@ -94,7 +94,7 @@ Plain HTTP against the deployed app. The key goes in the **`x-bistec-api-key`** 
 
 ### Capabilities (2)
 
-ACP exposes only `generate_post` (the brand-kit management tools are MCP-only). `publish_post` was removed by change 037. Change 038 (campaigns became projects) made the MCP server and the ACP manifest version `2.1.0`: `generate_post` takes an optional `projectId`, and a `campaignId` is refused.
+ACP exposes only `generate_post` (the brand-kit management tools are MCP-only). `publish_post` was removed by change 037. Change 038 (campaigns became projects) made the MCP server and the ACP manifest version `2.1.0`: `generate_post` takes an optional `projectId`, and a `campaignId` is refused. Change 039 (general and curated captions) made them `2.2.0`: the `captions` output changed shape (section 4) and the input `channels` field is ignored.
 
 ```bash
 # Discover
@@ -109,12 +109,14 @@ curl -X POST https://studio.bistecglobal.com/api/acp/run \
     "capability": "generate_post",
     "input": {
       "topic": "…", "postStyle": "general", "tone": "…",
-      "designMode": "GENERATE", "channels": ["LINKEDIN"]
+      "designMode": "GENERATE"
     }
   }'
 ```
 
 `projectId` (optional) puts the post in one of the team's projects: the project's default brand kit, post style, briefing and documents then apply (an explicit kit or style still wins). An unknown, deleted or other-team project is `404` `PROJECT_NOT_FOUND`. The retired `campaignId` (or `campaign`) field is `400` `CAMPAIGN_RETIRED`, checked before any lookup.
+
+`channels` is ignored since 039: send it or leave it out, the post gets the same captions either way (never a 400, WhatsApp included). The old per-channel picker is gone.
 
 `goal` is a legacy field. It picks a post style (`hiring` or `announcement`) only when no `postStyle` is given, and is ignored otherwise.
 
@@ -124,7 +126,7 @@ Response codes: `400` invalid input (including `CAMPAIGN_RETIRED`), `401` bad/mi
 
 ## 4. Captions and the headline (change 012)
 
-Since 012 every draft has an on-image **headline** and **one caption per channel** (`DraftCaption`: Instagram and LinkedIn; the WhatsApp caption was dropped by change 026), each with a `status` of `PENDING`, `READY` or `FAILED`. Nothing in the app publishes them: the user downloads the image and copies a caption. The field and route names below are unchanged from before 012 except where noted.
+Every draft has an on-image **headline** and one **general caption**. Since 039 the general caption is platform-neutral (`kind` `GENERAL`, no channel), and a team member can add curated captions for Instagram, LinkedIn and Facebook from the app. A curated caption is written from the brief plus the general caption. Each caption has a `status` of `PENDING`, `READY` or `FAILED`. Nothing in the app publishes them: the user downloads the image and copies a caption. The WhatsApp caption was dropped by change 026; old WhatsApp rows are hidden, not deleted.
 
 ### Output fields
 
@@ -134,14 +136,21 @@ Since 012 every draft has an on-image **headline** and **one caption per channel
 | MCP / ACP `generate_post`               | `{ draftId, exportUrl, htmlContent, headline, captions }`               |
 | `POST /api/generate/copy` (session API) | `{ headline, captions }`, where `captions` also carries `failureReason` |
 
-- **`captions`** is `[{ channel, text, status }]`: always two entries, in registry order (`INSTAGRAM`, `LINKEDIN`). Read through the caption loader, which fills a missing channel with an empty `READY` entry. Old WhatsApp rows from before 026 are hidden by the loader, not deleted.
+- **`captions`** (2.2.0) is `[{ kind, channel, text, status, facts, rules }]`, built by one pure function (`externalCaptions`, `src/lib/captions/external.ts`) for both `get_draft` and `generate_post`:
+  - `kind` is `GENERAL` or `CURATED`. `channel` is `null` for the general caption, otherwise `INSTAGRAM`, `LINKEDIN` or `FACEBOOK`.
+  - The general caption comes first, then the curated ones in registry order. A deleted caption is left out.
+  - `facts` is `{ status: 'clear' | 'flagged' | 'error', flagged: [{ kind, value }] }` for that caption, or `null` when the post was never checked. **Treat `facts.status` `flagged` or `error` as needing review** before the caption is used. The check never blocks anything.
+  - `rules` is `{ met, unmet }`: the caption's rules (length, words, hashtags and, for Facebook, the link) and which ones it misses. `link-missing` means the kit has a website and the Facebook caption does not carry it. A kit with no website has no link to check.
+  - The list is open: later kinds, a language field or other per-entry fields are additive, so read by name.
+- **An old post** (made before 039) has no `GENERAL` entry, and its Instagram and LinkedIn entries stay as they were. A generation through MCP or ACP always writes the general caption, so a new post has exactly one entry. An absent general entry means "none yet".
+- **Curated captions are made in the app**, not through MCP or ACP: there is no curate tool, and `get_draft` shows a curated caption once a member made it.
 - **`headline`** is the text drawn on the image (at most 100 characters). It is null only while it has not been written yet (a generation still running, or one that failed before the headline was stored); a design made for such a draft falls back to the brief topic.
-- **There is no `copyText` field.** The pre-012 alias (the Instagram caption's text) was removed by change 016. Read the channel's entry in `captions`.
-- **The ACP manifest** (`src/acp/agent.ts`, version `2.1.0` since change 038) advertises `generate_post`'s full output: `draftId`, `exportUrl`, `htmlContent`, `headline` (`string | null`) and `captions` (an array of `{ channel, text, status }`, all three required; `channel` is one of the registry channels `INSTAGRAM`, `LINKEDIN`, and `status` one of `PENDING`, `READY`, `FAILED`). A unit test (`tests/unit/mcpGetDraft.test.ts`) fails if the advertised keys and the handler's keys ever differ. The MCP `generate_post` tool description lists the same fields. The **input** channel enums stay `['INSTAGRAM', 'LINKEDIN']`.
+- **There is no `copyText` field.** The pre-012 alias was removed by change 016. Read the entry in `captions`.
+- **The ACP manifest** (`src/acp/agent.ts`, version `2.2.0` since change 039) advertises `generate_post`'s full output: `draftId`, `exportUrl`, `htmlContent`, `headline` (`string | null`) and `captions` (an array of the entries above; all six fields are required, and `status` is one of `PENDING`, `READY`, `FAILED`). A unit test (`tests/unit/mcpGetDraft.test.ts`) fails if the advertised keys and the handler's keys ever differ. The MCP `generate_post` tool description lists the same fields.
 
 ### `POST /api/generate/copy`
 
-A session-authenticated route (not MCP/ACP) that writes a headline and three captions for a brief and **persists nothing**. It now returns **`200` with a status per caption**, even when part of the reply was unusable: a missing or invalid field comes back as `{ channel, text: '', status: 'FAILED', failureReason }`, and a failed headline as `headline: null`. Before 012 an unusable caption was a `422`. A provider error (auth, timeout, network) is still `422 { code: 'COPY_ERROR' }`.
+A session-authenticated route (not MCP/ACP) that writes a headline and a general caption for a brief and **persists nothing**. It now returns **`200` with a status per caption**, even when part of the reply was unusable: a missing or invalid field comes back as `{ kind, channel, text: '', status: 'FAILED', failureReason }`, and a failed headline as `headline: null`. Before 012 an unusable caption was a `422`. A provider error (auth, timeout, network) is still `422 { code: 'COPY_ERROR' }`.
 
 ---
 

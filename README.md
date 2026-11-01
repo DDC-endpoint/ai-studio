@@ -1,6 +1,6 @@
 # bistec-studio
 
-An internal marketing post generation tool for the Bistec marketing team. bistec-studio turns a brief into a finished, on-brand social media post image for Instagram and LinkedIn: generate it, download the PNG, and copy a caption. It offers two generation paths: **Path A** uses HTML/CSS brand templates stored in the database filled by a Claude agent, while **Path B** generates freeform HTML/CSS designs directly. Both paths use a Claude agent harness and Puppeteer to render the final PNG output.
+An internal marketing post generation tool for the Bistec marketing team. bistec-studio turns a brief into a finished, on-brand social media post image: generate it, download the PNG, and copy a caption. Every post gets a general caption, and a member can curate Instagram, LinkedIn and Facebook captions on demand. It offers two generation paths: **Path A** uses HTML/CSS brand templates stored in the database filled by a Claude agent, while **Path B** generates freeform HTML/CSS designs directly. Both paths use a Claude agent harness and Puppeteer to render the final PNG output.
 
 ## Tech Stack
 

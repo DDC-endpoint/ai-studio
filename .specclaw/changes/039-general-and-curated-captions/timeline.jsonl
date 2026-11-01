@@ -20,3 +20,7 @@
 {"ev":"stop","span":"W4","at":"2026-11-01T02:33:53Z","ts":1793500433,"status":"ok"}
 {"ev":"start","span":"W5","kind":"wave","label":"wave 5","at":"2026-11-01T02:33:53Z","ts":1793500433}
 {"ev":"start","span":"T5","kind":"task","label":"events and insights","parent":"W5","model":"sonnet","attempt":"1","at":"2026-11-01T02:33:54Z","ts":1793500434}
+{"ev":"stop","span":"T5","at":"2026-11-01T02:47:29Z","ts":1793501249,"status":"ok"}
+{"ev":"stop","span":"W5","at":"2026-11-01T02:47:29Z","ts":1793501249,"status":"ok"}
+{"ev":"start","span":"W6","kind":"wave","label":"wave 6","at":"2026-11-01T02:47:30Z","ts":1793501249}
+{"ev":"start","span":"T6","kind":"task","label":"docs and full gate","parent":"W6","model":"sonnet","attempt":"1","at":"2026-11-01T02:47:30Z","ts":1793501250}
