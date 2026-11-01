@@ -634,3 +634,292 @@ Stopping a background npm run test:e2e:serve kills only the npm wrapper; next st
 After an E2E run, taskkill /T /F the next start-server process tree (or Stop-Process its pids) and confirm no start-server.js remains
 
 ---
+
+## [L38] design_gap — File src/components/drafts/HeadlinePanel.tsx modified but...
+
+**When:** 2026-11-01 03:07 UTC
+**Category:** design_gap
+**Priority:** medium
+**Status:** pending
+
+### Detail
+
+File src/components/drafts/HeadlinePanel.tsx modified but not declared in any task
+
+### Action
+
+Review task file declarations
+
+---
+
+## [L39] design_gap — File src/lib/captions/ops.ts modified but not declared in...
+
+**When:** 2026-11-01 03:07 UTC
+**Category:** design_gap
+**Priority:** medium
+**Status:** pending
+
+### Detail
+
+File src/lib/captions/ops.ts modified but not declared in any task
+
+### Action
+
+Review task file declarations
+
+---
+
+## [L40] design_gap — File tests/unit/analyticsGeneration.test.ts modified but ...
+
+**When:** 2026-11-01 03:07 UTC
+**Category:** design_gap
+**Priority:** medium
+**Status:** pending
+
+### Detail
+
+File tests/unit/analyticsGeneration.test.ts modified but not declared in any task
+
+### Action
+
+Review task file declarations
+
+---
+
+## [L41] design_gap — File tests/unit/background.test.ts modified but not decla...
+
+**When:** 2026-11-01 03:07 UTC
+**Category:** design_gap
+**Priority:** medium
+**Status:** pending
+
+### Detail
+
+File tests/unit/background.test.ts modified but not declared in any task
+
+### Action
+
+Review task file declarations
+
+---
+
+## [L42] design_gap — File tests/unit/captionLimitSeam.test.ts modified but not...
+
+**When:** 2026-11-01 03:07 UTC
+**Category:** design_gap
+**Priority:** medium
+**Status:** pending
+
+### Detail
+
+File tests/unit/captionLimitSeam.test.ts modified but not declared in any task
+
+### Action
+
+Review task file declarations
+
+---
+
+## [L43] design_gap — File tests/unit/captionMoveRoutes.test.ts modified but no...
+
+**When:** 2026-11-01 03:07 UTC
+**Category:** design_gap
+**Priority:** medium
+**Status:** pending
+
+### Detail
+
+File tests/unit/captionMoveRoutes.test.ts modified but not declared in any task
+
+### Action
+
+Review task file declarations
+
+---
+
+## [L44] design_gap — File tests/unit/compositeCanonical.test.ts modified but n...
+
+**When:** 2026-11-01 03:07 UTC
+**Category:** design_gap
+**Priority:** medium
+**Status:** pending
+
+### Detail
+
+File tests/unit/compositeCanonical.test.ts modified but not declared in any task
+
+### Action
+
+Review task file declarations
+
+---
+
+## [L45] design_gap — File tests/unit/fixtures/preStyleCases.ts modified but no...
+
+**When:** 2026-11-01 03:07 UTC
+**Category:** design_gap
+**Priority:** medium
+**Status:** pending
+
+### Detail
+
+File tests/unit/fixtures/preStyleCases.ts modified but not declared in any task
+
+### Action
+
+Review task file declarations
+
+---
+
+## [L46] design_gap — File tests/unit/fixtures/preStyleGolden.json modified but...
+
+**When:** 2026-11-01 03:07 UTC
+**Category:** design_gap
+**Priority:** medium
+**Status:** pending
+
+### Detail
+
+File tests/unit/fixtures/preStyleGolden.json modified but not declared in any task
+
+### Action
+
+Review task file declarations
+
+---
+
+## [L47] design_gap — File tests/unit/generationInputs.test.ts modified but not...
+
+**When:** 2026-11-01 03:07 UTC
+**Category:** design_gap
+**Priority:** medium
+**Status:** pending
+
+### Detail
+
+File tests/unit/generationInputs.test.ts modified but not declared in any task
+
+### Action
+
+Review task file declarations
+
+---
+
+## [L48] design_gap — File tests/unit/refinePrompt.test.ts modified but not dec...
+
+**When:** 2026-11-01 03:07 UTC
+**Category:** design_gap
+**Priority:** medium
+**Status:** pending
+
+### Detail
+
+File tests/unit/refinePrompt.test.ts modified but not declared in any task
+
+### Action
+
+Review task file declarations
+
+---
+
+## [L49] design_gap — File tests/unit/renderStamps.test.ts modified but not dec...
+
+**When:** 2026-11-01 03:07 UTC
+**Category:** design_gap
+**Priority:** medium
+**Status:** pending
+
+### Detail
+
+File tests/unit/renderStamps.test.ts modified but not declared in any task
+
+### Action
+
+Review task file declarations
+
+---
+
+## [L50] design_gap — File tests/unit/systemContext.test.ts modified but not de...
+
+**When:** 2026-11-01 03:07 UTC
+**Category:** design_gap
+**Priority:** medium
+**Status:** pending
+
+### Detail
+
+File tests/unit/systemContext.test.ts modified but not declared in any task
+
+### Action
+
+Review task file declarations
+
+---
+
+## [L51] design_gap — 13 files outside every task list, 10 of them unit-test mo...
+
+**When:** 2026-11-01 03:07 UTC
+**Category:** design_gap
+**Priority:** medium
+**Status:** pending
+
+### Detail
+
+13 files outside every task list, 10 of them unit-test mocks or fixtures (ResolvedBrandKit gained a required field; prompt goldens). Fewer than 038's 34, because each brief told the implementer to grep tests/unit for changed exports.
+
+### Action
+
+Keep the grep-before-finish rule in every brief; list mock suites of a changed shared type in the task's Files
+
+---
+
+## [L52] spec_gap — T2 rendered button labels as 'Copy General caption' (titl...
+
+**When:** 2026-11-01 03:07 UTC
+**Category:** spec_gap
+**Priority:** low
+**Status:** pending
+
+### Detail
+
+T2 rendered button labels as 'Copy General caption' (title-cased label) where the spec says 'Generate general caption'; the T2 review caught it and the orchestrator fixed the labels and 4 E2E locators.
+
+### Action
+
+State exact aria-label strings in the spec's UI wording table; the wording guard does not check case inside template literals
+
+---
+
+## [L53] pattern — Carrying each task's 'Open items for Tn' into the next br...
+
+**When:** 2026-11-01 03:07 UTC
+**Category:** pattern
+**Priority:** low
+**Status:** pending
+
+### Detail
+
+Carrying each task's 'Open items for Tn' into the next brief closed every cross-task hand-off (the MCP kit website, the AC-15 exemption, the prompt version chain .1 to .3).
+
+### Action
+
+Keep the open-items section in every task report and quote it in the next brief
+
+---
+
+## [L54] agent_issue — specclaw-build-context produced an 898 KB payload for T1 ...
+
+**When:** 2026-11-01 03:07 UTC
+**Category:** agent_issue
+**Priority:** medium
+**Status:** pending
+
+### Detail
+
+specclaw-build-context produced an 898 KB payload for T1 (it inlines every project doc and the whole existing code), too large to hand to an agent. Briefs pointed at tasks.md, spec.md, design.md and earlier reports instead.
+
+### Action
+
+Brief implementers with file pointers plus the prior task reports' open items
+
+---

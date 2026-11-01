@@ -1,0 +1,7 @@
+exit=0
+duration_s=15
+log=.specclaw/changes/039-general-and-curated-captions/logs/test-npm-run-test-unit-140447.log
+head=1e0ab2d8f9f10309c508bda81b38c8c8f39671f9
+dirty=true
+cmd=npm run test:unit
+interrupted=false

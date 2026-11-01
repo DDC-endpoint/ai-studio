@@ -6,14 +6,14 @@
 
 ## Progress
 
-| Phase    | Status         | Notes |
-| -------- | -------------- | ----- |
-| Proposal | ✅ Approved    |       |
-| Spec     | ✅ Done        |       |
-| Design   | ✅ Done        |       |
-| Tasks    | ✅ Done        |       |
-| Build    | 🔨 In-progress |       |
-| Verify   | ⏳ Pending     |       |
+| Phase    | Status      | Notes     |
+| -------- | ----------- | --------- |
+| Proposal | ✅ Approved |           |
+| Spec     | ✅ Done     |           |
+| Design   | ✅ Done     |           |
+| Tasks    | ✅ Done     |           |
+| Build    | ✅ Done     | 6/6 tasks |
+| Verify   | ⏳ Pending  |           |
 
 ## Task Progress
 
@@ -23,8 +23,14 @@
 
 ## Agent Runs
 
-| Task | Agent | Model | Status | Duration | Review |
-| ---- | ----- | ----- | ------ | -------- | ------ |
+| Task | Agent           | Model  | Status   | Duration | Review   |
+| ---- | --------------- | ------ | -------- | -------- | -------- |
+| T1   | general-purpose | sonnet | complete | 25m29s   | NOTE (3) |
+| T2   | general-purpose | sonnet | complete | 53m54s   | NOTE (3) |
+| T3   | general-purpose | sonnet | complete | 32m46s   | NOTE (3) |
+| T4   | general-purpose | sonnet | complete | 27m56s   | NOTE (3) |
+| T5   | general-purpose | sonnet | complete | 13m35s   | NOTE (2) |
+| T6   | general-purpose | sonnet | complete | 18m33s   | — (docs) |
 
 <!--
   Review column (build.task_review):
