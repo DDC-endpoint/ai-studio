@@ -167,7 +167,7 @@ describe('FR-09: the image rules', () => {
 
   it('Path B: after the headline block and the image section', () => {
     const msg = buildPathBUserMessage({
-      topic: 't', description: null, goal: 'g', tone: 'bold', channels: ['INSTAGRAM'], headline: 'Hi',
+      topic: 't', description: null, goal: 'g', tone: 'bold', headline: 'Hi',
       mode: 'api', width: 1080, height: 1080, briefImages: [{ url: 'https://x/y.png', intent: 'embed' }], imageRules: IMAGE,
     })
     const images = msg.indexOf('Provided images')

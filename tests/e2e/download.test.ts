@@ -147,7 +147,7 @@ test.describe('§AI Download', () => {
     ['TC-DL-06', 'Path A', generatePathA],
     ['TC-DL-07', 'Path B', generate],
   ] as const) {
-    test(`${tc}: ${path} post is refined, downloaded and its Instagram caption copied`, async ({ page, context }) => {
+    test(`${tc}: ${path} post is refined, downloaded and its general caption copied`, async ({ page, context }) => {
       if (!MOCKED()) { test.skip(); return }
       const draft = await make(`Download Flow ${Date.now()}`)
 
@@ -167,9 +167,9 @@ test.describe('§AI Download', () => {
       await button.click()
       expect((await downloadPromise).suggestedFilename()).toMatch(/\.png$/)
 
-      const caption = page.getByRole('textbox', { name: 'Instagram', exact: true })
+      const caption = page.getByRole('textbox', { name: 'General caption', exact: true })
       await expect(caption).not.toHaveValue('', { timeout: 20_000 })
-      await page.getByRole('button', { name: 'Copy Instagram caption' }).click()
+      await page.getByRole('button', { name: 'Copy general caption' }).click()
       await expect(page.getByText('Caption copied')).toBeVisible()
       const copied = await page.evaluate(() => navigator.clipboard.readText())
       expect(copied).toBe(await caption.inputValue())

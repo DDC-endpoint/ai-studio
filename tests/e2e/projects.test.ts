@@ -210,7 +210,7 @@ test.describe('Projects (038 T2)', () => {
     expect((await admin.get(base)).status()).toBe(404)
 
     // 6. A regenerate copy on one of the posts still succeeds.
-    const regen = await admin.post(`/api/drafts/${drafts[0].id}/regenerate-copy`, {})
+    const regen = await admin.post(`/api/drafts/${drafts[0].id}/regenerate-copy`, { kind: 'GENERAL' })
     expect(regen.status()).toBe(202)
     await waitForAction(admin, drafts[0].id)
     const regenerated = await (await admin.get(`/api/drafts/${drafts[0].id}`)).json()
@@ -414,12 +414,12 @@ test.describe('Projects (038 T2)', () => {
       expect(d.inputsCurrent).toBe(false)
 
       // The author edits a caption: the check still reads the recorded sources (B).
-      const edit = await admin.patch(`/api/drafts/${p.id}`, { channel: 'INSTAGRAM', text: 'A calm caption about the offer' })
+      const edit = await admin.patch(`/api/drafts/${p.id}`, { kind: 'GENERAL', text: 'A calm caption about the offer' })
       expect(edit.status()).toBe(200)
       expect((await get()).factsCheck?.status).toBe('clear')
 
       // So does a regenerate: it keeps the recorded project.
-      expect((await admin.post(`/api/drafts/${p.id}/regenerate-copy`, {})).status()).toBe(202)
+      expect((await admin.post(`/api/drafts/${p.id}/regenerate-copy`, { kind: 'GENERAL' })).status()).toBe(202)
       d = (await waitForAction(admin, p.id)) as unknown as PostBody
       expect(d.inputs?.project?.id).toBe(projB.id)
       expect(d.factsCheck?.status).toBe('clear')

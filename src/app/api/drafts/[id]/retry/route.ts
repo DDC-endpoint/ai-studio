@@ -3,7 +3,6 @@ import { prisma } from '@/lib/prisma'
 import { withTeamAuth } from '@/lib/api/handler'
 import { canView, canEditPost, NOT_AUTHOR } from '@/lib/authz/visibility'
 import { startBackgroundGeneration } from '@/lib/agent/backgroundGeneration'
-import { CAPTION_CHANNELS } from '@/lib/channels'
 
 type Params = { id: string }
 
@@ -31,10 +30,10 @@ export const POST = withTeamAuth<Params>(async (_req, { params }, user) => {
     )
   }
 
-  // One update (one transaction): IN_PROGRESS and every caption row back to
-  // PENDING, so the rerun's caption write (guarded on PENDING) lands on all
-  // three (012 FR-10). createMany fills any registry channel the draft has no
-  // row for (a channel added to the registry after the draft was created).
+  // One update (one transaction): IN_PROGRESS and the general caption back to
+  // PENDING, so the rerun's caption write (guarded on PENDING) lands on it
+  // (012 FR-10). createMany makes the row for a post that has none (made before
+  // 039). Curated captions are left as they are (039 D10).
   await prisma.draft.update({
     where: { id: params.id },
     data: {
@@ -47,12 +46,11 @@ export const POST = withTeamAuth<Params>(async (_req, { params }, user) => {
       headlineModelSubstitutedFrom: null,
       captions: {
         updateMany: {
-          // Registry channels only: a legacy WhatsApp row is left as it is (026 FR-05).
-          where: { kind: 'CURATED', channel: { in: CAPTION_CHANNELS.map((s) => s.channel) } },
+          where: { kind: 'GENERAL' },
           data: { status: 'PENDING', failureReason: null },
         },
         createMany: {
-          data: CAPTION_CHANNELS.map(({ channel }) => ({ kind: 'CURATED' as const, channel, status: 'PENDING' as const })),
+          data: [{ kind: 'GENERAL' as const, channel: null, status: 'PENDING' as const }],
           skipDuplicates: true,
         },
       },

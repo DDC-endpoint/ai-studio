@@ -229,10 +229,10 @@ test.describe('Generation and the facts check', () => {
   test('TC-PS-11: each invented value is flagged exactly, with where; nothing else is', async () => {
     const cases: [string, string[]][] = [
       // sentinel → the flagged set as `where:value`
-      ['__MOCK_FACT_PRICE__', ['INSTAGRAM:$49', 'LINKEDIN:$49', 'headline:$49']],
-      ['__MOCK_FACT_PCT__', ['INSTAGRAM:35%', 'LINKEDIN:35%', 'headline:35%']],
-      ['__MOCK_FACT_DATE__', ['INSTAGRAM:30 March 2027', 'LINKEDIN:30 March 2027', 'headline:30 March 2027']],
-      ['__MOCK_FACT_NUM__', ['INSTAGRAM:1,250', 'LINKEDIN:1,250', 'headline:1,250']],
+      ['__MOCK_FACT_PRICE__', ['GENERAL:$49', 'headline:$49']],
+      ['__MOCK_FACT_PCT__', ['GENERAL:35%', 'headline:35%']],
+      ['__MOCK_FACT_DATE__', ['GENERAL:30 March 2027', 'headline:30 March 2027']],
+      ['__MOCK_FACT_NUM__', ['GENERAL:1,250', 'headline:1,250']],
       ['__MOCK_FACT_HEADLINE__', ['headline:$49']],
     ]
     for (const [sentinel, expected] of cases) {
@@ -294,25 +294,25 @@ test.describe('Generation and the facts check', () => {
     const draft = await generate(admin, { topic: `__MOCK_FACT_PRICE__ PS edit ${tag()}`, projectId: projA })
     expect(values(draft.factsCheck)).toEqual(['$49'])
 
-    // Replace the Instagram caption with one that states no number: its flag goes.
-    const clean = await admin.patch(`/api/drafts/${draft.id}`, { channel: 'INSTAGRAM', text: 'A caption with no figures at all.' })
+    // Replace the general caption with one that states no number: its flag goes.
+    const clean = await admin.patch(`/api/drafts/${draft.id}`, { kind: 'GENERAL', text: 'A caption with no figures at all.' })
     expect(clean.status()).toBe(200)
     let after = (await (await admin.get(`/api/drafts/${draft.id}`)).json()) as DraftJson
-    expect(pairs(after.factsCheck)).toEqual(['LINKEDIN:$49', 'headline:$49'])
+    expect(pairs(after.factsCheck)).toEqual(['headline:$49'])
 
     // Type an invented value into it: flagged again, with the new value.
-    const dirty = await admin.patch(`/api/drafts/${draft.id}`, { channel: 'INSTAGRAM', text: 'Now only $99 for everyone.' })
+    const dirty = await admin.patch(`/api/drafts/${draft.id}`, { kind: 'GENERAL', text: 'Now only $99 for everyone.' })
     expect(dirty.status()).toBe(200)
     after = (await (await admin.get(`/api/drafts/${draft.id}`)).json()) as DraftJson
-    expect(pairs(after.factsCheck)).toEqual(['INSTAGRAM:$99', 'LINKEDIN:$49', 'headline:$49'])
+    expect(pairs(after.factsCheck)).toEqual(['GENERAL:$99', 'headline:$49'])
 
     // A headline edit recomputes too.
     expect((await admin.patch(`/api/drafts/${draft.id}`, { headline: 'No numbers here' })).status()).toBe(200)
     after = (await (await admin.get(`/api/drafts/${draft.id}`)).json()) as DraftJson
-    expect(pairs(after.factsCheck)).toEqual(['INSTAGRAM:$99', 'LINKEDIN:$49'])
+    expect(pairs(after.factsCheck)).toEqual(['GENERAL:$99'])
 
-    // Regenerating the Instagram caption brings back the mock's own text: $99 goes, the $49 returns.
-    const regen = await admin.post(`/api/drafts/${draft.id}/regenerate-copy`, { channel: 'INSTAGRAM' })
+    // Regenerating the general caption brings back the mock's own text: $99 goes, the $49 returns.
+    const regen = await admin.post(`/api/drafts/${draft.id}/regenerate-copy`, { kind: 'GENERAL' })
     expect(regen.status()).toBe(202)
     let settled: DraftJson
     for (let i = 0; ; i++) {
@@ -320,7 +320,7 @@ test.describe('Generation and the facts check', () => {
       if ((settled as unknown as { pendingAction: string | null }).pendingAction == null || i > 60) break
       await new Promise((r) => setTimeout(r, 250))
     }
-    expect(pairs(settled.factsCheck)).toEqual(['INSTAGRAM:$49', 'LINKEDIN:$49'])
+    expect(pairs(settled.factsCheck)).toEqual(['GENERAL:$49'])
   })
 
   test('TC-PS-16: a brief with no style (a pre-027 row) gets no checklist stamp but still gets a facts check', async () => {
@@ -397,13 +397,13 @@ test.describe('ACP generate_post', () => {
     expect(noTopic.status()).toBe(400)
   })
 
-  test('TC-PS-29: the manifest is 2.1.0, lists postStyle, and no longer requires goal or tone', async ({ request }) => {
+  test('TC-PS-29: the manifest is 2.2.0, lists postStyle, and no longer requires goal or tone', async ({ request }) => {
     const res = await request.get('/api/acp/manifest', { headers: { 'x-bistec-api-key': key } })
     expect(res.status()).toBe(200)
     const manifest = await res.json()
-    expect(manifest.version).toBe('2.1.0')
+    expect(manifest.version).toBe('2.2.0')
     const cap = manifest.capabilities.find((c: { name: string }) => c.name === 'generate_post')
-    expect(cap.input.required).toEqual(['topic', 'channels', 'designMode'])
+    expect(cap.input.required).toEqual(['topic', 'designMode'])
     expect(cap.input.properties.postStyle.enum).toContain('general')
     expect(Object.keys(cap.output.properties)).toEqual(expect.arrayContaining(['postStyle', 'factsCheck']))
   })
@@ -729,7 +729,7 @@ test.describe('The draft page: the facts notice and the style line', () => {
     await expect(notice).toHaveAttribute('data-status', 'flagged')
     await expect(notice).toContainText('$49')
     await expect(notice).toContainText('30 March 2027')
-    await expect(notice).toContainText('(Instagram caption)')
+    await expect(notice).toContainText('(general caption)')
     await expect(notice).toContainText('These are not in your brief, project or brand voice. Check them before you download it.')
     await expect(page.getByRole('button', { name: 'Download', exact: true })).toBeEnabled()
     await expect(page.getByTestId('post-style-line')).toHaveText('Post style: Promotion / deal')

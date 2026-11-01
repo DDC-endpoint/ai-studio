@@ -60,7 +60,8 @@ type Call = {
   label: string | null
 }
 type Caption = {
-  channel: 'INSTAGRAM' | 'LINKEDIN'
+  // 039: the general caption, plus an old post's curated rows (seeded: curate is T3).
+  target: 'GENERAL' | 'INSTAGRAM' | 'LINKEDIN'
   text: string
   status: string
   updatedAt: string
@@ -121,7 +122,7 @@ async function resetPolicy(teamId: string | null) {
 // ── Drafts ───────────────────────────────────────────────────────────────────
 
 const captionsOf = (d: Draft) => d.captions as Caption[]
-const captionOf = (d: Draft, channel: Caption['channel']) => captionsOf(d).find((c) => c.channel === channel)!
+const captionOf = (d: Draft, target: Caption['target']) => captionsOf(d).find((c) => c.target === target)!
 const read = async (api: ApiClient, id: unknown): Promise<Draft> => (await api.get(`/api/drafts/${id}`)).json()
 const revisionModel = async (draftId: string, revisionNumber: number) =>
   prisma!.draftRevision.findFirstOrThrow({
@@ -176,6 +177,19 @@ async function generate(api: ApiClient, path: 'A' | 'B', topic: string): Promise
   return draft
 }
 
+// A Path B post with the two curated rows a post made before 039 has (039 T2: curate is
+// T3, so the test DB seeds them), stamped as a generation would stamp them (Haiku).
+async function generateWithCurated(api: ApiClient, topic: string): Promise<Draft> {
+  const draft = await generate(api, 'B', topic)
+  const id = draft.id as string
+  for (const channel of ['INSTAGRAM', 'LINKEDIN'] as const) {
+    await prisma!.draftCaption.create({
+      data: { draftId: id, kind: 'CURATED', channel, text: `Seeded ${channel} caption`, status: 'READY', model: HAIKU },
+    })
+  }
+  return read(api, id)
+}
+
 async function act(api: ApiClient, id: unknown, path: string, body: unknown): Promise<Draft> {
   const res = await api.post(`/api/drafts/${id}/${path}`, body)
   expect(res.status(), `${path} → ${await res.text()}`).toBe(202)
@@ -206,10 +220,10 @@ test.describe('§Y — model selection: stamps, policy and the recorder', () => 
     await clearCalls(api)
     const draft = await generate(api, 'B', `Models PathB ${Date.now()}`)
 
-    expect(captionsOf(draft)).toHaveLength(2)
+    expect(captionsOf(draft).map((c) => c.target)).toEqual(['GENERAL'])
     for (const c of captionsOf(draft)) {
-      expect(c.model, c.channel).toBe(HAIKU)
-      expect(c.modelSubstitutedFrom, c.channel).toBeNull()
+      expect(c.model, c.target).toBe(HAIKU)
+      expect(c.modelSubstitutedFrom, c.target).toBeNull()
     }
     expect(draft.headlineModel).toBe(HAIKU)
     expect(draft.headlineModelSubstitutedFrom).toBeNull()
@@ -255,7 +269,7 @@ test.describe('§Y — model selection: stamps, policy and the recorder', () => 
     expect(draft.designModelSubstitutedFrom).toBeNull()
     expect(await revisionModel(draft.id as string, 1)).toEqual({ model: OPUS, modelSubstitutedFrom: null })
     // Only the surface with a team default moved.
-    expect(captionOf(draft, 'INSTAGRAM').model).toBe(HAIKU)
+    expect(captionOf(draft, 'GENERAL').model).toBe(HAIKU)
 
     const calls = await readCalls(api)
     expectRan(calls, 'DESIGN_FREEFORM', OPUS, 'team')
@@ -329,7 +343,7 @@ test.describe('§Y — model selection: stamps, policy and the recorder', () => 
       await clearCalls(api)
       const draft = await generate(api, 'B', `Models Isolation ${Date.now()}`)
       expect(draft.designModel).toBe(SONNET)
-      expect(captionOf(draft, 'LINKEDIN').model).toBe(HAIKU)
+      expect(captionOf(draft, 'GENERAL').model).toBe(HAIKU)
       const calls = await readCalls(api)
       expectRan(calls, 'DESIGN_FREEFORM', SONNET, 'system')
       expectRan(calls, 'CAPTION', HAIKU, 'system')
@@ -347,12 +361,12 @@ test.describe('§Y — model selection: stamps, policy and the recorder', () => 
     const id = draft.id as string
     await prisma!.draft.update({ where: { id }, data: { designModel: OPUS } })
     await prisma!.draftCaption.updateMany({
-      where: { draftId: id, kind: 'CURATED', channel: 'LINKEDIN' },
+      where: { draftId: id, kind: 'GENERAL' },
       data: { model: OPUS },
     })
     const seeded = await read(api, id)
     expect(seeded.designModel).toBe(OPUS)
-    expect(captionOf(seeded, 'LINKEDIN').model).toBe(OPUS)
+    expect(captionOf(seeded, 'GENERAL').model).toBe(OPUS)
 
     await putPolicy(api, policy({ allowed: ['HAIKU', 'SONNET'] }))
     await clearCalls(api)
@@ -363,12 +377,10 @@ test.describe('§Y — model selection: stamps, policy and the recorder', () => 
     expect(designed.designModelSubstitutedFrom).toBe(OPUS)
     expect(await revisionModel(id, 2)).toEqual({ model: SONNET, modelSubstitutedFrom: OPUS })
 
-    const recaptioned = await act(api, id, 'regenerate-copy', { channel: 'LINKEDIN' })
-    expect(captionOf(recaptioned, 'LINKEDIN')).toMatchObject({ model: HAIKU, modelSubstitutedFrom: OPUS })
-    // The other row was never written: same stamp, same updatedAt.
-    for (const channel of ['INSTAGRAM'] as const) {
-      expect(captionOf(recaptioned, channel)).toEqual(captionOf(seeded, channel))
-    }
+    const recaptioned = await act(api, id, 'regenerate-copy', { kind: 'GENERAL' })
+    expect(captionOf(recaptioned, 'GENERAL')).toMatchObject({ model: HAIKU, modelSubstitutedFrom: OPUS })
+    // The headline was never written: same stamp.
+    expect(recaptioned.headlineModel).toBe(seeded.headlineModel)
     expect(recaptioned.designModel).toBe(SONNET) // a caption action leaves the design stamp
 
     const calls = await readCalls(api)
@@ -377,53 +389,8 @@ test.describe('§Y — model selection: stamps, policy and the recorder', () => 
     expect(on(calls, 'CAPTION').map((c) => [c.arg, c.source, c.substitutedFrom])).toEqual([[HAIKU, 'system', OPUS]])
   })
 
-  // TC-MODEL-07 — AC-18 (FR-09): Regenerate all is like for like, by the stamps.
-  test('Regenerate all keeps a uniform stamp, uses the team default on mixed stamps, and the system default on null ones', async () => {
-    if (!MOCKED()) { test.skip(); return }
-    const draft = await generate(api, 'B', `Models LikeForLike ${Date.now()}`)
-    const id = draft.id as string
-    const setStamps = async (models: [string | null, string | null]) => {
-      const channels = ['INSTAGRAM', 'LINKEDIN'] as const
-      for (const [i, channel] of channels.entries()) {
-        await prisma!.draftCaption.updateMany({
-          where: { draftId: id, kind: 'CURATED', channel },
-          data: { model: models[i], modelSubstitutedFrom: null },
-        })
-      }
-    }
-    const stampsOf = (d: Draft) => captionsOf(d).map((c) => [c.model, c.modelSubstitutedFrom])
-
-    // (a) Two equal stamps: the stamp tier.
-    await setStamps([SONNET, SONNET])
-    await clearCalls(api)
-    let done = await act(api, id, 'regenerate-copy', {})
-    expect(stampsOf(done)).toEqual([[SONNET, null], [SONNET, null]])
-    expectRan(await readCalls(api), 'CAPTION', SONNET, 'stamp')
-
-    // (b) Mixed stamps (Opus allowed) and a team CAPTION default of Haiku: no
-    // stamp tier, the team default, and no substitution recorded.
-    await putPolicy(api, policy({ defaults: { CAPTION: 'HAIKU' } }))
-    await setStamps([SONNET, OPUS])
-    await clearCalls(api)
-    done = await act(api, id, 'regenerate-copy', {})
-    expect(stampsOf(done)).toEqual([[HAIKU, null], [HAIKU, null]])
-    let calls = await readCalls(api)
-    expectRan(calls, 'CAPTION', HAIKU, 'team')
-    expect(on(calls, 'CAPTION').every((c) => c.substitutedFrom === null)).toBe(true)
-
-    // (c) Null stamps (a pre-008 draft) with no team default: the system default.
-    await resetPolicy(teamId)
-    await setStamps([null, null])
-    await clearCalls(api)
-    done = await act(api, id, 'regenerate-copy', {})
-    expect(stampsOf(done)).toEqual([[HAIKU, null], [HAIKU, null]])
-    calls = await readCalls(api)
-    expectRan(calls, 'CAPTION', HAIKU, 'system')
-    expect(on(calls, 'CAPTION').every((c) => c.substitutedFrom === null)).toBe(true)
-    // Regenerate all never touches the headline or its stamp.
-    expect(done.headlineModel).toBe(HAIKU)
-    expect(done.headline).toBe(draft.headline)
-  })
+  // TC-MODEL-07 — removed by 039 (Q2): "Regenerate all" is retired, and with it the mixed-stamp
+  // rule it exercised. regenerateStampTier keeps its unit cases (regenerateStamp.test.ts).
 
   // TC-MODEL-08 — AC-19 (FR-08, A8): refine by path, the Haiku verifier, a team
   // REFINE default, and restore.
@@ -501,7 +468,7 @@ test.describe('§Y — model selection: stamps, policy and the recorder', () => 
       const { draftId } = (await gen.json()).output
       const acpDraft = await read(api, draftId)
       expect(acpDraft.designModel).toBe(OPUS)
-      expect(captionOf(acpDraft, 'INSTAGRAM').model).toBe(HAIKU)
+      expect(captionOf(acpDraft, 'GENERAL').model).toBe(HAIKU)
       expectRan(await readCalls(api), 'DESIGN_FREEFORM', OPUS, 'team')
     } finally {
       await api.del(`/api/team/api-keys/${created.id}`)
@@ -848,7 +815,7 @@ test.describe('§Y — the pickers (wave 2)', () => {
   test('an explicit Opus pick on an Opus-less team is a 400 MODEL_NOT_ALLOWED on every route, and claims, writes and runs nothing', async () => {
     if (!MOCKED()) { test.skip(); return }
     const f = await suiteFixture(api)
-    const draft = await generate(api, 'B', `Models Refused ${Date.now()}`)
+    const draft = await generateWithCurated(api, `Models Refused ${Date.now()}`)
     const id = draft.id as string
     await putPolicy(api, policy({ allowed: ['HAIKU', 'SONNET'] }))
     await clearCalls(api)
@@ -881,7 +848,7 @@ test.describe('§Y — the pickers (wave 2)', () => {
 
     // Every draft action, refused before its claim.
     const actions: [string, string, Record<string, unknown>][] = [
-      ['regenerate-copy (all captions)', 'regenerate-copy', {}],
+      ['regenerate-copy (general caption)', 'regenerate-copy', { kind: 'GENERAL' }],
       ['regenerate-copy (one channel)', 'regenerate-copy', { channel: 'LINKEDIN' }],
       ['regenerate-copy (headline)', 'regenerate-copy', { headline: true }],
       ['regenerate-design', 'regenerate-design', {}],
@@ -1000,7 +967,7 @@ test.describe('§Y — the pickers (wave 2)', () => {
     expect(body.captionModel).toBe('SONNET')
     expect(draft.designModel).toBe(OPUS)
     expect(captionsOf(draft).length).toBeGreaterThan(0)
-    for (const c of captionsOf(draft)) expect(c.model, c.channel).toBe(SONNET)
+    for (const c of captionsOf(draft)) expect(c.model, c.target).toBe(SONNET)
     expect(
       await prisma!.brief.findFirstOrThrow({ where: { topic }, select: { captionModel: true, designModel: true } }),
     ).toEqual({ captionModel: 'SONNET', designModel: 'OPUS' })
@@ -1028,7 +995,7 @@ test.describe('§Y — the pickers (wave 2)', () => {
     expect(body).not.toHaveProperty('captionModel')
     expect(body).not.toHaveProperty('designModel')
     expect(draft.designModel).toBe(SONNET)
-    for (const c of captionsOf(draft)) expect(c.model, c.channel).toBe(HAIKU)
+    for (const c of captionsOf(draft)) expect(c.model, c.target).toBe(HAIKU)
     expect(
       await prisma!.brief.findFirstOrThrow({ where: { topic }, select: { captionModel: true, designModel: true } }),
     ).toEqual({ captionModel: null, designModel: null })
@@ -1041,10 +1008,9 @@ test.describe('§Y — the pickers (wave 2)', () => {
   test('the draft page: each picker pre-selects from its stamp, a pick reaches only its own row, and each panel says what generated it', async ({ page }) => {
     if (!MOCKED()) { test.skip(); return }
     test.setTimeout(180_000)
-    const draft = await generate(api, 'B', `Models Draft Page ${Date.now()}`)
+    const draft = await generateWithCurated(api, `Models Draft Page ${Date.now()}`)
     const id = draft.id as string
-    // A Sonnet stamp on LinkedIn only: its picker pre-selects from the stamp,
-    // and "Regenerate all" sees mixed stamps (so no stamp tier).
+    // A Sonnet stamp on LinkedIn only: its picker pre-selects from the stamp.
     await prisma!.draftCaption.updateMany({
       where: { draftId: id, kind: 'CURATED', channel: 'LINKEDIN' },
       data: { model: SONNET },
@@ -1056,10 +1022,10 @@ test.describe('§Y — the pickers (wave 2)', () => {
     await openDraft(page, id)
 
     const preselected: [string, string, string, string][] = [
+      ['General caption model', 'draft-caption-model-general', 'HAIKU', 'Same model as the current caption'],
       ['LinkedIn caption model', 'draft-caption-model-linkedin', 'SONNET', 'Same model as the current caption'],
       ['Instagram caption model', 'draft-caption-model-instagram', 'HAIKU', 'Same model as the current caption'],
       ['Headline model', 'draft-headline-model', 'HAIKU', 'Same model as the current headline'],
-      ['All captions model', 'draft-all-captions-model', 'HAIKU', 'Default'],
       ['Design model', 'draft-design-model', 'SONNET', 'Same model as the current design'],
       ['Refine model', 'draft-refine-model', 'SONNET', 'Default'],
     ]
@@ -1071,12 +1037,12 @@ test.describe('§Y — the pickers (wave 2)', () => {
     // "Generated with": each caption panel, the headline, the design, and the
     // Versions cell (the name, with the sentence in its title).
     await expect(generatedWithIn(panelOf(page, 'draft-caption-model-linkedin'))).toHaveText('Generated with Sonnet 5.5')
-    for (const channel of ['instagram']) {
+    for (const channel of ['general', 'instagram']) {
       await expect(generatedWithIn(panelOf(page, `draft-caption-model-${channel}`))).toHaveText('Generated with Haiku 4.5')
     }
     await expect(generatedWithIn(panelOf(page, 'draft-headline-model'))).toHaveText('Generated with Haiku 4.5')
     await expect(generatedWithLines(page, 'Sonnet 5.5')).toHaveCount(2) // the design and LinkedIn
-    await expect(generatedWithLines(page, 'Haiku 4.5')).toHaveCount(2) // Instagram, the headline
+    await expect(generatedWithLines(page, 'Haiku 4.5')).toHaveCount(3) // the general caption, Instagram, the headline
     await expect(page.locator('span[title="Generated with Sonnet 5.5"]')).toHaveText('Generated with Sonnet 5.5')
     await expectNoAxeViolations(page, '/drafts/[id] (with the model pickers)')
 
@@ -1087,8 +1053,8 @@ test.describe('§Y — the pickers (wave 2)', () => {
     await page.getByRole('button', { name: 'Regenerate LinkedIn caption', exact: true }).click()
     expect(bodyOf(await linkedInPost)).toEqual({ channel: 'LINKEDIN', model: 'OPUS' })
     let now = await until(api, id, (d) => captionOf(d, 'LINKEDIN').model === OPUS, 'LinkedIn rewritten on Opus')
-    for (const channel of ['INSTAGRAM'] as const) {
-      expect(captionOf(now, channel), channel).toEqual(captionOf(seeded, channel))
+    for (const target of ['GENERAL', 'INSTAGRAM'] as const) {
+      expect(captionOf(now, target), target).toEqual(captionOf(seeded, target))
     }
     expect(now.headlineModel).toBe(HAIKU)
     expect(on(await readCalls(api), 'CAPTION').map((c) => [c.arg, c.source])).toEqual([[OPUS, 'request']])
@@ -1142,7 +1108,7 @@ test.describe('§Y — the pickers (wave 2)', () => {
   test('a removed Opus shows as a substitution on the design picker, a substituted stamp says so, and a failed caption row or design shows no "Generated with"', async ({ page }) => {
     if (!MOCKED()) { test.skip(); return }
     test.setTimeout(120_000)
-    const draft = await generate(api, 'B', `Models Substituted ${Date.now()}`)
+    const draft = await generateWithCurated(api, `Models Substituted ${Date.now()}`)
     const id = draft.id as string
     await prisma!.draft.update({ where: { id }, data: { designModel: OPUS } })
     await prisma!.draftCaption.updateMany({
@@ -1188,9 +1154,9 @@ test.describe('§Y — the pickers (wave 2)', () => {
     })
     await page.reload()
     await expect(page.getByText('Generation failed', { exact: true })).toBeVisible({ timeout: 20_000 })
-    await expect(generatedWithLines(page, 'Haiku 4.5')).toHaveCount(2) // LinkedIn and the headline (Instagram is the FAILED row)
+    await expect(generatedWithLines(page, 'Haiku 4.5')).toHaveCount(3) // the general caption, LinkedIn and the headline (Instagram is the FAILED row)
     await expect(generatedWithLines(page, 'Opus 5.5')).toHaveCount(0)
-    await expect(page.locator('p').filter({ hasText: /^Generated with / })).toHaveCount(2)
+    await expect(page.locator('p').filter({ hasText: /^Generated with / })).toHaveCount(3)
     await expect(picker(page, 'Design model')).toHaveCount(0)
   })
 
@@ -1199,7 +1165,7 @@ test.describe('§Y — the pickers (wave 2)', () => {
   test('a refused pick leaves no trace: refine puts its instruction back, the design and caption regenerates leave no Undo, and each picker shows why', async ({ page }) => {
     if (!MOCKED()) { test.skip(); return }
     test.setTimeout(120_000)
-    const draft = await generate(api, 'B', `Models Refused UI ${Date.now()}`)
+    const draft = await generateWithCurated(api, `Models Refused UI ${Date.now()}`)
     const id = draft.id as string
     await putPolicy(api, policy({ allowed: ['HAIKU', 'SONNET'] }))
 

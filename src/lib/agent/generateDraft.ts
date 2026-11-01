@@ -15,7 +15,7 @@ import { generationImageSource, type ImageSourceWrite } from '@/lib/drafts/image
 import type { GenerationActor, GenerationRunActor } from '@/lib/agent/types'
 import { track } from '@/lib/analytics/track'
 import { newUsage, usageFields, withUsage, type UsageStore } from '@/lib/analytics/trace'
-import { CAPTION_CHANNELS, CAPTION_REGISTRY } from '@/lib/channels'
+import { CAPTION_REGISTRY } from '@/lib/channels'
 import { GENERATION_TARGETS, requireHeadline, writeCaptions } from '@/lib/captions/generate'
 import { captionRowsFromFields, headlineStampFields, saveGenerationCaptions, type CaptionStamp } from '@/lib/captions/store'
 import { resolveModel } from '@/lib/models/policy'
@@ -432,8 +432,8 @@ async function generateDraftForBriefInner(
 // and never awaited by the request). The draft page polls while IN_PROGRESS.
 
 // Validate inputs and create an IN_PROGRESS placeholder draft (no headline, no
-// image yet) with one PENDING caption row per registry channel, in one
-// transaction (the nested create). Throws the same typed errors as the sync
+// image yet) with its one PENDING general caption row, in one transaction (the
+// nested create; 039 D10). Throws the same typed errors as the sync
 // path BEFORE any draft exists, so the route can return a 4xx for bad input.
 // A PENDING row is the "caption not written yet" state the preview page
 // renders as a skeleton.
@@ -452,14 +452,14 @@ export async function createPendingDraft(
       generationInputs: ctx.inputs,
       status: 'IN_PROGRESS',
       captions: {
-        create: CAPTION_CHANNELS.map(({ channel }) => ({ kind: 'CURATED' as const, channel, status: 'PENDING' as const })),
+        create: [{ kind: 'GENERAL' as const, channel: null, status: 'PENDING' as const }],
       },
     },
   })
 }
 
 // Run the heavy generation for an existing IN_PROGRESS draft: one caption call
-// for every channel and the headline, written the moment it's ready (rows +
+// for the headline and the general caption, written the moment it's ready (rows +
 // headline in one transaction, so the caption skeletons resolve independently
 // of the image) → design + render from the headline → finalize as EXPORTED
 // with a v1 revision. No valid headline fails the draft (A6) and keeps the
@@ -519,11 +519,11 @@ async function runGenerationForDraftInner(draftId: string, actor: GenerationRunA
           failureReason: reason,
           // A row still PENDING here was never written (the caption call
           // itself failed); PENDING must mean "work is running", so it fails
-          // with the draft. Rows that were written are kept, and so is a row
-          // for a channel outside the registry (a hidden WhatsApp row, 026).
+          // with the draft. A written row is kept, and so is every curated row
+          // (an old post's, or a hidden WhatsApp row, 026).
           captions: {
             updateMany: {
-              where: { status: 'PENDING', kind: 'CURATED', channel: { in: CAPTION_CHANNELS.map((s) => s.channel) } },
+              where: { status: 'PENDING', kind: 'GENERAL' },
               data: { status: 'FAILED', text: '', failureReason: 'generation failed' },
             },
           },

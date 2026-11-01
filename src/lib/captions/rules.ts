@@ -3,7 +3,7 @@
 // reads the same check the server does, and nothing here is stored (an edit
 // clears a miss at once).
 
-import type { CaptionSpec } from '@/lib/channels'
+import { captionSpec, type CaptionSpec, type CaptionTarget } from '@/lib/channels'
 
 export type RuleMiss = 'words-under' | 'words-over' | 'hashtags-over' | 'hashtags-not-at-end' | 'link-missing'
 
@@ -72,6 +72,17 @@ export function rulesPromptText(spec: CaptionSpec, ctx: { hasWebsite: boolean })
     )
   }
   return lines.join(' ')
+}
+
+// One stored caption's rules state, for the draft GET and MCP/ACP (039 FR-15,
+// D20): checked on a READY, live row that has text; any other row has nothing to
+// check.
+export function captionRulesFor(
+  row: { target: Exclude<CaptionTarget, 'HEADLINE'>; status: string; text: string; deleted: boolean },
+  website: string | null,
+): { met: boolean; unmet: RuleMiss[] } {
+  if (row.status !== 'READY' || !row.text || row.deleted) return { met: true, unmet: [] }
+  return checkCaptionRules(captionSpec(row.target), row.text, { website })
 }
 
 // Places the kit's website after the body and before a closing hashtag line, so

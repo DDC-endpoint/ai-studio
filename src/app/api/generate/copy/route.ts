@@ -45,11 +45,10 @@ export const POST = withTeamAuth(async (req: NextRequest, _ctx, user) => {
       GENERATION_TARGETS,
       resolved.resolved,
     )
-    // Nothing is stored here, so the 012 response shape stays exactly
-    // {channel, text, status, failureReason}: the 039 kind, the 008 stamp
-    // fields and the 024 route are dropped (T2 reshapes this response).
+    // Nothing is stored here, so the stamp fields (008) and the route (024) are
+    // dropped; each item names its kind and channel (039 FR-06).
     const captions = captionRowsFromFields(fields, stamp).map(
-      ({ kind: _kind, model: _model, modelSubstitutedFrom: _from, route: _route, ...row }) => row,
+      ({ model: _model, modelSubstitutedFrom: _from, route: _route, ...row }) => row,
     )
     return NextResponse.json({
       headline: fields.HEADLINE?.ok ? fields.HEADLINE.text : null,

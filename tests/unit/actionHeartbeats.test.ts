@@ -71,7 +71,7 @@ vi.mock('@/lib/brandkit/resolve', () => ({
 vi.mock('@/providers/registry', () => ({
   resolveCopyProvider: async () => ({
     generateCaptions: async (_b: unknown, _t: unknown, model: { arg: string }) => ({
-      raw: JSON.stringify({ headline: 'Applications are open', instagram: 'IG', linkedin: 'LI' }),
+      raw: JSON.stringify({ headline: 'Applications are open', general: 'GEN' }),
       modelId: model.arg,
     }),
   }),

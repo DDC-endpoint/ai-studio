@@ -48,7 +48,7 @@ export interface HeadlinePanelProps {
 // Undo, Generate/Regenerate headline), a single-line field named by that
 // heading, saved on blur with the
 // server's 400 reason shown inline, the n / 100 counter and the helper text.
-// "Regenerate all" never writes it (A9).
+// No caption action writes it except its own Regenerate (A9).
 export function HeadlinePanel({
   draftId,
   headline,

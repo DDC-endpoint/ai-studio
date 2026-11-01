@@ -49,3 +49,21 @@ export const prisma: PrismaClient | null = databaseUrl
 /** Skip-guard message helper for specs that require DB access. */
 export const NO_DB_MSG =
   'Test DB not reachable from the runner (set DATABASE_URL or run with .env.test loaded)'
+
+/**
+ * Seeds a CURATED caption row on a draft (039 T2): a post made before 039 has
+ * Instagram and LinkedIn rows, and a curated caption is what the cases that
+ * exercise a curated card edit, regenerate or hide. T3 makes them through the
+ * route (curate); until then the test DB is the way. Returns the stored row.
+ */
+export async function seedCuratedCaption(
+  draftId: string,
+  channel: 'INSTAGRAM' | 'LINKEDIN' | 'WHATSAPP',
+  text: string,
+  status: 'READY' | 'FAILED' | 'PENDING' = 'READY',
+) {
+  if (!prisma) throw new Error(NO_DB_MSG)
+  return prisma.draftCaption.create({
+    data: { draftId, kind: 'CURATED', channel, text, status, failureReason: status === 'FAILED' ? 'missing' : null },
+  })
+}

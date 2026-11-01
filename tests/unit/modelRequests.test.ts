@@ -133,7 +133,9 @@ vi.mock('@/lib/factsCheck/refresh', () => ({
 vi.mock('@/lib/captions/generate', () => ({ writeCaptions: h.writeCaptions }))
 vi.mock('@/lib/captions/store', () => ({
   loadDraftCaptions: async () => ({
-    captions: ['INSTAGRAM', 'LINKEDIN'].map((channel) => ({
+    general: { kind: 'GENERAL', channel: null, target: 'GENERAL', model: 'claude-sonnet-5-5' },
+    curated: ['INSTAGRAM', 'LINKEDIN'].map((channel) => ({
+      kind: 'CURATED',
       channel,
       target: channel,
       model: 'claude-sonnet-5-5',
@@ -279,7 +281,7 @@ const ROUTES: Route[] = [
   },
   ...(
     [
-      ['{ model? } (Regenerate all)', {}],
+      ["{ kind: 'GENERAL', model? }", { kind: 'GENERAL' }],
       ['{ channel, model? }', { channel: 'LINKEDIN' }],
       ['{ headline: true, model? }', { headline: true }],
     ] as const
@@ -394,7 +396,7 @@ beforeEach(() => {
   h.draftFindUnique.mockImplementation(async () => draft())
   h.briefCreate.mockImplementation(async ({ data }: { data: object }) => ({ id: 'b-new', ...data }))
   h.claimDraft.mockResolvedValue({ action: 'REFINE', claimId: 'c1' })
-  h.claimCaption.mockResolvedValue({ action: 'REGENERATE_COPY', claimId: 'c1' })
+  h.claimCaption.mockResolvedValue({ claim: { action: 'REGENERATE_COPY', claimId: 'c1' }, created: [] })
   const stop = async () => {
     throw new Error('boundary reached')
   }
@@ -659,7 +661,7 @@ describe('without a pick, an unresolvable surface keeps its wave-1 answer (not a
   })
 
   it('regenerate-copy → its 422 COPY_ERROR, nothing claimed', async () => {
-    const res = await send(regenerateCopy as Handler, undefined)
+    const res = await send(regenerateCopy as Handler, { kind: 'GENERAL' })
     expect(res.status).toBe(422)
     expect((await res.json()).code).toBe('COPY_ERROR')
     expect(h.claimCaption).not.toHaveBeenCalled()
@@ -787,7 +789,7 @@ describe('spec open question 1: a caption pick needs a Claude caption provider',
     )
     // Not the team default: the row is reached only through the brief's own key.
     h.copyRow = { id: 'p1', providerName: 'openai', providerKey: 'openai-key' }
-    expect((await send(regenerateCopy as Handler, { model: 'HAIKU' })).status).toBe(400)
+    expect((await send(regenerateCopy as Handler, { kind: 'GENERAL', model: 'HAIKU' })).status).toBe(400)
     expect(h.copyLookups.mock.calls[0][0]).toMatchObject({ slot: 'COPY', teamId: 'team1' })
   })
 

@@ -16,7 +16,7 @@
 //     or HTML (NFR-04). The one user text is `instruction`, capped. Unknown
 //     keys are stripped by the schemas, so a stray field never reaches the row.
 import { z } from 'zod'
-import { AspectRatio, CaptionRoute, Channel, DraftAction } from '@prisma/client'
+import { AspectRatio, CaptionKind, CaptionRoute, Channel, DraftAction } from '@prisma/client'
 import type { AnalyticsSource } from '@prisma/client'
 import { MODEL_KEYS } from '@/lib/models/catalogue'
 import type { CaptionRoute as CaptionRouteStamp, RouteSetting } from '@/lib/models/route'
@@ -27,6 +27,7 @@ import { redactText } from '@/lib/text/redact'
 import { HEADLINE_CHECKS, HEADLINE_STATES } from '@/lib/renderedText/vocab'
 import { APPLY_FAILURES, APPLY_FIELDS, APPLY_METHODS } from '@/lib/applyText/vocab'
 import { DOWNLOAD_FAILURES } from '@/lib/drafts/downloadVocab'
+import { CAPTION_OPS } from '@/lib/captions/ops'
 
 export const INSTRUCTION_MAX = 2000
 export const FAILURE_REASON_MAX = 500
@@ -126,6 +127,10 @@ export const CATALOGUE = {
       action: z.nativeEnum(DraftAction),
       // 037 D5: the caption channel a regenerate-copy settle names; additive.
       channel: z.nativeEnum(Channel).optional(),
+      // 039 D22: which caption a regenerate-copy settle wrote, and whether it made
+      // the row or replaced it; additive at schemaVersion 1.
+      captionKind: z.nativeEnum(CaptionKind).optional(),
+      captionOp: z.enum(CAPTION_OPS).optional(),
       model: modelFragment.optional(),
       instruction: capped(INSTRUCTION_MAX).optional(),
       attempts: z.array(refineAttempt).max(2).optional(),

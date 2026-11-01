@@ -56,7 +56,8 @@ describe('loadFactsSources', () => {
 
 interface FakeState {
   draft: null | { headline: string | null; generationInputs?: unknown; brief: FactsBrief }
-  captions: Array<{ channel: string; text: string; status: string }>
+  // `channel` is the registry target: 'GENERAL' or a curated channel.
+  captions: Array<{ channel: string; text: string; status: string; deleted?: boolean }>
   writes: Array<Record<string, unknown>>
   failWrites: number
 }
@@ -79,18 +80,25 @@ function fake(state: FakeState): RefreshDeps {
     db,
     loadContext: async () => CTX(),
     loadSources: (b, ctx) => loadFactsSources(b, ctx),
-    loadCaptions: async () =>
-      ({
-        captions: state.captions.map((c) => ({
-          ...c,
-          target: c.channel,
-          failureReason: null,
-          updatedAt: new Date(),
-          model: null,
-          modelSubstitutedFrom: null,
-          route: null,
-        })),
-      }) as never,
+    loadCaptions: async () => {
+      const rows = state.captions.map((c) => ({
+        kind: c.channel === 'GENERAL' ? 'GENERAL' : 'CURATED',
+        channel: c.channel === 'GENERAL' ? null : c.channel,
+        target: c.channel,
+        text: c.text,
+        status: c.status,
+        deleted: c.deleted ?? false,
+        failureReason: null,
+        updatedAt: new Date(),
+        model: null,
+        modelSubstitutedFrom: null,
+        route: null,
+      }))
+      return {
+        general: rows.find((r) => r.kind === 'GENERAL') ?? null,
+        curated: rows.filter((r) => r.kind === 'CURATED'),
+      } as never
+    },
   }
 }
 
@@ -107,6 +115,7 @@ describe('refreshFactsCheck', () => {
   const base = (): FakeState => ({
     draft: { headline: 'Only $99', brief: BRIEF },
     captions: [
+      { channel: 'GENERAL', text: 'Pay by 9 May', status: 'READY' },
       { channel: 'INSTAGRAM', text: 'Join 1,250 customers', status: 'READY' },
       { channel: 'LINKEDIN', text: 'Call us on 7 June', status: 'READY' },
     ],
@@ -114,7 +123,7 @@ describe('refreshFactsCheck', () => {
     failWrites: 0,
   })
 
-  it('checks the headline and the READY captions against the sources and stores the result', async () => {
+  it('checks the headline, the general caption and the live curated captions, in that order, and stores the result', async () => {
     const s = base()
     await refreshFactsCheck('d1', fake(s))
     expect(s.writes).toHaveLength(1)
@@ -122,13 +131,26 @@ describe('refreshFactsCheck', () => {
     expect(check?.status).toBe('flagged')
     expect(check?.flagged.map((f) => `${f.where}|${f.kind}|${f.value}`)).toEqual([
       'headline|cur|$99',
+      'GENERAL|date|9 May',
       'INSTAGRAM|num|1,250',
       'LINKEDIN|date|7 June',
     ])
   })
 
+  it('skips a deleted curated row (039 D19)', async () => {
+    const s = base()
+    s.captions[1].deleted = true
+    await refreshFactsCheck('d1', fake(s))
+    expect(parseFactsCheck(s.writes[0].factsCheck)?.flagged.map((f) => f.where)).toEqual([
+      'headline',
+      'GENERAL',
+      'LINKEDIN',
+    ])
+  })
+
   it('skips a PENDING or FAILED row and an empty one', async () => {
     const s = base()
+    s.captions = s.captions.slice(1)
     s.captions[0].status = 'PENDING'
     s.captions[1] = { channel: 'LINKEDIN', text: '', status: 'READY' }
     await refreshFactsCheck('d1', fake(s))

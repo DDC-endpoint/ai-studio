@@ -4,12 +4,13 @@
 //
 // One call writes every requested target: a caption per channel plus,
 // optionally, the on-image headline. The per-channel briefs, length guidance and
-// key list all come from the CAPTION_CHANNELS registry, never written here. The
+// key list all come from the CAPTION_REGISTRY, never written here. The
 // reply is extracted by extractCaptionReply (src/lib/captions/extract.ts), which
 // is why the prompt asks for one JSON object with exactly these keys.
 
 import type { BriefInput } from '@/providers/interfaces/CopyProvider'
-import { CAPTION_CHANNELS, captionSpec, type CaptionTarget } from '@/lib/channels'
+import { CAPTION_REGISTRY, captionSpec, type CaptionTarget } from '@/lib/channels'
+import { rulesPromptText } from '@/lib/captions/rules'
 import { captionReplyKeys } from '@/lib/captions/extract'
 import { HEADLINE_MAX } from '@/lib/captions/headline'
 import { derivedPromptVersion } from '@/lib/postStyles'
@@ -18,7 +19,8 @@ import { derivedPromptVersion } from '@/lib/postStyles'
 // caption call. Separate from PROMPT_VERSION, which versions the design prompts.
 // 2026-10-25.1: post styles (027): derived from the post-style dataset, like
 // PROMPT_VERSION, and the user prompt carries the style's caption rules.
-export const CAPTION_PROMPT_VERSION_BASE = '2026-11-01.1'
+// 2026-11-02.1: the general caption and each target's rules rendered from the registry (039).
+export const CAPTION_PROMPT_VERSION_BASE = '2026-11-02.1'
 export const CAPTION_PROMPT_VERSION = derivedPromptVersion(CAPTION_PROMPT_VERSION_BASE)
 
 // Room for the requested targets, including non-Latin scripts at about one
@@ -50,7 +52,7 @@ function systemPrompt(brief: BriefInput, task: string): string {
 }
 
 export function buildCaptionPrompt(brief: BriefInput, targets: readonly CaptionTarget[]): CaptionPrompt {
-  const channels = CAPTION_CHANNELS.filter((s) => targets.includes(s.channel))
+  const specs = CAPTION_REGISTRY.filter((s) => targets.includes(s.target))
 
   const bullets: string[] = []
   if (targets.includes('HEADLINE')) {
@@ -58,8 +60,12 @@ export function buildCaptionPrompt(brief: BriefInput, targets: readonly CaptionT
       `- "headline": the short line printed on the post image: one line, at most ${HEADLINE_MAX} characters, no hashtags, no emoji, no markdown.`
     )
   }
-  for (const s of channels) {
-    bullets.push(`- "${s.jsonKey}" (${s.label}): ${s.brief} At most ${count(s.hardLimit)} characters.`)
+  // 039 D18: each entry's brief, its hard limit and its rules (rulesPromptText).
+  for (const s of specs) {
+    const rules = rulesPromptText(s, { hasWebsite: false })
+    bullets.push(
+      `- "${s.jsonKey}" (${s.label}): ${s.brief} At most ${count(s.hardLimit)} characters.${rules ? ` ${rules}` : ''}`,
+    )
   }
 
   // 027 FR-09: the post style's caption rules, after Tone and before the task.
@@ -70,13 +76,14 @@ ${brief.captionRules}` : ''
   const keys = captionReplyKeys(targets)
     .map((k) => `"${k}"`)
     .join(', ')
-  const labels = channels.map((s) => s.label).join(', ')
+  const generalOnly = specs.length > 0 && specs.every((s) => s.kind === 'GENERAL')
+  const labels = specs.map((s) => s.label).join(', ')
+  const task = generalOnly
+    ? 'Write the general caption for the post: compelling, on-brand and platform-neutral.'
+    : `Write compelling, on-brand captions${labels ? ` for ${labels}` : ''}, each tailored to its channel.`
 
   return {
-    system: systemPrompt(
-      brief,
-      `Write compelling, on-brand captions${labels ? ` for ${labels}` : ''}, each tailored to its channel.`
-    ),
+    system: systemPrompt(brief, task),
     user: `Topic: ${brief.topic}
 Description: ${brief.description}
 Goal: ${brief.goal}

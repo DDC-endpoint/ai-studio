@@ -42,7 +42,6 @@ import { useConfirm } from '@/components/ui/ConfirmDialog'
 import { applyFailureNotice, APPLY_FAILURES, type ApplyFailure } from '@/lib/applyText'
 import type { DraftDetail } from '@/lib/api-types'
 import { ASPECT_LABELS, aspectClassFor, dimensionsFor } from '@/lib/aspectRatio'
-import { channelLabel } from '@/lib/channels'
 import { formatDateTime } from '@/lib/format'
 import type { ModelKey } from '@/lib/models/catalogue'
 import { generatedWith } from '@/lib/models/stampLabel'
@@ -417,9 +416,7 @@ export default function DraftDetailPage() {
         <PageTitle className="mb-3 mt-2 break-words">{draft.brief.topic}</PageTitle>
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-ui-sm text-fg-muted">
           <StatusChip status={STATUS_TO_CHIP[draft.status]} />
-          <span>
-            {draft.brief.channels.map(channelLabel).join(', ')} · {ratioShort}
-          </span>
+          <span>{ratioShort}</span>
         </div>
 
         {/* The action bar (§8.17, within FR-12): every control stays a visible

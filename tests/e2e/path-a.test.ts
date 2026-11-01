@@ -99,12 +99,11 @@ test.describe('Path A — template-fill generation', () => {
     })
     expect(noGoal.status()).toBe(201)
 
-    // Missing channels.
+    // Missing channels: no longer an error (039 D21). A brief has no channels; the key is ignored.
     const noChannels = await api.post('/api/briefs', {
       topic: 'x', goal: 'g', tone: 'professional', designMode: 'GENERATE', copyProviderKey: 'cli',
     })
-    expect(noChannels.status()).toBeGreaterThanOrEqual(400)
-    expect(noChannels.status()).toBeLessThan(500)
+    expect(noChannels.status()).toBe(201)
 
     // Bad project FK (404 PROJECT_NOT_FOUND).
     const badProject = await api.post('/api/briefs', {

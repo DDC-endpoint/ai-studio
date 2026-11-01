@@ -62,8 +62,8 @@ export async function computeFactsCheck(
 }
 
 /**
- * Recomputes `Draft.factsCheck` from the draft's headline and READY captions.
- * A PENDING or FAILED caption row is skipped. On any failure it logs
+ * Recomputes `Draft.factsCheck` from the draft's headline, its general caption
+ * and its live curated captions. A PENDING, FAILED or deleted row is skipped. On any failure it logs
  * `[facts-check] draft <id>: <message>` and tries once to store `status:
  * 'error'`. Never throws.
  */
@@ -94,8 +94,10 @@ export async function refreshFactsCheck(
     const loaded = await deps.loadCaptions(draftId, deps.db)
     const texts: CheckText[] = []
     if (draft.headline) texts.push({ where: 'headline', text: draft.headline })
-    for (const row of loaded?.captions ?? [])
-      if (row.status === 'READY' && row.text)
+    // The general caption, then the live curated ones (039 D19): READY, with
+    // text, not deleted. PENDING, FAILED, deleted and retired rows are skipped.
+    for (const row of [...(loaded?.general ? [loaded.general] : []), ...(loaded?.curated ?? [])])
+      if (row.status === 'READY' && row.text && !row.deleted)
         texts.push({ where: row.target, text: row.text })
     throwIfMockFactError(draft.brief.topic)
     const ctx = await deps.loadContext(draft)

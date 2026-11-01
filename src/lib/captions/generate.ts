@@ -16,9 +16,9 @@ import type { CaptionStamp } from '@/lib/captions/store'
 
 export type CaptionFields = Partial<Record<CaptionTarget, FieldResult>>
 
-// What a generation asks for. Written out: 039 T2 switches this to the
-// headline and the general caption.
-export const GENERATION_TARGETS: readonly CaptionTarget[] = ['HEADLINE', 'INSTAGRAM', 'LINKEDIN']
+// What a generation asks for (039 D10): the headline and the general caption.
+// A curated caption is written on request, never up front.
+export const GENERATION_TARGETS: readonly CaptionTarget[] = ['HEADLINE', 'GENERAL']
 
 // How much discarded model text a log line carries.
 const DISCARDED_LOG_MAX = 500

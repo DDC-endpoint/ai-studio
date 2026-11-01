@@ -1,6 +1,7 @@
-// 012 T6 review NOTEs — the caption routes' edge paths, with the store, the
-// action lifecycle and the provider mocked:
-//   - regenerate-copy: an empty body is {}; malformed JSON is 400; a throw
+// 012 T6 review NOTEs, 039 T2 — the caption routes' edge paths, with the store,
+// the action lifecycle and the provider mocked:
+//   - regenerate-copy: an empty body is 400 ("Regenerate all" is retired,
+//     039 Q2); malformed JSON is 400; a throw
 //     after the claim (before the run starts) settles the target rows and
 //     releases the claim instead of stranding both until the sweep; a failure
 //     before the claim claims nothing;
@@ -63,11 +64,30 @@ const { POST: regenerate } = await import('@/app/api/drafts/[id]/regenerate-copy
 const { PATCH: patch } = await import('@/app/api/drafts/[id]/route')
 
 const ctx = { params: { id: 'd1' } }
-const ALL = ['INSTAGRAM', 'LINKEDIN']
 const CLAIM = { action: 'REGENERATE_COPY', claimId: 'claim-1' }
+// What the claim returns (039 D12): the claim, and the targets it created.
+const CLAIMED = { claim: CLAIM, created: [] as string[] }
 
 function post(body?: string) {
   return regenerate(new Request('http://test/x', { method: 'POST', body }) as never, ctx as never)
+}
+
+// The loader's shape (039 FR-05): the general row (or none) and the curated rows.
+function rows(ig: string | null, li: string | null, gen?: string | null) {
+  const row = (target: string, model: string | null) => ({
+    kind: target === 'GENERAL' ? 'GENERAL' : 'CURATED',
+    channel: target === 'GENERAL' ? null : target,
+    target,
+    text: 'text',
+    status: 'READY',
+    deleted: false,
+    model,
+    modelSubstitutedFrom: null,
+  })
+  return {
+    general: gen === undefined ? null : row('GENERAL', gen),
+    curated: [row('INSTAGRAM', ig), row('LINKEDIN', li)],
+  }
 }
 
 function exportedDraft(over: Record<string, unknown> = {}) {
@@ -89,8 +109,8 @@ beforeEach(() => {
   )
   h.draftFindUnique.mockResolvedValue(exportedDraft())
   h.resolveCopyProvider.mockResolvedValue({})
-  h.loadDraftCaptions.mockResolvedValue({ captions: [] })
-  h.claimCaptionAction.mockResolvedValue(CLAIM)
+  h.loadDraftCaptions.mockResolvedValue(rows(null, null, 'g'))
+  h.claimCaptionAction.mockResolvedValue(CLAIMED)
   // 030: the settle reports whether it wrote the headline.
   h.settleCaptionAction.mockResolvedValue({ headlineWritten: false, headlineBefore: null })
   h.trackHeadlineEdited.mockResolvedValue(undefined)
@@ -100,14 +120,53 @@ beforeEach(() => {
 })
 
 describe('regenerate-copy — the body', () => {
+  // 039 Q2, AC-27: an empty body is the wrong shape; nothing is read or claimed.
   it.each([
     ['absent', undefined],
     ['empty', ''],
     ['whitespace', '  \n'],
-  ])('an %s body is {} ("Regenerate all")', async (_name, body) => {
+    ['{}', '{}'],
+  ])('an %s body is 400 with the shape message', async (_name, body) => {
     const res = await post(body)
+    expect(res.status).toBe(400)
+    expect(await res.json()).toEqual({ error: "Send { kind: 'GENERAL' }, { channel } or { headline: true }" })
+    expect(h.draftFindUnique).not.toHaveBeenCalled()
+    expect(h.claimCaptionAction).not.toHaveBeenCalled()
+  })
+
+  it("{ kind: 'GENERAL' } claims the general caption", async () => {
+    const res = await post(JSON.stringify({ kind: 'GENERAL' }))
     expect(res.status).toBe(202)
-    expect(h.claimCaptionAction).toHaveBeenCalledWith('d1', ALL)
+    expect(h.claimCaptionAction).toHaveBeenCalledWith('d1', ['GENERAL'])
+  })
+
+  it('a curated caption with no row is 404 caption-not-found until curate (T3), and claims nothing', async () => {
+    h.loadDraftCaptions.mockResolvedValue({ general: null, curated: [] })
+    const res = await post(JSON.stringify({ channel: 'LINKEDIN' }))
+    expect(res.status).toBe(404)
+    expect(await res.json()).toEqual({ error: 'Caption not found', code: 'caption-not-found' })
+    expect(h.claimCaptionAction).not.toHaveBeenCalled()
+  })
+
+  it('the settle event names the caption kind, channel and whether the row was created or replaced (039 D22, D25)', async () => {
+    await post(JSON.stringify({ channel: 'LINKEDIN' }))
+    expect(h.startDraftAction.mock.calls[0][6].fields).toMatchObject({
+      captionKind: 'CURATED',
+      channel: 'LINKEDIN',
+      captionOp: 'replace',
+    })
+    h.startDraftAction.mockClear()
+    h.claimCaptionAction.mockResolvedValue({ claim: CLAIM, created: ['GENERAL'] })
+    h.loadDraftCaptions.mockResolvedValue(rows(null, null))
+    await post(JSON.stringify({ kind: 'GENERAL' }))
+    const fields = h.startDraftAction.mock.calls[0][6].fields
+    expect(fields).toMatchObject({ captionKind: 'GENERAL', captionOp: 'create' })
+    expect(fields).not.toHaveProperty('channel')
+  })
+
+  it('a headline regenerate names no caption kind', async () => {
+    await post(JSON.stringify({ headline: true }))
+    expect(h.startDraftAction.mock.calls[0][6].fields).not.toHaveProperty('captionKind')
   })
 
   it('malformed non-empty JSON is still 400, before anything is read', async () => {
@@ -143,15 +202,15 @@ describe('regenerate-copy — a failure never strands the claim', () => {
 
   it('a failure before the claim (provider resolution) claims nothing and settles nothing', async () => {
     h.resolveCopyProvider.mockRejectedValue(new Error('No copy provider'))
-    const res = await post('{}')
+    const res = await post(JSON.stringify({ kind: 'GENERAL' }))
     expect(res.status).toBe(422)
     expect(h.claimCaptionAction).not.toHaveBeenCalled()
     expect(h.settleCaptionAction).not.toHaveBeenCalled()
     expect(h.releaseDraftAction).not.toHaveBeenCalled()
   })
 
-  it('materializes the rows before claiming them', async () => {
-    await post('{}')
+  it('reads the rows before claiming them (they carry the stamps)', async () => {
+    await post(JSON.stringify({ kind: 'GENERAL' }))
     expect(h.loadDraftCaptions.mock.invocationCallOrder[0]).toBeLessThan(
       h.claimCaptionAction.mock.invocationCallOrder[0],
     )
@@ -171,7 +230,7 @@ describe('regenerate-copy — a failure never strands the claim', () => {
 
   it('a lost claim is 409 and releases nothing it does not hold', async () => {
     h.claimCaptionAction.mockResolvedValue(null)
-    const res = await post('{}')
+    const res = await post(JSON.stringify({ kind: 'GENERAL' }))
     expect(res.status).toBe(409)
     expect(h.startDraftAction).not.toHaveBeenCalled()
     expect(h.releaseDraftAction).not.toHaveBeenCalled()
@@ -206,14 +265,6 @@ describe('regenerate-copy — 008 FR-09 stamp tier, resolved before the claim', 
   const OPUS = 'claude-opus-5-5'
   const HAIKU = 'claude-haiku-4-5'
 
-  function rows(ig: string | null, li: string | null) {
-    return {
-      captions: [
-        { channel: 'INSTAGRAM', target: 'INSTAGRAM', text: 'ig', status: 'READY', model: ig, modelSubstitutedFrom: null },
-        { channel: 'LINKEDIN', target: 'LINKEDIN', text: 'li', status: 'READY', model: li, modelSubstitutedFrom: null },
-      ],
-    }
-  }
   // The ResolvedModel the run was handed (writeCaptions' 4th argument).
   const ranWith = () => h.writeCaptions.mock.calls[0][3]
 
@@ -243,27 +294,27 @@ describe('regenerate-copy — 008 FR-09 stamp tier, resolved before the claim', 
     expect(ranWith()).toMatchObject({ key: 'HAIKU', source: 'stamp' })
   })
 
-  it('{} with three equal stamps → that stamp (like for like)', async () => {
-    h.loadDraftCaptions.mockResolvedValue(rows(SONNET, SONNET))
-    await post('{}')
+  it("{kind:'GENERAL'}: the stamp tier is the general row's model (like for like)", async () => {
+    h.loadDraftCaptions.mockResolvedValue(rows(OPUS, OPUS, SONNET))
+    await post(JSON.stringify({ kind: 'GENERAL' }))
     expect(h.resolveModel.mock.calls[0][1]).toMatchObject({ stamp: SONNET })
     expect(ranWith()).toMatchObject({ key: 'SONNET', source: 'stamp' })
   })
 
   it.each([
-    ['mixed', [SONNET, OPUS]],
-    ['one null', [SONNET, null]],
-  ] as const)('{} with %s stamps → no stamp tier: the team default, recorded as NO substitution', async (_n, s) => {
+    ['no general row (a post made before 039)', rows(SONNET, SONNET)],
+    ['a null stamp', rows(SONNET, SONNET, null)],
+  ])("{kind:'GENERAL'} with %s → no stamp tier: the team default, recorded as NO substitution", async (_n, loaded) => {
     policy.defaults = { CAPTION: 'HAIKU' }
-    h.loadDraftCaptions.mockResolvedValue(rows(s[0], s[1]))
-    await post('{}')
+    h.loadDraftCaptions.mockResolvedValue(loaded)
+    await post(JSON.stringify({ kind: 'GENERAL' }))
     expect(h.resolveModel.mock.calls[0][1]).toMatchObject({ stamp: null })
     expect(ranWith()).toMatchObject({ key: 'HAIKU', source: 'team', substitutedFrom: null })
   })
 
   it('a null-stamp draft with no team default → the system default', async () => {
-    h.loadDraftCaptions.mockResolvedValue(rows(null, null))
-    await post('{}')
+    h.loadDraftCaptions.mockResolvedValue(rows(null, null, null))
+    await post(JSON.stringify({ kind: 'GENERAL' }))
     expect(ranWith()).toMatchObject({ source: 'system', substitutedFrom: null })
   })
 
@@ -286,15 +337,15 @@ describe('regenerate-copy — 008 FR-09 stamp tier, resolved before the claim', 
   })
 
   it('resolves after the rows are loaded (they carry the stamps) and BEFORE the claim', async () => {
-    h.loadDraftCaptions.mockResolvedValue(rows(SONNET, SONNET))
-    await post('{}')
+    h.loadDraftCaptions.mockResolvedValue(rows(SONNET, SONNET, SONNET))
+    await post(JSON.stringify({ kind: 'GENERAL' }))
     expect(h.loadDraftCaptions.mock.invocationCallOrder[0]).toBeLessThan(h.resolveModel.mock.invocationCallOrder[0])
     expect(h.resolveModel.mock.invocationCallOrder[0]).toBeLessThan(h.claimCaptionAction.mock.invocationCallOrder[0])
   })
 
   it('a failed resolution is the 422 COPY_ERROR shape and claims nothing', async () => {
     policy.allowed = []
-    const res = await post('{}')
+    const res = await post(JSON.stringify({ kind: 'GENERAL' }))
     expect(res.status).toBe(422)
     expect((await res.json()).code).toBe('COPY_ERROR')
     expect(h.claimCaptionAction).not.toHaveBeenCalled()

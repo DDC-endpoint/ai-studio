@@ -9,12 +9,9 @@ import {
   targetOf,
   CHANNEL_CAPTION_LIMITS,
   CHANNEL_LABELS,
-  CHANNEL_VALUES,
-  PUBLISHABLE_CHANNELS,
   captionLength,
   captionSpec,
   channelLabel,
-  isPublishableChannel,
 } from '@/lib/channels'
 
 describe('channelLabel', () => {
@@ -64,9 +61,11 @@ describe('CAPTION_CHANNELS registry', () => {
     expect(channelLabel('whatsapp')).toBe('WhatsApp')
   })
 
-  it('only IG and LI are publishable, and CHANNEL_VALUES equals them', () => {
-    expect(PUBLISHABLE_CHANNELS).toEqual(['INSTAGRAM', 'LINKEDIN'])
-    expect(CHANNEL_VALUES).toEqual(['INSTAGRAM', 'LINKEDIN'])
+  it('the publish-era names are gone (039 FR-02)', async () => {
+    const mod = (await import('@/lib/channels')) as Record<string, unknown>
+    expect(mod.PUBLISHABLE_CHANNELS).toBeUndefined()
+    expect(mod.CHANNEL_VALUES).toBeUndefined()
+    expect(mod.isPublishableChannel).toBeUndefined()
   })
 
   it('normalises model output: IG/LI drop every **', () => {
@@ -77,20 +76,6 @@ describe('CAPTION_CHANNELS registry', () => {
   it('captionLength counts UTF-16 code units', () => {
     expect(captionLength('abc')).toBe(3)
     expect(captionLength('😀')).toBe(2)
-  })
-})
-
-describe('isPublishableChannel', () => {
-  it('accepts the publishable enum values', () => {
-    expect(PUBLISHABLE_CHANNELS.every(isPublishableChannel)).toBe(true)
-  })
-
-  it('rejects WhatsApp, other casings, non-channels and non-strings', () => {
-    expect(isPublishableChannel('WHATSAPP')).toBe(false)
-    expect(isPublishableChannel('instagram')).toBe(false)
-    expect(isPublishableChannel('facebook')).toBe(false)
-    expect(isPublishableChannel(null)).toBe(false)
-    expect(isPublishableChannel(42)).toBe(false)
   })
 })
 

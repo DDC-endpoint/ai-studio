@@ -39,7 +39,8 @@ describe('generation is untouched by 007', () => {
       ].join('\n'),
     )
   })
-  it('PROMPT_VERSION moved only by 027 (the derived post-styles suffix) and 031 (the base bump)', () => {
-    expect(PROMPT_VERSION).toBe(`2026-11-01.1+ps${POST_STYLES_REVISION}`)
+  it('PROMPT_VERSION moved only by 027 (the derived post-styles suffix), 031 and 039 (the base bumps)', () => {
+    // 2026-11-02.1: the Path B user message lost its "Channels:" line (039 D21).
+    expect(PROMPT_VERSION).toBe(`2026-11-02.1+ps${POST_STYLES_REVISION}`)
   })
 })

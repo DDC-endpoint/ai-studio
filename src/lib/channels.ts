@@ -62,7 +62,7 @@ const INSTAGRAM = {
   label: 'Instagram',
   jsonKey: 'instagram',
   hardLimit: 2200,
-  brief: 'Hook in the first line. Hashtags only at the end. Plain text, no Markdown.',
+  brief: 'Hook in the first line. Plain text, no Markdown.',
   rules: { hashtags: { min: 0, max: 30 }, hashtagsAtEnd: true, link: 'model-may-echo' },
   normalise: stripDoubleAsterisks,
 } as const satisfies CaptionSpec
@@ -74,7 +74,7 @@ const LINKEDIN = {
   label: 'LinkedIn',
   jsonKey: 'linkedin',
   hardLimit: 3000,
-  brief: 'Professional and longer-form. At most 3 hashtags, or none. Plain text, no Markdown.',
+  brief: 'Professional and longer-form. Plain text, no Markdown.',
   rules: { hashtags: { min: 0, max: 3 }, link: 'model-may-echo' },
   normalise: stripDoubleAsterisks,
 } as const satisfies CaptionSpec
@@ -113,15 +113,6 @@ export const CHANNEL_LABELS = {
 export const CHANNEL_CAPTION_LIMITS: Partial<Record<Channel, number>> = Object.fromEntries(
   CAPTION_CHANNELS.map((s) => [s.channel, s.hardLimit]),
 )
-
-// Channels that have a publisher: every caption channel. Inputs (briefs, queue,
-// posts, team channels, MCP/ACP) accept only these. 039 T2 deletes this name,
-// CHANNEL_VALUES and isPublishableChannel with their last callers.
-export const PUBLISHABLE_CHANNELS: Channel[] = CAPTION_CHANNELS.map((s) => s.channel)
-
-// Kept name: every channel picker and default reads this, so pickers stay at
-// the publishable channels.
-export const CHANNEL_VALUES = PUBLISHABLE_CHANNELS
 
 export function captionSpec(target: Exclude<CaptionTarget, 'HEADLINE'>): CaptionSpec {
   const spec = CAPTION_REGISTRY.find((s) => s.target === target)
@@ -164,12 +155,6 @@ export function registryEnumMismatches(
     if (kindValues.includes(c)) out.push(`collision:${c}`)
   }
   return out
-}
-
-// Exact (uppercase) match only, so the type guard never lies: callers that
-// tolerate legacy casing uppercase first.
-export function isPublishableChannel(v: unknown): v is Channel {
-  return typeof v === 'string' && PUBLISHABLE_CHANNELS.includes(v as Channel)
 }
 
 // UTF-16 code units — the one count the counter, extractor and resolver share.

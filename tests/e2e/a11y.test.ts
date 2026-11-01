@@ -662,14 +662,12 @@ test.describe('Labels: draft page (T15)', () => {
     await page.goto(`/drafts/${draft.id}`)
     await expect(page.getByRole('button', { name: 'View full screen', exact: true })).toBeVisible({ timeout: 20_000 })
 
-    // Row 26: each caption (012) is named by its channel's h3.
-    for (const label of ['Instagram', 'LinkedIn']) {
-      await expectNamedByHeading(page, label, {
-        tag: 'TEXTAREA',
-        placeholder: `Write the ${label} caption…`,
-        headingTag: 'H3',
-      })
-    }
+    // Row 26: each caption (012) is named by its own h3 (039: a new post has the general caption).
+    await expectNamedByHeading(page, 'General caption', {
+      tag: 'TEXTAREA',
+      placeholder: 'Write the general caption…',
+      headingTag: 'H3',
+    })
     // Row 27.
     await expectNamedByHeading(page, 'Refine design', { tag: 'INPUT', placeholder: 'e.g. Make the logo larger…' })
   })
@@ -1042,7 +1040,7 @@ test.describe('axe scan (T18)', () => {
     await expect(page.getByRole('button', { name: 'View full screen', exact: true })).toBeVisible({ timeout: 20_000 })
     // 008 AC-33: the scan covers the model pickers. They load a query of their
     // own (/api/models), so wait for them rather than relying on networkidle.
-    for (const name of ['Design model', 'Headline model', 'Instagram caption model', 'Refine model']) {
+    for (const name of ['Design model', 'Headline model', 'General caption model', 'Refine model']) {
       await expect(page.getByRole('combobox', { name, exact: true })).toBeVisible()
     }
     await expectNoAxeViolations(page, '/drafts/[id]', { settle: true })
@@ -1068,7 +1066,7 @@ test.describe('axe scan (T18)', () => {
     await pageLogin(page)
     await page.goto(`/drafts/${draft.id}`)
     await expect(page.getByTestId('composition-notice')).toBeVisible({ timeout: 20_000 })
-    for (const name of ['Design model', 'Headline model', 'Instagram caption model', 'Refine model']) {
+    for (const name of ['Design model', 'Headline model', 'General caption model', 'Refine model']) {
       await expect(page.getByRole('combobox', { name, exact: true })).toBeVisible()
     }
     await expectNoAxeViolations(page, '/drafts/[id] with the composition notice', { settle: true })

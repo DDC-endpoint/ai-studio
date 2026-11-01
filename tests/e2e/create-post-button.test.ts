@@ -1,5 +1,6 @@
 import { test, expect, type Locator, type Page, type Route } from '@playwright/test'
 import { loginAs, waitForDraft, type ApiClient } from '../helpers/api'
+import { seedCuratedCaption } from '../helpers/db'
 
 // Floating Create post button (change 011 T1 — AC-01, AC-02, AC-03). The
 // dashboard quick action is named "New post", so every lookup here is
@@ -140,11 +141,13 @@ test.describe('Create post button (011 FR-01 – FR-03)', () => {
   // AC-02b (020) — at 1440px nothing fixed covers the last control in the
   // right-hand column when it sits where the floating button would: its bottom
   // edge 24px above the viewport bottom, inside the button's right-hand band.
-  // Since 026 that is the LinkedIn caption's Regenerate (Refine design, and its
+  // That is the last curated caption's Regenerate (an old post's LinkedIn card; seeded) (Refine design, and its
   // Send button, moved to the left column under the preview).
   test('AC-02b: the last caption control is not covered at 1440px', async ({ page }) => {
     test.skip(!MOCKED(), 'needs MOCK_AI + MOCK_PUPPETEER to mint a draft')
     const draftId = await createExportedDraft(api, `fab-ac02b-${Date.now()}`)
+    // An old post's curated LinkedIn card is the last caption control (a new post has only the general one).
+    await seedCuratedCaption(draftId, 'LINKEDIN', 'A curated LinkedIn caption.')
     await page.setViewportSize({ width: 1440, height: 900 })
     await pageLogin(page)
     await page.goto(`/drafts/${draftId}`)

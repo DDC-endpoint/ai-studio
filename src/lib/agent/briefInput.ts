@@ -108,7 +108,6 @@ export function buildBriefInput(brief: Brief, ctx: PostContext): BriefInput {
     description: brief.description ?? '',
     goal: brief.goal,
     tone: brief.tone,
-    channels: brief.channels,
     brandName: kit?.name,
     brandVoice: kit?.voicePrompt ?? undefined,
     projectBriefing: ctx.briefing?.content ?? undefined,

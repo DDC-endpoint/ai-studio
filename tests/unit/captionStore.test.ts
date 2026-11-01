@@ -1,6 +1,7 @@
-// 012 T4 / 016 T2 — the caption store (design §6): the loader (stored rows, and
-// a missing registry channel filled), the generation write and the draft-level
-// claim. Prisma is mocked.
+// 012 T4 / 016 T2, 039 T2 — the caption store (design §6): the loader (stored
+// rows split into the general caption and the curated ones; it creates
+// nothing), the generation write and the draft-level claim (which creates a
+// missing target row). Prisma is mocked.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { Prisma } from '@prisma/client'
@@ -50,8 +51,8 @@ const GUARD = { id: 'd1', pendingAction: 'REGENERATE_COPY', pendingActionClaimId
 // The settle's own first write is the claim guard; the headline write is the one carrying `headline`.
 const headlineWrites = () => h.draftUpdateMany.mock.calls.filter(([a]) => 'headline' in a.data)
 // A row as the loader's select returns it (039: kind, deletedAt and previous come too).
-const stored = (channel: string, text = '', status = 'READY') => ({
-  kind: 'CURATED',
+const stored = (channel: string | null, text = '', status = 'READY') => ({
+  kind: channel === null ? 'GENERAL' : 'CURATED',
   channel,
   text,
   status,
@@ -64,9 +65,9 @@ const stored = (channel: string, text = '', status = 'READY') => ({
   previous: null,
 })
 // The same row as loadDraftCaptions returns it.
-const row = (channel: string, text = '', status = 'READY') => {
+const row = (channel: string | null, text = '', status = 'READY') => {
   const { deletedAt: _d, previous: _p, ...rest } = stored(channel, text, status)
-  return { ...rest, target: channel, deleted: false, canUndo: false }
+  return { ...rest, target: channel ?? 'GENERAL', deleted: false, canUndo: false }
 }
 // The row saveCaptionEdit reads before it writes.
 const editable = (over: Record<string, unknown> = {}) => ({
@@ -98,8 +99,9 @@ beforeEach(() => {
   for (const fn of Object.values(h)) fn.mockReset()
   // Batch form: each op is the value its builder returned.
   h.transaction.mockImplementation(async (ops: unknown) =>
-    typeof ops === 'function' ? ops({ draft: { updateMany: h.draftUpdateMany, findUnique: h.draftFindUnique }, draftCaption: { findMany: h.captionFindMany, findFirst: h.captionFindFirst, updateMany: h.captionUpdateMany } }) : Promise.all(ops as unknown[]),
+    typeof ops === 'function' ? ops({ draft: { updateMany: h.draftUpdateMany, findUnique: h.draftFindUnique }, draftCaption: { findMany: h.captionFindMany, findFirst: h.captionFindFirst, createMany: h.captionCreateMany, updateMany: h.captionUpdateMany } }) : Promise.all(ops as unknown[]),
   )
+  h.captionFindMany.mockResolvedValue([])
   h.captionCreateMany.mockResolvedValue({ count: 2 })
   h.draftUpdateMany.mockResolvedValue({ count: 1 })
   h.captionUpdateMany.mockResolvedValue({ count: 1 })
@@ -112,15 +114,16 @@ describe('loadDraftCaptions (AC-03)', () => {
     expect(await loadDraftCaptions('nope')).toBeNull()
   })
 
-  it('reads the stored rows, in registry order, hides a legacy WHATSAPP row (026 FR-04) and writes nothing', async () => {
+  it('splits the stored rows into the general caption and the curated ones, in registry order, hides a legacy WHATSAPP row (026 FR-04) and writes nothing', async () => {
     h.draftFindUnique.mockResolvedValue({
-      captions: [stored('LINKEDIN', 'b'), stored('WHATSAPP', 'c', 'PENDING'), stored('INSTAGRAM', 'a')],
+      captions: [stored('LINKEDIN', 'b'), stored('WHATSAPP', 'c', 'PENDING'), stored(null, 'g'), stored('INSTAGRAM', 'a')],
     })
 
     const result = await loadDraftCaptions('d1')
 
     expect(result).toEqual({
-      captions: [row('INSTAGRAM', 'a'), row('LINKEDIN', 'b')],
+      general: row(null, 'g'),
+      curated: [row('INSTAGRAM', 'a'), row('LINKEDIN', 'b')],
     })
     expect(h.captionCreateMany).not.toHaveBeenCalled()
     expect(h.captionFindMany).not.toHaveBeenCalled()
@@ -130,47 +133,22 @@ describe('loadDraftCaptions (AC-03)', () => {
 
   it('selects the caption rows only — no legacy column is read (016 FR-03)', async () => {
     h.draftFindUnique.mockResolvedValue({ captions: [] })
-    h.captionFindMany.mockResolvedValue([])
     await loadDraftCaptions('d1')
     const { where, select } = h.draftFindUnique.mock.calls[0][0]
     expect(where).toEqual({ id: 'd1' })
     expect(Object.keys(select)).toEqual(['captions'])
   })
 
-  it('fills a missing registry channel with an empty READY row, then returns one per channel', async () => {
+  it('creates nothing: a post made before 039 has general null, and a post with no rows is empty (D11)', async () => {
     h.draftFindUnique.mockResolvedValue({ captions: [stored('INSTAGRAM', 'a')] })
-    h.captionFindMany.mockResolvedValue([stored('LINKEDIN'), stored('INSTAGRAM', 'a')])
+    expect(await loadDraftCaptions('d1')).toEqual({ general: null, curated: [row('INSTAGRAM', 'a')] })
 
-    const result = await loadDraftCaptions('d1')
-
-    expect(h.captionCreateMany).toHaveBeenCalledWith({
-      data: [{ draftId: 'd1', kind: 'CURATED', channel: 'LINKEDIN', text: '', status: 'READY' }],
-      skipDuplicates: true,
-    })
-    expect(result?.captions).toEqual([row('INSTAGRAM', 'a'), row('LINKEDIN')])
-  })
-
-  it('fills every channel of a draft with no rows, on the client it is given', async () => {
-    const db = {
-      draft: { findUnique: vi.fn().mockResolvedValue({ captions: [] }) },
-      draftCaption: {
-        createMany: vi.fn().mockResolvedValue({ count: 2 }),
-        findMany: vi.fn().mockResolvedValue([stored('INSTAGRAM'), stored('LINKEDIN')]),
-      },
-    }
-    const result = await loadDraftCaptions('d1', db as never)
-    expect(db.draftCaption.createMany).toHaveBeenCalledWith({
-      data: ['INSTAGRAM', 'LINKEDIN'].map((channel) => ({
-        draftId: 'd1',
-        kind: 'CURATED',
-        channel,
-        text: '',
-        status: 'READY',
-      })),
-      skipDuplicates: true,
-    })
-    expect(result?.captions).toHaveLength(2)
-    expect(h.draftFindUnique).not.toHaveBeenCalled()
+    const db = { draft: { findUnique: vi.fn().mockResolvedValue({ captions: [] }) }, draftCaption: { createMany: vi.fn() } }
+    expect(await loadDraftCaptions('d1', db as never)).toEqual({ general: null, curated: [] })
+    expect(db.draftCaption.createMany).not.toHaveBeenCalled()
+    expect(h.captionCreateMany).not.toHaveBeenCalled()
+    // the injected client, not the global one, served the second read
+    expect(h.draftFindUnique).toHaveBeenCalledTimes(1)
   })
 })
 
@@ -233,7 +211,27 @@ describe('saveGenerationCaptions', () => {
     })
   })
 
-  it('captionRowsFromFields covers only the channels it was given, stamping the ok ones', () => {
+  it('writes the general caption row, guarded on PENDING, with a null channel (039 D10)', async () => {
+    await saveGenerationCaptions('d1', { GENERAL: { ok: true, text: 'g' }, HEADLINE: { ok: true, text: 'h' } }, STAMP)
+    expect(h.captionUpdateMany.mock.calls.map((c) => c[0])).toEqual([
+      {
+        where: { draftId: 'd1', kind: 'GENERAL', channel: null, status: 'PENDING' },
+        data: {
+          text: 'g',
+          status: 'READY',
+          failureReason: null,
+          model: 'claude-haiku-4-5',
+          modelSubstitutedFrom: 'OPUS',
+          route: 'API_KEY',
+        },
+      },
+    ])
+  })
+
+  it('captionRowsFromFields covers only the targets it was given, stamping the ok ones', () => {
+    expect(captionRowsFromFields({ GENERAL: { ok: false, reason: 'missing' } }, STAMP)).toEqual([
+      { kind: 'GENERAL', channel: null, text: '', status: 'FAILED', failureReason: 'missing', model: null, modelSubstitutedFrom: null, route: null },
+    ])
     expect(captionRowsFromFields({ LINKEDIN: { ok: true, text: 'x' } }, STAMP)).toEqual([
       {
         kind: 'CURATED',
@@ -254,34 +252,60 @@ describe('saveGenerationCaptions', () => {
 
 describe('claimCaptionAction', () => {
   it('claims REGENERATE_COPY guarded on null and marks only the target channels PENDING', async () => {
-    const claim = await claimCaptionAction('d1', ['LINKEDIN', 'HEADLINE'])
-    expect(claim).toEqual({ action: 'REGENERATE_COPY', claimId: expect.any(String) })
+    h.captionFindMany.mockResolvedValue([{ kind: 'CURATED', channel: 'LINKEDIN' }])
+    const claimed = await claimCaptionAction('d1', ['LINKEDIN', 'HEADLINE'])
+    expect(claimed).toEqual({ claim: { action: 'REGENERATE_COPY', claimId: expect.any(String) }, created: [] })
     // The WHERE is still the empty slot; the data carries the fresh token (019).
     expect(h.draftUpdateMany).toHaveBeenCalledWith({
       where: { id: 'd1', pendingAction: null },
-      data: { pendingAction: 'REGENERATE_COPY', pendingActionClaimId: claim!.claimId },
+      data: { pendingAction: 'REGENERATE_COPY', pendingActionClaimId: claimed!.claim.claimId },
     })
     expect(h.captionUpdateMany).toHaveBeenCalledWith({
-      where: { draftId: 'd1', kind: 'CURATED', channel: { in: ['LINKEDIN'] } },
+      where: { draftId: 'd1', OR: [{ kind: 'CURATED', channel: { in: ['LINKEDIN'] } }] },
       data: { status: 'PENDING' },
     })
+    expect(h.captionCreateMany).not.toHaveBeenCalled()
+  })
+
+  it('creates a missing general row inside the claim and reports it created (039 D12, D25)', async () => {
+    const claimed = await claimCaptionAction('d1', ['GENERAL'])
+    expect(claimed?.created).toEqual(['GENERAL'])
+    expect(h.captionCreateMany).toHaveBeenCalledWith({
+      data: [{ draftId: 'd1', kind: 'GENERAL', channel: null, text: '', status: 'PENDING' }],
+      skipDuplicates: true,
+    })
+    expect(h.captionUpdateMany).toHaveBeenCalledWith({
+      where: { draftId: 'd1', OR: [{ kind: 'GENERAL' }] },
+      data: { status: 'PENDING' },
+    })
+    // The claim guard is the first write: no row is made when another action holds the draft.
+    expect(h.draftUpdateMany.mock.invocationCallOrder[0]).toBeLessThan(h.captionCreateMany.mock.invocationCallOrder[0])
+  })
+
+  it('replaces an existing general row without creating one', async () => {
+    h.captionFindMany.mockResolvedValue([{ kind: 'GENERAL', channel: null }])
+    const claimed = await claimCaptionAction('d1', ['GENERAL'])
+    expect(claimed?.created).toEqual([])
+    expect(h.captionCreateMany).not.toHaveBeenCalled()
   })
 
   it('touches no row when another action holds the draft', async () => {
     h.draftUpdateMany.mockResolvedValue({ count: 0 })
     expect(await claimCaptionAction('d1', ['INSTAGRAM'])).toBeNull()
     expect(h.captionUpdateMany).not.toHaveBeenCalled()
+    expect(h.captionCreateMany).not.toHaveBeenCalled()
   })
 
-  it('a headline-only claim marks no row', async () => {
+  it('a headline-only claim marks and creates no row', async () => {
     expect(await claimCaptionAction('d1', ['HEADLINE'])).not.toBeNull()
     expect(h.captionUpdateMany).not.toHaveBeenCalled()
+    expect(h.captionCreateMany).not.toHaveBeenCalled()
   })
 
   it('two claims carry different tokens', async () => {
     const a = await claimCaptionAction('d1', ['HEADLINE'])
     const b = await claimCaptionAction('d1', ['HEADLINE'])
-    expect(a!.claimId).not.toBe(b!.claimId)
+    expect(a!.claim.claimId).not.toBe(b!.claim.claimId)
   })
 })
 
@@ -290,7 +314,10 @@ describe('claimCaptionAction', () => {
 describe('claimCaptionAction — db injection', () => {
   it('runs on the injected client, not the global one', async () => {
     const updateMany = vi.fn().mockResolvedValue({ count: 1 })
-    const db = { $transaction: (fn: (tx: unknown) => unknown) => fn({ draft: { updateMany }, draftCaption: { updateMany } }) }
+    const findMany = vi.fn().mockResolvedValue([{ kind: 'CURATED', channel: 'INSTAGRAM' }])
+    const db = {
+      $transaction: (fn: (tx: unknown) => unknown) => fn({ draft: { updateMany }, draftCaption: { updateMany, findMany } }),
+    }
     expect(await claimCaptionAction('d1', ['INSTAGRAM'], db as never)).not.toBeNull()
     expect(updateMany).toHaveBeenCalledTimes(2)
     expect(h.transaction).not.toHaveBeenCalled()
@@ -306,7 +333,7 @@ describe('settleCaptionAction (FR-11, design §5)', () => {
     })
 
     expect(h.captionFindMany).toHaveBeenCalledWith({
-      where: { draftId: 'd1', status: 'PENDING', kind: 'CURATED', channel: { in: ['INSTAGRAM', 'LINKEDIN'] } },
+      where: { draftId: 'd1', status: 'PENDING', OR: [{ kind: 'CURATED', channel: { in: ['INSTAGRAM', 'LINKEDIN'] } }] },
       select: expect.objectContaining({ id: true, kind: true, channel: true, text: true, deletedAt: true }),
     })
     expect(h.captionUpdateMany.mock.calls.map(([a]) => a)).toEqual([
@@ -486,9 +513,12 @@ describe('settlePendingCaptions (the stale sweep)', () => {
   })
 })
 
-describe('saveCaptionEdit / saveHeadlineEdit (FR-12)', () => {
-  it('stores the text exactly as typed, READY, failure cleared, refused on a PENDING row', async () => {
-    expect(await saveCaptionEdit('d1', 'LINKEDIN', '  **as typed**  ')).toBe(true)
+const CURATED_LI = { kind: 'CURATED', channel: 'LINKEDIN' } as const
+const GENERAL_REF = { kind: 'GENERAL' } as const
+
+describe('saveCaptionEdit / saveHeadlineEdit (FR-12, 039 D13)', () => {
+  it('stores the text exactly as typed, READY, failure cleared, with the row as it was kept for Undo', async () => {
+    expect(await saveCaptionEdit('d1', CURATED_LI, '  **as typed**  ')).toBe('saved')
     expect(h.captionFindFirst).toHaveBeenCalledWith(
       expect.objectContaining({ where: { draftId: 'd1', kind: 'CURATED', channel: 'LINKEDIN' } }),
     )
@@ -510,21 +540,37 @@ describe('saveCaptionEdit / saveHeadlineEdit (FR-12)', () => {
         },
       },
     })
+  })
+
+  it('names the general row by its kind alone', async () => {
+    expect(await saveCaptionEdit('d1', GENERAL_REF, 'typed')).toBe('saved')
+    expect(h.captionFindFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { draftId: 'd1', kind: 'GENERAL' } }))
+  })
+
+  it('answers pending, deleted, missing and a newer write before or instead of writing', async () => {
     // a newer write landed between the read and this write
     h.captionUpdateMany.mockResolvedValue({ count: 0 })
-    expect(await saveCaptionEdit('d1', 'LINKEDIN', 'x')).toBe(false)
-    // a PENDING row, and a missing one, are refused before any write
+    expect(await saveCaptionEdit('d1', CURATED_LI, 'x')).toBe('pending')
     h.captionUpdateMany.mockClear()
     h.captionFindFirst.mockResolvedValue(editable({ status: 'PENDING' }))
-    expect(await saveCaptionEdit('d1', 'LINKEDIN', 'x')).toBe(false)
+    expect(await saveCaptionEdit('d1', CURATED_LI, 'x')).toBe('pending')
+    h.captionFindFirst.mockResolvedValue(editable({ deletedAt: T }))
+    expect(await saveCaptionEdit('d1', CURATED_LI, 'x')).toBe('deleted')
     h.captionFindFirst.mockResolvedValue(null)
-    expect(await saveCaptionEdit('d1', 'LINKEDIN', 'x')).toBe(false)
+    expect(await saveCaptionEdit('d1', CURATED_LI, 'x')).toBe('missing')
     expect(h.captionUpdateMany).not.toHaveBeenCalled()
   })
 
-  it('an edit that changes nothing keeps the old undo snapshot (it writes no previous)', async () => {
+  it('an edit that changes nothing is unchanged: it writes nothing and keeps the old undo snapshot', async () => {
     h.captionFindFirst.mockResolvedValue(editable({ text: 'same' }))
-    expect(await saveCaptionEdit('d1', 'LINKEDIN', 'same')).toBe(true)
+    expect(await saveCaptionEdit('d1', CURATED_LI, 'same')).toBe('unchanged')
+    expect(h.captionUpdateMany).not.toHaveBeenCalled()
+    expect(h.refresh).not.toHaveBeenCalled()
+  })
+
+  it('an empty row has nothing to go back to: the edit writes no previous', async () => {
+    h.captionFindFirst.mockResolvedValue(editable({ text: '' }))
+    expect(await saveCaptionEdit('d1', CURATED_LI, 'typed')).toBe('saved')
     expect(h.captionUpdateMany.mock.calls[0][0].data).not.toHaveProperty('previous')
   })
 
@@ -621,7 +667,7 @@ describe('008 A6: a user edit writes no stamp field', () => {
   const STAMP_FIELDS = ['model', 'modelSubstitutedFrom', 'headlineModel', 'headlineModelSubstitutedFrom']
 
   it('saveCaptionEdit and saveHeadlineEdit leave every stamp column untouched', async () => {
-    await saveCaptionEdit('d1', 'LINKEDIN', 'typed')
+    await saveCaptionEdit('d1', CURATED_LI, 'typed')
     await saveHeadlineEdit('d1', 'typed')
     const writes = [...h.captionUpdateMany.mock.calls, ...h.draftUpdateMany.mock.calls].map(([a]) => a.data)
     expect(writes).toHaveLength(2)
@@ -641,7 +687,7 @@ describe('008 FR-09: loadDraftCaptions exposes each row stamp', () => {
     const loaded = await loadDraftCaptions('d1')
     const select = h.draftFindUnique.mock.calls[0][0].select.captions.select
     expect(select).toMatchObject({ model: true, modelSubstitutedFrom: true })
-    expect(loaded!.captions.map((c) => c.model)).toEqual([null, 'claude-opus-5-5'])
+    expect(loaded!.curated.map((c) => c.model)).toEqual([null, 'claude-opus-5-5'])
   })
 })
 
@@ -673,13 +719,13 @@ describe('027 FR-11: the interactive writers recompute the facts check after the
   })
 
   it('saveCaptionEdit and saveHeadlineEdit: after a successful write only', async () => {
-    expect(await saveCaptionEdit('d1', 'LINKEDIN', 'typed')).toBe(true)
+    expect(await saveCaptionEdit('d1', CURATED_LI, 'typed')).toBe('saved')
     expect(await saveHeadlineEdit('d1', 'Line')).toBe(true)
     expect(h.refresh).toHaveBeenCalledTimes(2)
     h.refresh.mockClear()
     h.captionUpdateMany.mockResolvedValue({ count: 0 })
     h.draftUpdateMany.mockResolvedValue({ count: 0 })
-    expect(await saveCaptionEdit('d1', 'LINKEDIN', 'x')).toBe(false)
+    expect(await saveCaptionEdit('d1', CURATED_LI, 'x')).toBe('pending')
     expect(await saveHeadlineEdit('d1', 'Line')).toBe(false)
     expect(h.refresh).not.toHaveBeenCalled()
   })
@@ -687,14 +733,14 @@ describe('027 FR-11: the interactive writers recompute the facts check after the
   it('a client the caller supplies is the one the recompute reads from', async () => {
     const tx = { draftCaption: { findFirst: vi.fn().mockResolvedValue(editable()), updateMany: vi.fn().mockResolvedValue({ count: 1 }) } }
     const db = { $transaction: (fn: (t: unknown) => unknown) => fn(tx), ...tx }
-    await saveCaptionEdit('d1', 'LINKEDIN', 'typed', db as never)
+    await saveCaptionEdit('d1', CURATED_LI, 'typed', db as never)
     expect(h.refresh).toHaveBeenCalledWith('d1', { db })
   })
 
   it('a recompute that throws (it should not) never changes the caption write’s result', async () => {
     const err = vi.spyOn(console, 'error').mockImplementation(() => {})
     h.refresh.mockRejectedValue(new Error('boom'))
-    expect(await saveCaptionEdit('d1', 'LINKEDIN', 'typed')).toBe(true)
+    expect(await saveCaptionEdit('d1', CURATED_LI, 'typed')).toBe('saved')
     expect(await saveHeadlineEdit('d1', 'Line')).toBe(true)
     err.mockRestore()
   })

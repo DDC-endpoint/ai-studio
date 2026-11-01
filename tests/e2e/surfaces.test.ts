@@ -690,7 +690,7 @@ test.describe('Draft review (T9)', () => {
     await expect(fullScreen).toBeVisible({ timeout: 20_000 })
     // 008 FR-20: the model pickers load after the page (/api/models); wait for
     // them, so the no-scroll checks below cover them.
-    for (const name of ['Design model', 'Headline model', 'All captions model', 'Instagram caption model', 'Refine model']) {
+    for (const name of ['Design model', 'Headline model', 'General caption model', 'Refine model']) {
       await expect(page.getByRole('combobox', { name, exact: true })).toBeVisible()
     }
     await expectNoHorizontalScroll(page, 'draft page at 375px')
@@ -698,11 +698,14 @@ test.describe('Draft review (T9)', () => {
     // FR-12: every control the page had, by role and name.
     await expect(page.getByRole('link', { name: 'Library' }).first()).toBeVisible()
     const regenDesign = page.getByRole('button', { name: 'Regenerate design', exact: true })
-    for (const name of ['Regenerate design', 'Edit inline', 'Download', 'Regenerate all']) {
+    for (const name of ['Regenerate design', 'Edit inline', 'Download', 'Regenerate general caption']) {
       await expect(page.getByRole('button', { name, exact: true })).toBeVisible()
     }
+    // 039 AC-27: "Regenerate all" and its model picker are retired.
+    await expect(page.getByRole('button', { name: 'Regenerate all', exact: true })).toHaveCount(0)
+    await expect(page.getByRole('combobox', { name: 'All captions model', exact: true })).toHaveCount(0)
     await expect(page.getByRole('button', { name: /^publish$/i })).toHaveCount(0)
-    await expect(page.getByPlaceholder('Write the Instagram caption…')).toBeVisible()
+    await expect(page.getByPlaceholder('Write the general caption…')).toBeVisible()
     for (const name of ['Make the background darker', 'Move the headline to top', 'Increase font size']) {
       await expect(page.getByRole('button', { name, exact: true })).toBeVisible()
     }

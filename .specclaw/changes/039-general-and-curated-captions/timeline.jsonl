@@ -4,3 +4,7 @@
 {"ev":"stop","span":"plan","at":"2026-10-31T23:57:23Z","ts":1793491043,"status":"ok"}
 {"ev":"start","span":"W1","kind":"wave","label":"wave 1","at":"2026-11-01T00:13:35Z","ts":1793492015}
 {"ev":"start","span":"T1","kind":"task","label":"caption identity","parent":"W1","model":"sonnet","attempt":"1","at":"2026-11-01T00:13:36Z","ts":1793492015}
+{"ev":"stop","span":"T1","at":"2026-11-01T00:39:04Z","ts":1793493544,"status":"ok"}
+{"ev":"stop","span":"W1","at":"2026-11-01T00:39:04Z","ts":1793493544,"status":"ok"}
+{"ev":"start","span":"W2","kind":"wave","label":"wave 2","at":"2026-11-01T00:39:16Z","ts":1793493556}
+{"ev":"start","span":"T2","kind":"task","label":"general caption","parent":"W2","model":"sonnet","attempt":"1","at":"2026-11-01T00:39:16Z","ts":1793493556}

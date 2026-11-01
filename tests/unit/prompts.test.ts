@@ -255,7 +255,8 @@ describe('SCRIPT_SUPPORT_NOTE — no-emoji guidance', () => {
     // 2026-10-29.1: post fonts (031): the recomputed font request, the script font line and the
     // note's sentence about the brand's Sinhala font.
     // 2026-11-01.1: project briefing (038).
-    expect(PROMPT_VERSION).toBe(`2026-11-01.1+ps${POST_STYLES_REVISION}`)
+    // 2026-11-02.1: no "Channels:" line in the Path B user message (039 D21).
+    expect(PROMPT_VERSION).toBe(`2026-11-02.1+ps${POST_STYLES_REVISION}`)
   })
 })
 
@@ -312,9 +313,21 @@ describe('buildCaptionPrompt (012 FR-07)', () => {
     expect(one).not.toContain('"headline"')
   })
 
-  it('writes both captions whatever brief.channels says (A5)', () => {
-    const { user } = buildCaptionPrompt({ ...brief, channels: ['INSTAGRAM'] }, ALL)
+  // 039 AC-24: the generation asks for the headline and the general caption, with the
+  // general rules, and for nothing else.
+  it('the generation prompt asks for exactly "headline", "general" and holds the general rules', () => {
+    const { user, system } = buildCaptionPrompt(brief, ['HEADLINE', 'GENERAL'])
+    expect(user).toContain('whose keys are exactly "headline", "general", each a string.')
+    expect(user).not.toMatch(/"(instagram|linkedin|facebook)"/)
+    expect(user).toContain('- "general" (General):')
+    expect(user).toContain('At most 2,200 characters. No hashtags.')
+    expect(system).toContain('Write the general caption for the post')
+  })
+
+  it('names the legacy curated keys only when they are asked for', () => {
+    const { user } = buildCaptionPrompt(brief, ['LINKEDIN'])
     expect(user).toContain('"linkedin"')
+    expect(user).not.toContain('"general"')
     expect(user).not.toContain('"whatsapp"')
   })
 
@@ -337,7 +350,8 @@ describe('buildCaptionPrompt (012 FR-07)', () => {
   it('exports the caption prompt version and the token budget', () => {
     expect(CAPTION_PROMPT_VERSION).toMatch(/^\d{4}-\d{2}-\d{2}\.\d+\+ps\d+$/)
     // 2026-10-25.1: post styles (027): derived from the post-style dataset.
-    expect(CAPTION_PROMPT_VERSION).toBe(`2026-11-01.1+ps${POST_STYLES_REVISION}`)
+    // 2026-11-02.1: the general caption and the rendered rules (039).
+    expect(CAPTION_PROMPT_VERSION).toBe(`2026-11-02.1+ps${POST_STYLES_REVISION}`)
     // 039 D18: 512 + the headline cap + each caption's hard limit, from the registry
     expect(captionMaxTokens(['HEADLINE', 'INSTAGRAM', 'LINKEDIN'])).toBe(512 + 100 + 2200 + 3000)
     expect(captionMaxTokens(['HEADLINE', 'GENERAL'])).toBe(2812)
@@ -349,7 +363,7 @@ describe('buildCaptionPrompt (012 FR-07)', () => {
       const real = await importOriginal<typeof import('@/lib/channels')>()
       return {
         ...real,
-        CAPTION_CHANNELS: real.CAPTION_CHANNELS.map((s) =>
+        CAPTION_REGISTRY: real.CAPTION_REGISTRY.map((s) =>
           s.channel === 'INSTAGRAM' ? { ...s, hardLimit: 1234 } : s
         ),
       }

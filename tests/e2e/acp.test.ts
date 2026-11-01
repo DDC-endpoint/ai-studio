@@ -68,12 +68,12 @@ test.describe('ACP surface', () => {
       const names = (manifest.capabilities ?? []).map((c: { name: string }) => c.name)
       expect(names).toContain('generate_post')
       expect(names).not.toContain('publish_post')
-      expect(manifest.version).toBe('2.1.0')
+      expect(manifest.version).toBe('2.2.0')
     })
 
     // TC-ACP-03 — run input validation → 400. Guards M6.
     test('run rejects malformed capability input with 400', async ({ request }) => {
-      // generate_post with empty input (missing topic/goal/tone/designMode/channels).
+      // generate_post with empty input (missing topic and designMode).
       const gen = await request.post('/api/acp/run', {
         headers: { 'x-bistec-api-key': plaintextKey },
         data: { capability: 'generate_post', input: {} },

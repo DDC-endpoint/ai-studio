@@ -3,8 +3,7 @@ import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import { withTeamAuth, parseBody } from '@/lib/api/handler'
 import { BUCKET_DOCS, headObject, isAllowedAssetUrl } from '@/lib/storage/minio'
-import { Prisma, DesignMode, type AspectRatio, type Channel } from '@prisma/client'
-import { isPublishableChannel, PUBLISHABLE_CHANNELS } from '@/lib/channels'
+import { Prisma, DesignMode, type AspectRatio } from '@prisma/client'
 import { isAspectRatio } from '@/lib/aspectRatio'
 import { validateImageStyle } from '@/lib/brief/imageStyle'
 import {
@@ -52,7 +51,6 @@ export const POST = withTeamAuth(async (req: NextRequest, _ctx, user) => {
     description?: string
     goal?: string
     tone?: string
-    channels?: unknown
     aspectRatio?: AspectRatio
     designMode?: string
     projectId?: unknown
@@ -75,7 +73,6 @@ export const POST = withTeamAuth(async (req: NextRequest, _ctx, user) => {
     description,
     goal,
     tone,
-    channels,
     aspectRatio,
     designMode,
     brandKitId,
@@ -101,21 +98,7 @@ export const POST = withTeamAuth(async (req: NextRequest, _ctx, user) => {
   if (tone != null && typeof tone !== 'string') {
     return NextResponse.json({ error: 'tone must be a string' }, { status: 400 })
   }
-  if (!Array.isArray(channels) || channels.length === 0) {
-    return NextResponse.json({ error: 'channels must be a non-empty array' }, { status: 400 })
-  }
-  // Normalize casing (legacy clients sent lowercase) and accept only publishable channels.
-  const normalizedChannels: Channel[] = []
-  for (const ch of channels) {
-    const upper = typeof ch === 'string' ? ch.toUpperCase() : null
-    if (!isPublishableChannel(upper)) {
-      return NextResponse.json(
-        { error: `channels entries must be one of: ${PUBLISHABLE_CHANNELS.join(', ')}` },
-        { status: 400 }
-      )
-    }
-    normalizedChannels.push(upper)
-  }
+  // 039 D21: a `channels` key is ignored (Brief.channels is deprecated: no writer, no reader).
   if (body.projectId != null && typeof body.projectId !== 'string') {
     return NextResponse.json({ error: 'projectId must be a string' }, { status: 400 })
   }
@@ -334,7 +317,6 @@ export const POST = withTeamAuth(async (req: NextRequest, _ctx, user) => {
       postStyle: resolved.key,
       goal: resolved.goal,
       tone: resolved.tone,
-      channels: normalizedChannels,
       aspectRatio: aspectRatio ?? 'SQUARE',
       designMode: designMode as DesignMode,
       imageStyle,

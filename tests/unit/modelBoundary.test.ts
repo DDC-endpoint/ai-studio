@@ -220,7 +220,7 @@ const SURFACES: Array<{ surface: Surface; reply: string; run: () => Promise<unkn
       const provider =
         h.mode === 'cli' ? new ClaudeCliCopyProvider() : new AnthropicCopyProvider('sk-ant-api03-FAKE-unit-test')
       return provider.generateCaptions(
-        { topic: 't', description: 'd', goal: 'g', tone: 'friendly', channels: ['INSTAGRAM'] },
+        { topic: 't', description: 'd', goal: 'g', tone: 'friendly' },
         ['INSTAGRAM'],
         model,
       )

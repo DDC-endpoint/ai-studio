@@ -1,10 +1,10 @@
 import { prisma } from '@/lib/prisma'
-import { isPublishableChannel, PUBLISHABLE_CHANNELS } from '@/lib/channels'
 import { generateDraftForBrief, NoBrandKitError } from '@/lib/agent/generateDraft'
 import { resolveExportUrl } from '@/lib/storage/minio'
 import { getSystemUserId } from '@/mcp/systemUser'
 import { withClaudeAuth } from '@/lib/agent/userToken'
 import { loadDraftCaptions } from '@/lib/captions/store'
+import { externalCaptions } from '@/lib/captions/external'
 import { resolvePostStyle, styleSummary } from '@/lib/postStyles'
 import { parseFactsCheck } from '@/lib/factsCheck/types'
 
@@ -15,7 +15,6 @@ interface GeneratePostArgs {
   tone?: string
   /** 027: a post style key (see the tool schema). An unknown key is an error. */
   postStyle?: string
-  channels: string[]
   designMode: 'TEMPLATE' | 'GENERATE'
   copyProviderKey?: string
   /** 038: a project id; its briefing, documents, default kit and default post style apply. */
@@ -61,12 +60,8 @@ export async function generatePost(args: GeneratePostArgs, surface: 'mcp' | 'acp
   // 1. The retired field, before anything else is read or created.
   if ('campaignId' in args || 'campaign' in args) throw new CampaignRetiredError()
 
-  // Channel enum values are uppercase; tolerate lowercase from older callers.
-  // Only publishable channels are accepted (010, WhatsApp posting, was dropped on 2026-10-23).
-  const channels = args.channels.map((c: string) => c.toUpperCase())
-  if (!channels.every(isPublishableChannel)) {
-    throw new Error(`channels entries must be one of: ${PUBLISHABLE_CHANNELS.join(', ')}`)
-  }
+  // 039 D21: a `channels` argument from an older caller is ignored (it selected
+  // no output; Brief.channels is deprecated).
 
   if (args.designMode === 'TEMPLATE') {
     throw new Error(
@@ -114,7 +109,6 @@ export async function generatePost(args: GeneratePostArgs, surface: 'mcp' | 'acp
       goal: resolved.goal,
       tone: resolved.tone,
       imageStyle: resolved.imageStyle,
-      channels,
       designMode: args.designMode,
       copyProviderKey: args.copyProviderKey ?? 'env-default',
       projectId: project?.id ?? null,
@@ -143,7 +137,7 @@ export async function generatePost(args: GeneratePostArgs, surface: 'mcp' | 'acp
       exportUrl: await resolveExportUrl(draft.exportUrl),
       htmlContent: draft.htmlContent,
       headline: draft.headline,
-      captions: await captionList(draft.id),
+      captions: await captionList(draft.id, draft.factsCheck),
       postStyle: resolved.key,
       factsCheck: factsCheckResult(draft.factsCheck),
     }
@@ -164,12 +158,13 @@ function factsCheckResult(raw: unknown) {
   return check ? { status: check.status, flagged: check.flagged } : null
 }
 
-// The external caption list (012 FR-17): one `{channel, text, status}` per
-// registry channel, in registry order. Read through the
-// loader, so every registry channel has its row.
-async function captionList(draftId: string) {
+// The external caption list (039 D20): the general caption, then any curated
+// captions, each with its facts and rules (externalCaptions). Read through the
+// loader. The kit website that a Facebook caption's rules check against joins in
+// 039 T4 (the second argument's null until then).
+async function captionList(draftId: string, factsCheck: unknown) {
   const loaded = await loadDraftCaptions(draftId)
-  return (loaded?.captions ?? []).map(({ channel, text, status }) => ({ channel, text, status }))
+  return externalCaptions(loaded, parseFactsCheck(factsCheck), null)
 }
 
 export async function getDraft(args: { id: string; teamId: string }) {
@@ -189,7 +184,7 @@ export async function getDraft(args: { id: string; teamId: string }) {
   // draft belonging to a different team (or the pre-tenancy null) reads as
   // "not found" rather than leaking its existence/content across tenants.
   if (!draft || draft.teamId !== args.teamId) throw new Error(`Draft ${args.id} not found`)
-  const captions = await captionList(args.id)
+  const captions = await captionList(args.id, draft.factsCheck)
   // exportUrl is stored as an EXPORTS object key — sign it for the caller.
   const { teamId: _teamId, postStyle, factsCheck, ...rest } = draft
   return {

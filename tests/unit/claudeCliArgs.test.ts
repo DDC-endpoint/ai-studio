@@ -240,7 +240,6 @@ describe('AC-13: every text-mode call site spawns with --tools "" and never --al
           description: 'd',
           goal: 'g',
           tone: 'friendly',
-          channels: ['INSTAGRAM'],
         }, ['INSTAGRAM'], siteModel('CAPTION')),
       )
       expectNoTools(h.spawnCalls[0].args, '')

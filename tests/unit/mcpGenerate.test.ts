@@ -23,7 +23,7 @@ vi.mock('@/lib/agent/generateDraft', () => ({
   NoBrandKitError: class NoBrandKitError extends Error {},
   generateDraftForBrief: h.generate,
 }))
-vi.mock('@/lib/captions/store', () => ({ loadDraftCaptions: async () => ({ captions: [] }) }))
+vi.mock('@/lib/captions/store', () => ({ loadDraftCaptions: async () => ({ general: null, curated: [] }) }))
 vi.mock('@/lib/storage/minio', () => ({ resolveExportUrl: async (k: string | null) => k }))
 
 const { generatePost, CampaignRetiredError, ProjectNotFoundError, refusalText } = await import('@/mcp/tools/generate')
@@ -91,6 +91,13 @@ describe('projectId', () => {
     await generatePost(base)
     expect(h.briefCreate.mock.calls[0][0].data).toMatchObject({ projectId: null, postStyle: 'general' })
     expect(h.briefCreate.mock.calls[0][0].data).not.toHaveProperty('campaignId')
+  })
+
+  // 039 D21: a `channels` argument from an older caller is ignored: it is not
+  // refused, and the brief is created without it.
+  it('a channels argument is ignored: no error, and brief.create receives no channels', async () => {
+    await expect(generatePost({ ...base, channels: ['WHATSAPP'] } as never)).resolves.toBeDefined()
+    expect(h.briefCreate.mock.calls[0][0].data).not.toHaveProperty('channels')
   })
 
   it('refusalText is null for any other error', () => {

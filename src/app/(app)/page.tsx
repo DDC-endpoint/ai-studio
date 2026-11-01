@@ -55,7 +55,6 @@ async function getDashboardData(user: TeamAuthedUser) {
           select: {
             topic: true,
             designMode: true,
-            channels: true,
             project: { select: { name: true } },
           },
         },
@@ -203,7 +202,6 @@ export default async function DashboardPage() {
               ? {
                   topic: d.brief.topic,
                   designMode: d.brief.designMode,
-                  channels: d.brief.channels,
                   project: d.brief.project,
                 }
               : null,

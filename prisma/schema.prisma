@@ -400,6 +400,7 @@ model Brief {
   description         String?
   goal                String
   tone                String
+  /// Deprecated (039): ignored; no writer or reader. Never reuse.
   channels            Channel[]
   aspectRatio         AspectRatio        @default(SQUARE)
   designMode          DesignMode

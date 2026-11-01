@@ -30,7 +30,6 @@ import {
 } from '@/lib/brief/wizardStyleState'
 import { getArchetype } from '@/lib/designData'
 import { parseCompositeSource, type CompositeSource } from '@/lib/brief/compositeSource'
-import { DEFAULT_CHANNELS } from './constants'
 import type { DesignMode, UploadedImage } from './types'
 import {
   briefDraftPayloadSchema,
@@ -646,7 +645,6 @@ export function useBriefWizard(): UseBriefWizardResult {
         // 027 FR-07: the style always; tone and imageStyle only when the user
         // picked them, so the server resolves the rest and cannot disagree.
         ...styleRequest,
-        channels: DEFAULT_CHANNELS,
         aspectRatio,
         designMode,
         projectId: projectId || undefined,

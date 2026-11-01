@@ -154,7 +154,7 @@ test.describe('Cross-tenant isolation (D7)', () => {
   test('draft by-id (GET/PATCH/DELETE) 404s across the team boundary', async () => {
     expect((await clientxAdmin.get(`/api/drafts/${bistecUncategorizedDraftId}`)).status()).toBe(404)
     expect(
-      (await clientxAdmin.patch(`/api/drafts/${bistecUncategorizedDraftId}`, { channel: 'INSTAGRAM', text: 'hijacked' })).status(),
+      (await clientxAdmin.patch(`/api/drafts/${bistecUncategorizedDraftId}`, { kind: 'GENERAL', text: 'hijacked' })).status(),
     ).toBe(404)
     expect((await clientxAdmin.del(`/api/drafts/${bistecUncategorizedDraftId}`)).status()).toBe(404)
 

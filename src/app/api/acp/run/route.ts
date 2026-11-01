@@ -85,8 +85,5 @@ function validateGenerateInput(input: Record<string, unknown>): { error: string;
   if (!['TEMPLATE', 'GENERATE'].includes(input.designMode as string)) {
     return { error: 'designMode must be TEMPLATE or GENERATE' }
   }
-  if (!Array.isArray(input.channels) || input.channels.length === 0) {
-    return { error: 'channels must be a non-empty array' }
-  }
   return null
 }

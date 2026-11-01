@@ -77,7 +77,7 @@ vi.mock('@/providers/registry', () => ({
     generateCaptions: async (brief: Record<string, unknown>, _t: unknown, model: { arg: string }) => {
       db.providerCalls.push(brief)
       return {
-        raw: JSON.stringify({ headline: 'Applications are open', instagram: 'IG text', linkedin: 'LI text' }),
+        raw: JSON.stringify({ headline: 'Applications are open', general: 'General text' }),
         modelId: model.arg,
         route: null,
       }

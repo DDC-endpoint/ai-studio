@@ -224,7 +224,6 @@ export async function runPathBDesign(
       description: brief.description,
       goal: brief.goal,
       tone: brief.tone,
-      channels: brief.channels,
       headline,
       mode,
       width,

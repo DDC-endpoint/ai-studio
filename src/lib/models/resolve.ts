@@ -264,7 +264,7 @@ export function internalModel(
 /**
  * FR-09: the stamp tier of a regenerate-copy, from its parsed targets
  * (captions/requests.ts parseRegenerateBody): ['HEADLINE'] → headlineModel;
- * [target] → that row's stamp; every caption ("Regenerate all") → the common
+ * [target] → that row's stamp; several caption targets → the common
  * stamp only when every target row has one and they are all equal. Otherwise
  * null: no stamp tier, and — since no single stamp was refused — no substitution.
  */

@@ -827,7 +827,7 @@ test.describe('§V — refine fidelity contract', () => {
     expect(afterDesign.notApplied).toBeNull()
     expect(afterDesign.currentRevisionNumber).toBe(draft.pointer + 1)
 
-    const copy = await api.post(`/api/drafts/${draft.id}/regenerate-copy`, {})
+    const copy = await api.post(`/api/drafts/${draft.id}/regenerate-copy`, { kind: 'GENERAL' })
     expect(copy.status()).toBe(202)
     expect(await copy.json()).toEqual({ ok: true })
     const afterCopy = await waitForAction(api, draft.id)

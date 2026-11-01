@@ -176,7 +176,6 @@ async function ensureTeamFixtures(teamId, teamLabel, ownerId, { kitIsDefault = f
           topic,
           goal: "Awareness",
           tone: "professional",
-          channels: ["INSTAGRAM"],
           designMode: "GENERATE",
           copyProviderKey: "cli",
         },
@@ -188,21 +187,13 @@ async function ensureTeamFixtures(teamId, teamLabel, ownerId, { kitIsDefault = f
         data: {
           teamId,
           briefId: brief.id,
-          // A native (post-012) draft: a headline and one READY caption per
-          // channel, so nothing here is legacy and the loader never migrates
-          // it. The labels mirror src/lib/channels.ts CAPTION_REGISTRY.
+          // A native (post-039) draft: a headline and its one READY general
+          // caption (src/lib/channels.ts CAPTION_REGISTRY), so nothing is legacy.
           headline: topic,
           captions: {
             create: [
-              ["INSTAGRAM", "Instagram"],
-              ["LINKEDIN", "LinkedIn"],
-              ["WHATSAPP", "WhatsApp"],
-            ].map(([channel, label]) => ({
-              kind: "CURATED",
-              channel,
-              text: `${topic} — seeded fixture ${label} caption.`,
-              status: "READY",
-            })),
+              { kind: "GENERAL", channel: null, text: `${topic} — seeded fixture general caption.`, status: "READY" },
+            ],
           },
           htmlContent: `<div style="font-family:sans-serif;padding:40px">${topic}</div>`,
           status: "EXPORTED",

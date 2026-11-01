@@ -74,36 +74,55 @@ describe('buildMockCaptionReply', () => {
     expect(raw.match(/__FAIL_ONCE__/g)).toHaveLength(3)
   })
 
-  it('__DROP_CAPTION_LINKEDIN__ drops linkedin from an all-channel reply, but not from a {linkedin} reply', async () => {
+  // 039 FR-21: a generation asks for the headline and the general caption.
+  const GENERATION = ['HEADLINE', 'GENERAL'] as const
+
+  it('a generation reply holds exactly the headline and the general caption, which the topic marks', async () => {
     const hooks = await loadHooks()
     const { extractCaptionReply } = await import('@/lib/captions/extract')
-    const topic = 'x __DROP_CAPTION_LINKEDIN__'
-
-    const all = extractCaptionReply(hooks.buildMockCaptionReply(topic, ALL), ALL)
-    expect(all.ok && all.fields.LINKEDIN).toEqual({ ok: false, reason: 'missing' })
-    expect(all.ok && all.fields.INSTAGRAM?.ok).toBe(true)
-
-    const one = extractCaptionReply(hooks.buildMockCaptionReply(topic, ['LINKEDIN']), ['LINKEDIN'])
-    expect(one.ok && one.fields.LINKEDIN?.ok).toBe(true)
+    const raw = hooks.buildMockCaptionReply('Launch day', GENERATION)
+    expect(raw).not.toMatch(/"(instagram|linkedin|facebook)"/)
+    const result = extractCaptionReply(raw, GENERATION)
+    expect(result.ok && result.fields).toEqual({
+      HEADLINE: { ok: true, text: 'Mock headline Launch day' },
+      GENERAL: { ok: true, text: 'Mock General caption [Launch day]' },
+    })
   })
 
-  it('each drop sentinel drops only its own key, and only when every channel is requested', async () => {
+  it('__DROP_CAPTION_GENERAL__ drops general from a generation reply, but not from a {general} reply', async () => {
     const hooks = await loadHooks()
     const { extractCaptionReply } = await import('@/lib/captions/extract')
-    for (const target of ALL) {
-      const topic = `t __DROP_CAPTION_${target}__`
-      const all = extractCaptionReply(hooks.buildMockCaptionReply(topic, ALL), ALL)
-      if (!all.ok) throw new Error('mock reply rejected')
-      for (const other of ALL) {
-        expect(all.fields[other]?.ok).toBe(other !== target)
-      }
-    }
-    // A headline-only request keeps the headline; channels without the headline keep every channel.
+    const topic = 'x __DROP_CAPTION_GENERAL__'
+
+    const gen = extractCaptionReply(hooks.buildMockCaptionReply(topic, GENERATION), GENERATION)
+    expect(gen.ok && gen.fields.GENERAL).toEqual({ ok: false, reason: 'missing' })
+    expect(gen.ok && gen.fields.HEADLINE?.ok).toBe(true)
+
+    const one = extractCaptionReply(hooks.buildMockCaptionReply(topic, ['GENERAL']), ['GENERAL'])
+    expect(one.ok && one.fields.GENERAL?.ok).toBe(true)
+  })
+
+  it('the Instagram and LinkedIn drop sentinels are gone: every curated caption is always written', async () => {
+    const hooks = await loadHooks()
+    const { extractCaptionReply } = await import('@/lib/captions/extract')
+    const topic = 't __DROP_CAPTION_LINKEDIN__ __DROP_CAPTION_INSTAGRAM__'
+    const all = extractCaptionReply(hooks.buildMockCaptionReply(topic, ALL), ALL)
+    expect(all.ok && all.fields.INSTAGRAM?.ok).toBe(true)
+    expect(all.ok && all.fields.LINKEDIN?.ok).toBe(true)
+  })
+
+  it('__DROP_CAPTION_HEADLINE__ drops the headline from a generation reply only', async () => {
+    const hooks = await loadHooks()
+    const { extractCaptionReply } = await import('@/lib/captions/extract')
+    const gen = extractCaptionReply(hooks.buildMockCaptionReply('t __DROP_CAPTION_HEADLINE__', GENERATION), GENERATION)
+    expect(gen.ok && gen.fields.HEADLINE).toEqual({ ok: false, reason: 'missing' })
+    expect(gen.ok && gen.fields.GENERAL?.ok).toBe(true)
+    // A headline-only request keeps the headline; captions without the headline keep every caption.
     const headlineOnly = hooks.buildMockCaptionReply('t __DROP_CAPTION_HEADLINE__', ['HEADLINE'])
     expect(headlineOnly).toContain('"headline"')
-    const channelsOnly = hooks.buildMockCaptionReply('t __DROP_CAPTION_HEADLINE__', ['INSTAGRAM', 'LINKEDIN'])
-    expect(channelsOnly).not.toContain('"headline"')
-    expect(channelsOnly).toContain('"instagram"')
+    const captionsOnly = hooks.buildMockCaptionReply('t __DROP_CAPTION_HEADLINE__', ['INSTAGRAM', 'LINKEDIN'])
+    expect(captionsOnly).not.toContain('"headline"')
+    expect(captionsOnly).toContain('"instagram"')
   })
 
   it('clips the headline to 100 characters', async () => {

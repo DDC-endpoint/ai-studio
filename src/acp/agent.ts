@@ -1,5 +1,5 @@
 // ACP agent manifest — describes bistec-studio's capabilities to peer agents
-import { CaptionStatus } from '@prisma/client'
+import { CaptionKind, CaptionStatus } from '@prisma/client'
 import { CAPTION_CHANNELS } from '@/lib/channels'
 import { activeStyles } from '@/lib/postStyles'
 
@@ -9,15 +9,15 @@ import { activeStyles } from '@/lib/postStyles'
 // change to a capability's schema.
 export const AGENT_MANIFEST = {
   name: 'bistec-studio',
-  description: 'On-brand social media post generation for Instagram and LinkedIn.',
-  version: '2.1.0',
+  description: 'On-brand social media post generation: an image to download and a general caption to copy.',
+  version: '2.2.0',
   capabilities: [
     {
       name: 'generate_post',
       description: 'Generate a complete, on-brand social media post (HTML design + copy) from a brief.',
       input: {
         type: 'object',
-        required: ['topic', 'channels', 'designMode'],
+        required: ['topic', 'designMode'],
         properties: {
           topic: { type: 'string', description: 'Post subject or headline' },
           postStyle: {
@@ -34,11 +34,6 @@ export const AGENT_MANIFEST = {
           tone: {
             type: 'string',
             description: 'Optional voice/tone (e.g. professional, casual). Defaults from the post style.',
-          },
-          channels: {
-            type: 'array',
-            items: { type: 'string', enum: ['INSTAGRAM', 'LINKEDIN'] },
-            description: 'Target channels',
           },
           designMode: {
             type: 'string',
@@ -85,14 +80,38 @@ export const AGENT_MANIFEST = {
           },
           captions: {
             type: 'array',
-            description: 'One caption per registry channel, in registry order (Instagram and LinkedIn)',
+            description:
+              'The general caption first, then any curated captions made in the app. A post made before 039 may have no general caption. Treat facts.status flagged or error as needing review.',
             items: {
               type: 'object',
-              required: ['channel', 'text', 'status'],
+              required: ['kind', 'channel', 'text', 'status', 'facts', 'rules'],
               properties: {
-                channel: { type: 'string', enum: CAPTION_CHANNELS.map((s) => s.channel) },
+                kind: { type: 'string', enum: Object.values(CaptionKind) },
+                channel: { type: ['string', 'null'], enum: [...CAPTION_CHANNELS.map((s) => s.channel), null] },
                 text: { type: 'string' },
                 status: { type: 'string', enum: Object.values(CaptionStatus) },
+                facts: {
+                  type: ['object', 'null'],
+                  description: 'Facts check for this caption; null if the post was never checked',
+                  properties: {
+                    status: { type: 'string', enum: ['clear', 'flagged', 'error'] },
+                    flagged: {
+                      type: 'array',
+                      items: {
+                        type: 'object',
+                        properties: { kind: { type: 'string' }, value: { type: 'string' } },
+                      },
+                    },
+                  },
+                },
+                rules: {
+                  type: 'object',
+                  description: 'Whether the caption meets its channel rules, and which it misses',
+                  properties: {
+                    met: { type: 'boolean' },
+                    unmet: { type: 'array', items: { type: 'string' } },
+                  },
+                },
               },
             },
           },

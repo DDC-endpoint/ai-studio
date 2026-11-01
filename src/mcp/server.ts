@@ -13,7 +13,7 @@ import { activeStyles } from '@/lib/postStyles'
 const API_KEY = env.MCP_API_KEY ?? null
 
 const server = new Server(
-  { name: 'bistec-studio', version: '2.1.0' },
+  { name: 'bistec-studio', version: '2.2.0' },
   { capabilities: { tools: {} } }
 )
 
@@ -75,7 +75,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     {
       name: 'generate_post',
       description:
-        'Generate a social media post from a brief. Returns draftId, exportUrl, htmlContent, headline (the on-image headline, or null), and captions ([{channel, text, status}], one per channel in registry order), postStyle (the style key used) and factsCheck ({status, flagged}: numbers, dates and times in the headline or captions that the brief does not state; null if never checked).',
+        'Generate a social media post from a brief. Returns draftId, exportUrl, htmlContent, headline (the on-image headline, or null), and captions ([{kind, channel, text, status, facts, rules}]: the general caption first, then any curated captions made in the app; a post made before 039 may have no general caption; treat facts.status flagged or error as needing review), postStyle (the style key used) and factsCheck ({status, flagged}: numbers, dates and times in the headline or captions that the brief does not state; null if never checked).',
       inputSchema: {
         type: 'object',
         properties: {
@@ -92,7 +92,6 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
               'Legacy. Picks a style (hiring or announcement) only when no postStyle is given; ignored otherwise.',
           },
           tone: { type: 'string', description: 'Optional. Defaults from the post style.' },
-          channels: { type: 'array', items: { type: 'string' } },
           designMode: { type: 'string', enum: ['TEMPLATE', 'GENERATE'] },
           copyProviderKey: {
             type: 'string',
@@ -105,7 +104,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
           },
           description: { type: 'string' },
         },
-        required: ['topic', 'channels', 'designMode'],
+        required: ['topic', 'designMode'],
       },
     },
     {

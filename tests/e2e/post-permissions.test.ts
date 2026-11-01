@@ -46,7 +46,7 @@ async function snapshot(api: ApiClient, draftId: string) {
     pendingAction: d.pendingAction,
     revisionCount: d.revisionCount,
     currentRevisionNumber: d.currentRevisionNumber,
-    captions: d.captions.map((c: { channel: string; text: string }) => [c.channel, c.text]),
+    captions: d.captions.map((c: { target: string; text: string }) => [c.target, c.text]),
   }
 }
 
@@ -79,13 +79,13 @@ test.describe('Post permissions (038 D10, D11)', () => {
     const d = `/api/drafts/${draftId}`
     const attempts: [string, () => ReturnType<ApiClient['post']>][] = [
       ['PATCH headline', () => editor.patch(d, { headline: 'Editor headline' })],
-      ['PATCH caption', () => editor.patch(d, { channel: 'INSTAGRAM', text: 'Editor caption' })],
+      ['PATCH caption', () => editor.patch(d, { kind: 'GENERAL', text: 'Editor caption' })],
       ['DELETE draft', () => editor.del(d)],
       ['apply-text', () => editor.post(`${d}/apply-text`, { field: 'headline' })],
       ['apply-project', () => editor.post(`${d}/apply-project`)],
       ['inline-edit', () => editor.post(`${d}/inline-edit`, { html: '<html><body>x</body></html>' })],
       ['refine', () => editor.post(`${d}/refine`, { instruction: 'Make it pop' })],
-      ['regenerate-copy', () => editor.post(`${d}/regenerate-copy`, {})],
+      ['regenerate-copy', () => editor.post(`${d}/regenerate-copy`, { kind: 'GENERAL' })],
       ['regenerate-design', () => editor.post(`${d}/regenerate-design`, {})],
       ['retry', () => editor.post(`${d}/retry`)],
       ['restore', () => editor.post(`${d}/revisions/1/restore`)],
@@ -211,12 +211,12 @@ test.describe('Post permissions (038 D10, D11)', () => {
       ]
       for (const [who, api] of callers) {
         const text = `Caption by the ${who}`
-        const patch = await api.patch(d, { channel: 'INSTAGRAM', text })
+        const patch = await api.patch(d, { kind: 'GENERAL', text })
         expect(patch.status(), who).toBe(200)
-        const caption = (await patch.json()).captions.find((c: { channel: string }) => c.channel === 'INSTAGRAM')
+        const caption = (await patch.json()).captions.find((c: { target: string }) => c.target === 'GENERAL')
         expect(caption.text, who).toBe(text)
 
-        const regen = await api.post(`${d}/regenerate-copy`, {})
+        const regen = await api.post(`${d}/regenerate-copy`, { kind: 'GENERAL' })
         expect(regen.status(), who).toBe(202)
         await waitForAction(api, own.draftId)
       }

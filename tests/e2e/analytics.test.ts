@@ -263,7 +263,7 @@ test.describe('§AD — product observability', () => {
     await clearStore(admin)
     expect((await admin.post(`/api/drafts/${draft.id}/regenerate-design`, {})).status()).toBe(202)
     await waitForAction(admin, draft.id)
-    expect((await admin.post(`/api/drafts/${draft.id}/regenerate-copy`, {})).status()).toBe(202)
+    expect((await admin.post(`/api/drafts/${draft.id}/regenerate-copy`, { kind: 'GENERAL' })).status()).toBe(202)
     await waitForAction(admin, draft.id)
 
     const settled = await waitEvents(admin, { draftId: draft.id }, 'draft_action.settled', 2)
@@ -939,9 +939,9 @@ test.describe('§AD — product observability', () => {
     const submitted = byName(await events(admin), 'brief.submitted')
     expect(submitted.map((e) => e.payload.postStyle).sort()).toEqual(['promotion', 'tip'])
 
-    // two invented values, each placed in the headline and both captions: six flags
+    // two invented values, each placed in the headline and the general caption: four flags
     const [f] = await waitEvents(admin, { draftId: flagged.id }, 'generation.finished', 1)
-    expect(f.payload).toMatchObject({ postStyle: 'promotion', factsStatus: 'flagged', factsFlagCount: 6 })
+    expect(f.payload).toMatchObject({ postStyle: 'promotion', factsStatus: 'flagged', factsFlagCount: 4 })
     const [c] = await waitEvents(admin, { draftId: clear.id }, 'generation.finished', 1)
     expect(c.payload).toMatchObject({ postStyle: 'tip', factsStatus: 'clear', factsFlagCount: 0 })
 

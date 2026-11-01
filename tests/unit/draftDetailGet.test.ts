@@ -18,6 +18,7 @@ const h = vi.hoisted(() => ({
   saveHeadlineEdit: vi.fn(),
   canEditPost: vi.fn(() => true),
   trackHeadlineEdited: vi.fn(),
+  loaded: vi.fn(() => ({ general: null, curated: [] }) as unknown),
   renderBoom: vi.fn(() => {
     throw new Error('the GET must not render or parse')
   }),
@@ -69,7 +70,7 @@ vi.mock('@/lib/drafts/revisions', async () => {
   }
 })
 vi.mock('@/lib/captions/store', () => ({
-  loadDraftCaptions: async () => ({ captions: [] }),
+  loadDraftCaptions: async () => h.loaded(),
   saveCaptionEdit: vi.fn(),
   saveHeadlineEdit: h.saveHeadlineEdit,
   settlePendingCaptions: vi.fn(),
@@ -115,7 +116,6 @@ function exportedDraft(copyProviderKey: string | null) {
       topic: 'T',
       goal: null,
       tone: null,
-      channels: [],
       aspectRatio: 'SQUARE',
       designMode: 'GENERATE',
     },
@@ -142,6 +142,7 @@ beforeEach(() => {
   h.saveHeadlineEdit.mockReset().mockResolvedValue(true)
   h.trackHeadlineEdited.mockReset().mockResolvedValue(undefined)
   h.renderBoom.mockClear()
+  h.loaded.mockReset().mockReturnValue({ general: null, curated: [] })
   h.canEditPost.mockReset().mockReturnValue(true)
 })
 
@@ -474,5 +475,94 @@ describe('GET /api/drafts/[id] — project and inputsCurrent (038)', () => {
     expect(h.briefingFindFirst).not.toHaveBeenCalled()
     // Two project reads: the recorded project (the stamp) and the current assignment's name.
     expect(h.projectFindFirst).toHaveBeenCalledTimes(2)
+  })
+})
+
+// 039 FR-15 / AC-23: the captions on the draft GET.
+describe('GET /api/drafts/[id] — captions (039 FR-15)', () => {
+  const capRow = (target: string, text: string, over: Record<string, unknown> = {}) => ({
+    kind: target === 'GENERAL' ? 'GENERAL' : 'CURATED',
+    channel: target === 'GENERAL' ? null : target,
+    target,
+    text,
+    status: 'READY',
+    failureReason: null,
+    updatedAt: new Date('2026-11-02T00:00:00Z'),
+    model: null,
+    modelSubstitutedFrom: null,
+    route: null,
+    deleted: false,
+    canUndo: false,
+    ...over,
+  })
+
+  it('each item carries the FR-15 keys, the general caption first, with rules and its own facts', async () => {
+    h.draftFindUnique.mockResolvedValue({
+      ...exportedDraft(null),
+      factsCheck: {
+        v: 1,
+        status: 'flagged',
+        checkedAt: '2026-11-02T00:00:00.000Z',
+        flagged: [{ kind: 'cur', value: '$49', where: 'INSTAGRAM' }],
+      },
+    })
+    h.copyProviderIsClaude.mockResolvedValue(true)
+    h.loaded.mockReturnValue({
+      general: capRow('GENERAL', 'General text'),
+      curated: [capRow('INSTAGRAM', 'Hook\n#a #b'), capRow('LINKEDIN', 'Line #x\nMore')],
+    })
+    const { body } = await get()
+    const items = body.captions as Array<Record<string, unknown>>
+    expect(items.map((c) => c.target)).toEqual(['GENERAL', 'INSTAGRAM', 'LINKEDIN'])
+    for (const item of items) {
+      expect(Object.keys(item).sort()).toEqual(
+        ['canUndo', 'channel', 'deleted', 'facts', 'failureReason', 'kind', 'label', 'model', 'modelSubstitutedFrom', 'route', 'rules', 'status', 'target', 'text', 'updatedAt'].sort(),
+      )
+    }
+    expect(items.map((c) => c.label)).toEqual(['General', 'Instagram', 'LinkedIn'])
+    expect(items[0]).toMatchObject({ kind: 'GENERAL', channel: null, rules: { met: true, unmet: [] }, facts: { status: 'clear', flagged: [] } })
+    expect(items[1].facts).toEqual({ status: 'flagged', flagged: [{ kind: 'cur', value: '$49' }] })
+    // Instagram's hashtags must all be on the last line; LinkedIn's mid-text hashtag is within its rule.
+    expect(items[1].rules).toEqual({ met: true, unmet: [] })
+    expect(items[2].rules).toEqual({ met: true, unmet: [] })
+  })
+
+  it('a rule miss is reported when read, from the stored text (an edit clears it at once)', async () => {
+    h.draftFindUnique.mockResolvedValue(exportedDraft(null))
+    h.copyProviderIsClaude.mockResolvedValue(true)
+    h.loaded.mockReturnValue({ general: null, curated: [capRow('INSTAGRAM', '#early\nand then text')] })
+    expect(((await get()).body.captions as Array<{ rules: unknown }>)[0].rules).toEqual({
+      met: false,
+      unmet: ['hashtags-not-at-end'],
+    })
+  })
+
+  it('a post made before 039 has no general item, and an empty row reads with met rules', async () => {
+    h.draftFindUnique.mockResolvedValue(exportedDraft(null))
+    h.copyProviderIsClaude.mockResolvedValue(true)
+    h.loaded.mockReturnValue({ general: null, curated: [capRow('INSTAGRAM', '', { status: 'FAILED', failureReason: 'missing' })] })
+    const items = (await get()).body.captions as Array<Record<string, unknown>>
+    expect(items).toHaveLength(1)
+    expect(items[0]).toMatchObject({ kind: 'CURATED', rules: { met: true, unmet: [] }, facts: null })
+  })
+
+  it('kitWebsite is null until the kit has one (T4), and brief.channels is gone', async () => {
+    h.draftFindUnique.mockResolvedValue(exportedDraft(null))
+    h.copyProviderIsClaude.mockResolvedValue(true)
+    const { body } = await get()
+    expect(body.kitWebsite).toBeNull()
+    expect(body.brief).not.toHaveProperty('channels')
+  })
+
+  it('issues the queries it issued before 039 and no more (NFR-06): one draft read, one provider list', async () => {
+    h.draftFindUnique.mockResolvedValue(exportedDraft(null))
+    h.copyProviderIsClaude.mockResolvedValue(true)
+    h.loaded.mockReturnValue({ general: capRow('GENERAL', 'g'), curated: [capRow('INSTAGRAM', 'i')] })
+    await get()
+    expect(h.draftFindUnique).toHaveBeenCalledTimes(1)
+    expect(h.draftUpdateMany).not.toHaveBeenCalled()
+    expect(h.projectFindFirst).not.toHaveBeenCalled()
+    expect(h.briefingFindFirst).not.toHaveBeenCalled()
+    expect(h.providerFindMany).not.toHaveBeenCalled()
   })
 })

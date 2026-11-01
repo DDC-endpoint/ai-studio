@@ -21,7 +21,7 @@ import type { CanvasPx, LuminanceGrid, Rect, Region, RegionSample, TextTone } fr
 import { LAYOUT_TOLERANCE_PCT } from '@/lib/designData/layout'
 import { MOCK_HEADLINE_HIDDEN } from '@/lib/renderedText/mockCheck'
 import { GRID_STEP_PX } from '@/lib/designData/composite'
-import { CAPTION_CHANNELS, type CaptionTarget } from '@/lib/channels'
+import { CAPTION_REGISTRY, type CaptionTarget } from '@/lib/channels'
 import { HEADLINE_MAX } from '@/lib/captions/headline'
 
 export const MOCK_AI = process.env.MOCK_AI === 'true'
@@ -31,8 +31,7 @@ export const MOCK_PUPPETEER = process.env.MOCK_PUPPETEER === 'true'
 
 const DROP_CAPTION_SENTINELS: Partial<Record<CaptionTarget, string>> = {
   HEADLINE: '__DROP_CAPTION_HEADLINE__',
-  INSTAGRAM: '__DROP_CAPTION_INSTAGRAM__',
-  LINKEDIN: '__DROP_CAPTION_LINKEDIN__',
+  GENERAL: '__DROP_CAPTION_GENERAL__',
 }
 
 // ── 027 FR-15: the facts-check seams ────────────────────────────────────────
@@ -68,20 +67,20 @@ export function shouldMockFactError(topic: string): boolean {
  * Each caption embeds the brief topic, so the topic sentinels still reach
  * whatever reads a caption.
  *
- * A "__DROP_CAPTION_<TARGET>__" sentinel in the topic omits that key, ONLY in
- * a reply that requests every channel (a generation or "Regenerate all"). So
- * a single-channel regenerate of the dropped channel succeeds, with no stored
- * state. Deterministic: same input, same bytes.
+ * A "__DROP_CAPTION_<TARGET>__" sentinel (HEADLINE or GENERAL) in the topic
+ * omits that key, ONLY in a generation reply (one that asks for both the
+ * headline and the general caption). So a later regenerate of the dropped
+ * caption succeeds, with no stored state. Deterministic: same input, same bytes.
  *
  * 027: a fact sentinel in the topic (__MOCK_FACT_PRICE__ and the other three)
  * appends its invented value to the headline and to every caption;
  * __MOCK_FACT_HEADLINE__ appends one to the headline only.
  */
 export function buildMockCaptionReply(topic: string, targets: readonly CaptionTarget[]): string {
-  const allChannels = CAPTION_CHANNELS.every((s) => targets.includes(s.channel))
+  const generation = targets.includes('HEADLINE') && targets.includes('GENERAL')
   const dropped = (target: CaptionTarget) => {
     const sentinel = DROP_CAPTION_SENTINELS[target]
-    return allChannels && sentinel !== undefined && topic.includes(sentinel)
+    return generation && sentinel !== undefined && topic.includes(sentinel)
   }
 
   const values = FACT_VALUE_SENTINELS.filter(([sentinel]) => topic.includes(sentinel)).map(([, value]) => value)
@@ -95,8 +94,8 @@ export function buildMockCaptionReply(topic: string, targets: readonly CaptionTa
     const tail = headlineValues.length > 0 ? ` ${headlineValues.join(' ')}` : ''
     reply.headline = `Mock headline ${topic}`.slice(0, HEADLINE_MAX - tail.length) + tail
   }
-  for (const s of CAPTION_CHANNELS) {
-    if (!targets.includes(s.channel) || dropped(s.channel)) continue
+  for (const s of CAPTION_REGISTRY) {
+    if (!targets.includes(s.target) || dropped(s.target)) continue
     reply[s.jsonKey] = withValues(`Mock ${s.label} caption [${topic}]`, values)
   }
 

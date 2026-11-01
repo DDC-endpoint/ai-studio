@@ -10,7 +10,6 @@ export interface BriefInput {
   description: string
   goal: string
   tone: string
-  channels: string[]
   // Resolved brand identity (kit name + active voice prompt), when available —
   // lets copy match the selected kit's voice instead of a hardcoded brand.
   brandName?: string

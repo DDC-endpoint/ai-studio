@@ -81,7 +81,6 @@ export interface PathBUserMessageOptions {
   description?: string | null
   goal: string
   tone: string
-  channels: string[]
   // The on-image headline (012 FR-09) — never a caption.
   headline: string
   mode: PipelineMode
@@ -102,7 +101,7 @@ export interface PathBUserMessageOptions {
 export type { BriefImage }
 
 export function buildPathBUserMessage(opts: PathBUserMessageOptions): string {
-  const { topic, description, goal, tone, channels, headline, mode, width, height, briefImages = [], projectBriefing, heroPrecedence, imageRules } = opts
+  const { topic, description, goal, tone, headline, mode, width, height, briefImages = [], projectBriefing, heroPrecedence, imageRules } = opts
 
   const imageSection = briefImages.length > 0
     ? `\n\nProvided images (follow intent rules from system prompt):\n${briefImages.map((img) => `- ${img.url} (intent: ${img.intent})`).join('\n')}`
@@ -125,7 +124,6 @@ Topic: ${topic}
 Description: ${description || 'none'}
 Goal: ${goal}
 Tone: ${tone}
-Channels: ${channels.join(', ')}
 
 ${onImageHeadline(headline)}${imageSection}${imageRules ? `
 

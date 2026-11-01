@@ -12,6 +12,8 @@ import type { ImageSourceNotice } from '@/lib/drafts/imageSourceNotice'
 import type { FontNotice } from '@/lib/drafts/fontNotice'
 import type { CompositionNotice } from '@/lib/drafts/compositionNotice'
 import type { CaptionTarget } from '@/lib/channels'
+import type { RuleMiss } from '@/lib/captions/rules'
+import type { CaptionFacts } from '@/lib/drafts/factsCheckNotice'
 import type { FactsCheck } from '@/lib/factsCheck/types'
 import type { CompositionStamp } from '@/lib/designData'
 import type { ModelKey, ModelSpeed, ModelTier, UserSurface } from '@/lib/models/catalogue'
@@ -269,13 +271,15 @@ export interface DraftNotApplied {
 // server-side pendingHtml. `notApplied` is a SEPARATE outcome channel (FR-14)
 // — distinct from both a settled success and `pendingActionError` (a crashed
 // run): it means the run completed cleanly but the edit itself was rejected.
-// One channel's caption (012 FR-13). `failureReason` is set when the last write
+// One caption (012 FR-13, 039 FR-15). `failureReason` is set when the last write
 // failed, including a failed regenerate that kept good text READY (A7).
 export interface DraftCaptionDetail {
   // 039 D1: the general caption has no channel; `target` is its registry key.
   kind: 'GENERAL' | 'CURATED'
   channel: Channel | null
   target: Exclude<CaptionTarget, 'HEADLINE'>
+  // The registry label: General, Instagram, LinkedIn.
+  label: string
   // 039 D14, D15: a soft-deleted curated caption, and a readable undo snapshot.
   deleted: boolean
   canUndo: boolean
@@ -289,6 +293,10 @@ export interface DraftCaptionDetail {
   modelSubstitutedFrom: string | null
   // 024 FR-04: the credential route that wrote it (null = before 024 / none).
   route: string | null
+  // 039 FR-15: the channel rules this text misses, checked when read.
+  rules: { met: boolean; unmet: RuleMiss[] }
+  // This caption's own flags from the stored facts check (null = never checked).
+  facts: CaptionFacts | null
 }
 
 // 030 FR-12: what the image shows of the headline, derived from the stamp at
@@ -316,7 +324,8 @@ export interface DraftDetail {
   headlineModelSubstitutedFrom: string | null
   designModel: string | null
   designModelSubstitutedFrom: string | null
-  // Always one per registry channel, in registry order.
+  // The general caption first (absent on a post made before 039), then the
+  // curated captions in registry order.
   captions: DraftCaptionDetail[]
   // 008 FR-20 / spec open question 1: whether THIS draft's caption provider
   // (the brief's own key, else the team default) is Claude — the provider a
@@ -353,6 +362,8 @@ export interface DraftDetail {
   revisionCount: number
   currentRevisionNumber: number | null
   brandKitName: string | null
+  // 039 FR-15: the brand kit's website, for the Facebook link (null until 039 T4).
+  kitWebsite: string | null
   // 038 FR-12: the post's current project (null = none).
   project: { id: string; name: string } | null
   // False when the recorded inputs differ from what the current assignment
@@ -370,7 +381,6 @@ export interface DraftDetail {
     topic: string
     goal: string
     tone: string
-    channels: Channel[]
     aspectRatio: AspectRatio
     designMode: DesignMode
   }

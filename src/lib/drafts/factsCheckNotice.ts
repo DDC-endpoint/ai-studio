@@ -33,3 +33,19 @@ export function factsNoticeFor(check: FactsCheck | null | undefined): FactsNotic
     message: `${items.map(i => `${i.value} (${i.where})`).join(', ')}. ${FLAGGED_ADVICE}`,
   }
 }
+
+// 039 D19/D20: one caption's view of the stored check, for its card and for
+// MCP/ACP. `null` when the post was never checked, `error` when the whole check
+// errored, otherwise `flagged` with this caption's own flags (kind and value,
+// never text) or `clear`.
+export interface CaptionFacts {
+  status: 'clear' | 'flagged' | 'error'
+  flagged: { kind: string; value: string }[]
+}
+
+export function captionFactsFor(check: FactsCheck | null | undefined, target: FactWhere): CaptionFacts | null {
+  if (!check) return null
+  if (check.status === 'error') return { status: 'error', flagged: [] }
+  const flagged = check.flagged.filter((f) => f.where === target).map((f) => ({ kind: f.kind, value: f.value }))
+  return { status: flagged.length > 0 ? 'flagged' : 'clear', flagged }
+}

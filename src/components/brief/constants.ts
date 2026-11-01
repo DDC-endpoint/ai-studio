@@ -4,12 +4,7 @@ import React from 'react'
 import { Square, RectangleVertical, Smartphone } from 'lucide-react'
 import type { AspectRatio } from '@prisma/client'
 import { dimensionsLabel } from '@/lib/aspectRatio'
-import { CHANNEL_VALUES } from '@/lib/channels'
 import { TONE_KEYS, type ToneKey } from '@/lib/postStyles'
-
-// Channels are no longer chosen at brief time — the publish step picks them. Every
-// brief targets both feeds by default; the brief now captures the post SIZE instead.
-export const DEFAULT_CHANNELS = CHANNEL_VALUES
 
 // Project comes first so its default brand kit and post style can pre-fill the next
 // step, which in turn filters the templates.

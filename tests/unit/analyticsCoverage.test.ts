@@ -4,7 +4,7 @@
 import { describe, it, expect } from 'vitest'
 import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { AspectRatio, CaptionRoute, Channel, DraftAction } from '@prisma/client'
+import { AspectRatio, CaptionKind, CaptionRoute, Channel, DraftAction } from '@prisma/client'
 import { CATALOGUE, EVENT_NAMES, RETIRED_EVENT_NAMES, RETIRED_SOURCES } from '@/lib/analytics/catalogue'
 import { MODEL_KEYS } from '@/lib/models/catalogue'
 import { INSTRUCTION_CLASS_KEYS } from '@/lib/agent/instructionClasses'
@@ -22,6 +22,7 @@ const OWNED: Record<string, readonly string[]> = {
   Channel: Object.values(Channel),
   AspectRatio: Object.values(AspectRatio),
   CaptionRoute: Object.values(CaptionRoute),
+  CaptionKind: Object.values(CaptionKind),
   MODEL_KEYS,
   INSTRUCTION_CLASS_KEYS,
   FALLBACK_REASONS,
@@ -55,6 +56,39 @@ describe('analytics coverage guard (006 FR-13, AC-03)', () => {
     for (const channel of Object.values(Channel)) {
       expect(CATALOGUE['draft_action.settled'].schema.safeParse({ action: 'REGENERATE_COPY', channel }).success, channel).toBe(true)
     }
+  })
+
+  // 039 D22: a curate is `draft_action.settled` with { captionKind, channel, captionOp }.
+  it('has an event that carries every CaptionKind value (039 D22)', () => {
+    for (const captionKind of Object.values(CaptionKind)) {
+      const parsed = CATALOGUE['draft_action.settled'].schema.safeParse({ action: 'REGENERATE_COPY', captionKind })
+      expect(parsed.success, captionKind).toBe(true)
+    }
+  })
+
+  it('draft_action.settled keeps schemaVersion 1 and accepts captionKind and captionOp (additive, 039 D22)', () => {
+    expect(CATALOGUE['draft_action.settled'].schemaVersion).toBe(1)
+    for (const captionOp of ['create', 'replace']) {
+      const parsed = CATALOGUE['draft_action.settled'].schema.safeParse({
+        action: 'REGENERATE_COPY',
+        captionKind: 'CURATED',
+        channel: 'INSTAGRAM',
+        captionOp,
+      })
+      expect(parsed.success, captionOp).toBe(true)
+    }
+    expect(
+      CATALOGUE['draft_action.settled'].schema.safeParse({ action: 'REGENERATE_COPY', captionOp: 'delete' }).success,
+    ).toBe(false)
+  })
+
+  it('no payload schema of draft_action.settled accepts a caption text field (NFR-04)', () => {
+    const parsed = CATALOGUE['draft_action.settled'].schema.parse({ action: 'REGENERATE_COPY', text: 'a caption', captionKind: 'GENERAL' })
+    expect(parsed).not.toHaveProperty('text')
+  })
+
+  it('catches a planted copy of the CaptionKind list (asserted on a fixture)', () => {
+    expect(findCopiedVocabulary(`z.enum(['GENERAL', 'CURATED'])`)).toEqual(['CaptionKind:GENERAL', 'CaptionKind:CURATED'])
   })
 
   it('has an event that can carry every source value', () => {

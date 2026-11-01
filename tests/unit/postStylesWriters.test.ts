@@ -121,7 +121,7 @@ import { POST as regenerateDesign } from '@/app/api/drafts/[id]/regenerate-desig
 import { checklistPromptText, POST_STYLES_REVISION } from '@/lib/postStyles'
 
 const STAMP = { key: 'promotion', version: 2, revision: POST_STYLES_REVISION }
-const CLEAN = { headline: 'the headline', instagram: 'ig caption', linkedin: 'li caption' }
+const CLEAN = { headline: 'the headline', general: 'gen caption' }
 
 const brief = (over: Record<string, unknown> = {}) =>
   ({
@@ -224,7 +224,7 @@ describe('NFR-04: a stored key that does not resolve fails closed, before any mo
 })
 
 describe('FR-11: the facts check is written in the draft’s own create (sync)', () => {
-  it('a clean reply stores status clear and reads the headline and both captions with the generation’s own context', async () => {
+  it('a clean reply stores status clear and reads the headline and the general caption with the generation’s own context', async () => {
     await generateDraftForBrief(brief(), actor)
     const created = db.draftWrites.find((w) => w.op === 'create')!.data
     expect(created.factsCheck).toMatchObject({ v: 1, status: 'clear', flagged: [] })
@@ -234,7 +234,7 @@ describe('FR-11: the facts check is written in the draft’s own create (sync)',
   })
 
   it('an invented value is flagged, with where it was found and no text', async () => {
-    db.reply = { headline: 'Only $49 today', instagram: 'Save 35% now', linkedin: 'li caption' }
+    db.reply = { headline: 'Only $49 today', general: 'Save 35% now' }
     await generateDraftForBrief(brief(), actor)
     const check = db.draftWrites.find((w) => w.op === 'create')!.data.factsCheck as {
       status: string
@@ -243,14 +243,14 @@ describe('FR-11: the facts check is written in the draft’s own create (sync)',
     expect(check.status).toBe('flagged')
     expect(check.flagged.map((f) => [f.where, f.kind])).toEqual([
       ['headline', 'cur'],
-      ['INSTAGRAM', 'pct'],
+      ['GENERAL', 'pct'],
     ])
     expect(JSON.stringify(check)).not.toContain('Save')
   })
 
   it('a value the brief states is not flagged (the support rule over the sources)', async () => {
     db.sources = ['Spring sale', 'Only $49 today']
-    db.reply = { headline: 'Only $49 today', instagram: 'ig', linkedin: 'li' }
+    db.reply = { headline: 'Only $49 today', general: 'gen' }
     await generateDraftForBrief(brief(), actor)
     expect(db.draftWrites.find((w) => w.op === 'create')!.data.factsCheck).toMatchObject({ status: 'clear' })
   })
@@ -267,7 +267,7 @@ describe('FR-11: the facts check is written in the draft’s own create (sync)',
   })
 
   it('the check runs for a brief with no style too (the guard does not depend on the thing that might be missing)', async () => {
-    db.reply = { headline: 'Only $49 today', instagram: 'ig', linkedin: 'li' }
+    db.reply = { headline: 'Only $49 today', general: 'gen' }
     await generateDraftForBrief(brief({ postStyle: null }), actor)
     expect(db.draftWrites.find((w) => w.op === 'create')!.data.factsCheck).toMatchObject({ status: 'flagged' })
   })
