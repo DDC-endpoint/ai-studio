@@ -1,0 +1,35 @@
+# Verify report: 041-deploy-day-docs-aloys-carryover
+
+**Verdict:** PASS
+
+**Date:** 2026-11-24. Verifier: general-purpose agent (sonnet), read-only. Orchestrator notes are marked.
+
+| AC    | Status | Evidence                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| ----- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| AC-01 | met    | `docs/deploy.md`:<br>- the title says "ai-studio";<br>- "The repo now has 52 migrations";<br>- no "bistec-studio";<br>- 036–040 add no env var or operator step on a fresh DB;<br>- the bucket table lists all four buckets with their access and contents.<br>The only remaining "export" strings are `exported-designs`, `Draft.exportUrl` and `export MSYS_NO_PATHCONV`.                                                                                                                                                                                                                                                                                                                             |
+| AC-02 | met    | §9 has 9.1 (local), 9.2 (server, in the FR-04 order) and 9.3 (smoke check). The "empty is the default" lines point to §9. The trailing-slash and already-booted (`down -v`) edge cases are covered.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| AC-03 | met    | `reports/T2.md`, run on scratch project `ai-studio-rehearsal` with endpoint `http://127.0.0.1:9120`:<br>- restore exit 0;<br>- rewrite before 2/2/6/1/2/2/1, UPDATE counts equal, `remaining` 0, COMMIT;<br>- objects 5773 = 5773;<br>- "No pending migrations" (52 found) and health 200;<br>- both posts load images from the new endpoint, revisions 4 and 1, curated Instagram and LinkedIn captions;<br>- Download returns 200 `image/png` with a PNG signature.<br>**Caveat:** `ddc` sign-in was proven by a byte-identical password hash, not a UI sign-in, because the password is the user's. The UI was driven as a scratch-only `adminBTG`. The user's first sign-in on the VPS closes this. |
+| AC-04 | met    | Local `ai_studio` counts after the rehearsal equal the counts before it (`diff` empty). The only local side effect, a temporary `mc` alias, was removed.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| AC-05 | met    | `CLAUDE.md` has the "Exception (user, 2026-11-24)" line. The memory file and its `MEMORY.md` index line were updated by the orchestrator; they are outside the repo.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| AC-06 | met    | No secret pattern in the diff or the reports. Only placeholders.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+
+## Gates
+
+Finalize at `6aff3e08`: `npm run test:unit`, `npm run lint` and `npm run build` all exit 0. `npx prettier --check docs/deploy.md` exit 0 after the verify fixes.
+
+## Defects found during the change (all fixed)
+
+1. **T1.** The `DO` block was quoted `$ … $`, which psql rejects. It is now `$$ … $$`, and the rehearsal ran the corrected block.
+2. **T2 rehearsal.** The carried public buckets answered 403. The app sets the public-read policy only on its first upload (`initBuckets()` is called only from `uploadObject`). §9.2 step 6 now runs `mc anonymous set download` on `generated-images` and `brand-kits`, and §3's "on startup" claim is corrected. After the fix, all 7 rewritten URLs return 200, and an anonymous read of `exported-designs` still returns 403.
+3. **Verifier notes (low), fixed.**
+   - The step 5 heredoc is indented inside a list. The doc now says to copy it from the rendered page or dedent it.
+   - The size figure is corrected to about 60 MB.
+
+Not in scope: `CLAUDE.md`'s opening line still says "bistec-studio". Code review was not run, because `workflow.code_review` is unset.
+
+## Verification
+
+Command: npx prettier --check docs/deploy.md && git diff --stat 9aa94e9e..HEAD -- docs/deploy.md CLAUDE.md
+Exit: 0
+Output (tail):
+All matched files use Prettier code style!

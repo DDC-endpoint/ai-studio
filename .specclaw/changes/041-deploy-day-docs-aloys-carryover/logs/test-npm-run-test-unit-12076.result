@@ -1,0 +1,7 @@
+exit=0
+duration_s=26
+log=.specclaw/changes/041-deploy-day-docs-aloys-carryover/logs/test-npm-run-test-unit-12076.log
+head=6aff3e0830a15c087ca5a61b9996985b4ff6d9d0
+dirty=true
+cmd=npm run test:unit
+interrupted=false

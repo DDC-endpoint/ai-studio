@@ -1,8 +1,12 @@
-# Deploying bistec-studio on your own server
+# Deploying ai-studio on your own server
 
 This guide covers a self-hosted deploy with the repo's own `docker-compose.yml`. **No deploy workflow exists yet.** CI (`.github/workflows/e2e.yml`) only runs checks, and it publishes and deploys nothing. A deploy workflow will be written later. Until then, a deploy is the manual steps below.
 
-The steps were checked on 2026-10-27 by a fresh deploy from zero during the pre-PR review of `v2` against `main`. It used the real compose file on an empty stack. All 46 migrations applied, there was no schema drift, `/api/health` returned 200, and the first super admin signed in and created a team.
+The steps were checked on 2026-10-27 by a fresh deploy from zero during the pre-PR review of `v2` against `main`. It used the real compose file on an empty stack. All 46 migrations applied then, there was no schema drift, `/api/health` returned 200, and the first super admin signed in and created a team. The repo now has 52 migrations.
+
+Changes 036 to 040 add no env var and no operator step on a fresh database. The operator steps in §10 to §12 apply only to a database that ran an older build.
+
+There are two ways to start a server. **Empty** is the default: follow §5 to §7. **Carried over from a local install** copies a local database and its buckets to the server: follow §5 only up to the `.env`, then §9.
 
 For local development, use [`cold-start.md`](cold-start.md) instead.
 
@@ -42,7 +46,7 @@ The app checks its environment before anything else, in `docker-entrypoint.sh` t
 
 ## 3. MinIO must be reachable from browsers
 
-The app talks to MinIO inside the compose network. Browsers load logos, generated images and exports from MinIO directly. Public objects use plain URLs, and downloads use pre-signed URLs. Both kinds of URL are built from `MINIO_PUBLIC_ENDPOINT`, which falls back to `MINIO_ENDPOINT`. Without it, every image URL comes out as `http://minio:9000/...`, which no browser can resolve. The 2026-10-27 scratch deploy showed exactly that.
+The app talks to MinIO inside the compose network. Browsers load logos and generated images from MinIO directly. Public objects use plain URLs, and downloads use pre-signed URLs. Both kinds of URL are built from `MINIO_PUBLIC_ENDPOINT`, which falls back to `MINIO_ENDPOINT`. Without it, every image URL comes out as `http://minio:9000/...`, which no browser can resolve. The 2026-10-27 scratch deploy showed exactly that.
 
 Choose one:
 
@@ -51,7 +55,14 @@ Choose one:
 
 `MINIO_PUBLIC_ENDPOINT` must be exactly the base the browser uses: scheme, host and port. Pre-signed URLs are signed against it, so a mismatch makes downloads fail with a signature error. The app's renderer also allows this host, so post images load during rendering.
 
-The `generated-images` and `brand-kits` buckets are made public-read on startup. `exported-designs` and `campaign-docs` stay private.
+The app uses four buckets. It creates them, and sets the public-read policy on the two public ones, on its first upload (`initBuckets()` in `src/lib/storage/minio.ts`), not at startup. A server that received its objects by §9 must set that policy itself (§9.2 step 6).
+
+| Bucket             | Access      | Holds                                                                             |
+| ------------------ | ----------- | --------------------------------------------------------------------------------- |
+| `generated-images` | public-read | Images the model generated for posts                                              |
+| `brand-kits`       | public-read | Kit logos and other kit assets                                                    |
+| `exported-designs` | private     | Rendered PNGs, which Download serves through pre-signed URLs                      |
+| `campaign-docs`    | private     | Project and kit documents and screenshots. It keeps its old name from before 038. |
 
 ## 4. Put the app behind a reverse proxy
 
@@ -72,9 +83,11 @@ docker compose up -d
 
 **Migrations run on boot.** `docker-entrypoint.sh` runs the env preflight, then `prisma migrate deploy`, then the service's command. `app` and `scheduler` both boot through it. Postgres's advisory lock serializes them, so one applies the migrations and the other finds none pending. A failed migration stops the container (`set -e`). For an emergency boot, `SKIP_MIGRATIONS=1` skips the migrate step; the env preflight still runs.
 
-The system starts empty. There is no data import, and since change 016 the migrations create no team.
+By default the system starts empty, and since change 016 the migrations create no team. To start from a local install's data instead, use §9 and skip §6.
 
 ## 6. Create the first super admin
+
+This is the empty path. A server carried over from a local install skips this section: it has no seeded account, and its super admin is the one carried over (§9).
 
 Accounts are created by a super admin only. There is no public sign-up: since change 034, `/api/auth` answers 404 to every path except sign-in, sign-out, change-password and get-session. The first super admin therefore comes from `scripts/seed-admin.mjs`.
 
@@ -113,8 +126,185 @@ Then sign in at `BETTER_AUTH_URL`:
 - **Upgrade:** `git pull`, `docker compose build --build-arg GIT_SHA=$(git rev-parse HEAD)`, `docker compose up -d`. Pending migrations apply on boot.
 - **Back up** the `postgres_data` and `minio_data` volumes and the `.env` file (above all `TOKEN_ENCRYPTION_KEY` and `BETTER_AUTH_SECRET`).
 - `docker compose down -v` deletes the volumes and everything in them.
+- A logical backup uses the same tools as §9: `docker compose exec -T postgres pg_dump -Fc -U <POSTGRES_USER> <POSTGRES_DB> > ai_studio.dump`, and `mc mirror` for the buckets. `pg_restore` and `mc mirror` bring them back.
 
-## 9. Upgrading to the build without scheduling and publishing (change 037)
+## 9. Carrying data from a local install
+
+This section replaces §6 for a server that starts from a local install. It copies the whole local database (users including the super admin, teams, kits, templates, projects, posts with their revisions and captions, and analytics) and all four buckets. It overrides the default empty start, and it is for a server that has never booted the app.
+
+The local commands below are for Git Bash on Windows with Docker Desktop, run from the repo root. Run `export MSYS_NO_PATHCONV=1` first, because `docker compose cp` and `exec` take container paths. The server commands are for bash on Linux with Docker Compose v2. The server needs nothing beyond the repo, Docker and the transferred files.
+
+Placeholders: `<POSTGRES_USER>`, `<POSTGRES_DB>`, `<MINIO_ACCESS_KEY>`, `<MINIO_SECRET_KEY>` and `<MINIO_PUBLIC_ENDPOINT>` are the server's `.env` values, except where a local step says "local". `<server>` is the server's address.
+
+### 9.1 On the local machine
+
+The local database and MinIO are only read.
+
+1. Stop the dev server, so that nothing writes during the dump.
+2. Dump the database:
+
+   ```bash
+   export MSYS_NO_PATHCONV=1
+   docker compose exec -T postgres pg_dump -Fc -U <POSTGRES_USER> <POSTGRES_DB> > ai_studio.dump
+   ```
+
+   Use the local `.env` values here.
+
+3. Mirror the four buckets with the MinIO container's own `mc` (the `pgsty/silo` image ships it), then copy them to the host:
+
+   ```bash
+   docker compose exec -T minio mc alias set src http://localhost:9000 <MINIO_ACCESS_KEY> <MINIO_SECRET_KEY>
+   for b in generated-images brand-kits exported-designs campaign-docs; do
+     docker compose exec -T minio mc mirror src/$b /tmp/carry/$b
+   done
+   docker compose cp minio:/tmp/carry ./carry-objects
+   docker compose exec -T minio rm -rf /tmp/carry
+   docker compose exec -T minio mc alias rm src
+   ```
+
+   Use the local MinIO keys here. The copy was about 60 MB (5 773 objects) on 2026-11-24. It includes any E2E test leftovers, because local dev and E2E share one MinIO. No row references them, and they are harmless.
+
+4. Transfer `ai_studio.dump` and `carry-objects/` to the server, for example `scp -r ai_studio.dump carry-objects <user>@<server>:~/`.
+
+### 9.2 On the server
+
+Do these steps in this order.
+
+1. Clone `main` and write `.env` as in §2, with a fresh `BETTER_AUTH_SECRET` and a fresh `TOKEN_ENCRYPTION_KEY`. Do not reuse the local ones.
+
+   ```bash
+   git clone https://github.com/DDC-endpoint/ai-studio.git
+   cd ai-studio
+   git checkout main
+   ```
+
+2. Start Postgres and MinIO only:
+
+   ```bash
+   docker compose up -d postgres minio
+   ```
+
+   **Do not start `app` or `scheduler` yet.** If they already booted, they ran every migration on the empty database and the restore would conflict. Run `docker compose down -v` first and start again. That command deletes the volumes and everything in them.
+
+3. Wait until Postgres is ready:
+
+   ```bash
+   until docker compose exec -T postgres pg_isready -U <POSTGRES_USER> -d <POSTGRES_DB>; do sleep 2; done
+   ```
+
+4. Restore the dump into the empty database. `--no-owner --no-privileges` makes the objects belong to the server's `<POSTGRES_USER>`.
+
+   ```bash
+   docker compose exec -T postgres pg_restore --no-owner --no-privileges -U <POSTGRES_USER> -d <POSTGRES_DB> < ~/ai_studio.dump
+   ```
+
+5. Run one transaction that rewrites the stored URLs and clears what the server cannot use. Copy the block from the rendered page, or dedent it: in the raw file it is indented three spaces, and the heredoc's closing `SQL` must start at column 0.
+
+   ```bash
+   docker compose exec -T postgres psql -v ON_ERROR_STOP=1 -U <POSTGRES_USER> -d <POSTGRES_DB> <<'SQL'
+   BEGIN;
+
+   SELECT 'before' AS stage,
+     (SELECT count(*) FROM "Draft" WHERE "imageUrl" LIKE '%localhost:9100%') AS draft_image_url,
+     (SELECT count(*) FROM "Draft" WHERE "htmlContent" LIKE '%localhost:9100%') AS draft_html,
+     (SELECT count(*) FROM "DraftRevision" WHERE "htmlSnapshot" LIKE '%localhost:9100%') AS revision_html,
+     (SELECT count(*) FROM "DraftRevision" WHERE "rejection"::text LIKE '%localhost:9100%') AS revision_rejection,
+     (SELECT count(*) FROM "BrandKit" WHERE "logoUrl" LIKE '%localhost:9100%') AS kit_logo,
+     (SELECT count(*) FROM "BrandKitArtifact" WHERE "url" LIKE '%localhost:9100%') AS kit_artifact,
+     (SELECT count(*) FROM "Brief" WHERE "briefImages"::text LIKE '%localhost:9100%') AS brief_images;
+
+   UPDATE "Draft" SET "imageUrl" = replace("imageUrl", 'http://localhost:9100', '<MINIO_PUBLIC_ENDPOINT>')
+     WHERE "imageUrl" LIKE '%localhost:9100%';
+   UPDATE "Draft" SET "htmlContent" = replace("htmlContent", 'http://localhost:9100', '<MINIO_PUBLIC_ENDPOINT>')
+     WHERE "htmlContent" LIKE '%localhost:9100%';
+   UPDATE "DraftRevision" SET "htmlSnapshot" = replace("htmlSnapshot", 'http://localhost:9100', '<MINIO_PUBLIC_ENDPOINT>')
+     WHERE "htmlSnapshot" LIKE '%localhost:9100%';
+   UPDATE "DraftRevision" SET "rejection" = replace("rejection"::text, 'http://localhost:9100', '<MINIO_PUBLIC_ENDPOINT>')::jsonb
+     WHERE "rejection"::text LIKE '%localhost:9100%';
+   UPDATE "BrandKit" SET "logoUrl" = replace("logoUrl", 'http://localhost:9100', '<MINIO_PUBLIC_ENDPOINT>')
+     WHERE "logoUrl" LIKE '%localhost:9100%';
+   UPDATE "BrandKitArtifact" SET "url" = replace("url", 'http://localhost:9100', '<MINIO_PUBLIC_ENDPOINT>')
+     WHERE "url" LIKE '%localhost:9100%';
+   UPDATE "Brief" SET "briefImages" = replace("briefImages"::text, 'http://localhost:9100', '<MINIO_PUBLIC_ENDPOINT>')::jsonb
+     WHERE "briefImages"::text LIKE '%localhost:9100%';
+
+   DELETE FROM "Session";
+   DELETE FROM "UserClaudeToken";
+   DELETE FROM "UserOpenAiKey";
+
+   SELECT 'after' AS stage,
+     (SELECT count(*) FROM "Draft" WHERE "imageUrl" LIKE '%localhost:9100%')
+     + (SELECT count(*) FROM "Draft" WHERE "htmlContent" LIKE '%localhost:9100%')
+     + (SELECT count(*) FROM "DraftRevision" WHERE "htmlSnapshot" LIKE '%localhost:9100%')
+     + (SELECT count(*) FROM "DraftRevision" WHERE "rejection"::text LIKE '%localhost:9100%')
+     + (SELECT count(*) FROM "BrandKit" WHERE "logoUrl" LIKE '%localhost:9100%')
+     + (SELECT count(*) FROM "BrandKitArtifact" WHERE "url" LIKE '%localhost:9100%')
+     + (SELECT count(*) FROM "Brief" WHERE "briefImages"::text LIKE '%localhost:9100%') AS remaining;
+
+   DO $$
+   BEGIN
+     IF (SELECT count(*) FROM "Draft" WHERE "imageUrl" LIKE '%localhost:9100%' OR "htmlContent" LIKE '%localhost:9100%') > 0
+       OR (SELECT count(*) FROM "DraftRevision" WHERE "htmlSnapshot" LIKE '%localhost:9100%' OR "rejection"::text LIKE '%localhost:9100%') > 0
+       OR (SELECT count(*) FROM "BrandKit" WHERE "logoUrl" LIKE '%localhost:9100%') > 0
+       OR (SELECT count(*) FROM "BrandKitArtifact" WHERE "url" LIKE '%localhost:9100%') > 0
+       OR (SELECT count(*) FROM "Brief" WHERE "briefImages"::text LIKE '%localhost:9100%') > 0
+     THEN
+       RAISE EXCEPTION 'local URLs remain after the rewrite';
+     END IF;
+   END $$;
+
+   COMMIT;
+   SQL
+   ```
+
+   - Replace `<MINIO_PUBLIC_ENDPOINT>` with exactly the `.env` value: scheme, host and port, **no trailing slash**. The app joins paths onto the base without a trailing slash.
+   - The "before" row shows how many rows held a local URL. The "after" row must show `remaining` as 0. If any local URL remains, the `DO` block raises an error, `ON_ERROR_STOP` ends the session, and nothing is committed. Any other SQL error also leaves nothing committed.
+   - The two jsonb columns go through text and back. The URL is a fixed literal with no JSON-special characters, so the JSON survives.
+   - `Draft.exportUrl` holds a bucket key, not a URL, so it needs no rewrite.
+   - **Why the key tables are deleted.** `UserClaudeToken` and `UserOpenAiKey` are encrypted with the local `TOKEN_ENCRYPTION_KEY`. The server uses a fresh key and cannot read them. Each user connects their keys again at `/settings`, and a team admin at `/team`.
+   - **Why sessions are deleted.** A session from the local install means nothing on the server. Everyone signs in again.
+
+6. Load the objects into the server's MinIO, then make the two public buckets public-read:
+
+   ```bash
+   docker compose cp ~/carry-objects minio:/tmp/carry
+   docker compose exec -T minio mc alias set dst http://localhost:9000 <MINIO_ACCESS_KEY> <MINIO_SECRET_KEY>
+   for b in generated-images brand-kits exported-designs campaign-docs; do
+     docker compose exec -T minio mc mb --ignore-existing dst/$b
+     docker compose exec -T minio mc mirror /tmp/carry/$b dst/$b
+   done
+   docker compose exec -T minio mc anonymous set download dst/generated-images
+   docker compose exec -T minio mc anonymous set download dst/brand-kits
+   docker compose exec -T minio rm -rf /tmp/carry
+   docker compose exec -T minio mc alias rm dst
+   ```
+
+   - `mc mb --ignore-existing` creates the buckets, because the app has not made them yet.
+   - **The `mc anonymous set download` lines are required.** The app sets the public-read policy only on its first upload, so without them every kit logo and generated image answers 403 until someone creates a post. `exported-designs` and `campaign-docs` stay private.
+   - `mc alias rm dst` removes the stored keys from the container's `mc` config.
+
+7. Build and start the whole stack:
+
+   ```bash
+   docker compose build --build-arg GIT_SHA=$(git rev-parse HEAD)
+   docker compose up -d
+   ```
+
+   The dump is already at head, so `prisma migrate deploy` finds nothing pending. Deploy the same commit as the local install, or a later one (a later commit applies its migrations on boot).
+
+### 9.3 Smoke check after the import
+
+Run §7, then check:
+
+- The carried super admin signs in with their local password. Password hashes do not depend on `BETTER_AUTH_SECRET`.
+- The carried posts show their image, revisions and captions, in the library and on the post page.
+- A Download returns a PNG.
+- Kit logos load from `<MINIO_PUBLIC_ENDPOINT>`.
+- `/settings` shows no connected key. Connect Claude there (per user) or at `/team` (the team's token or key). See [`claude-account-setup.md`](claude-account-setup.md).
+
+The public-read buckets (`generated-images` and `brand-kits`) now also hold the E2E leftover test images, readable by anyone who guesses a key. They are test images. You can sweep them later; this is optional.
+
+## 10. Upgrading to the build without scheduling and publishing (change 037)
 
 Migration `20261031120000_remove_scheduling_publishing` drops publishing, scheduling and the generation queue. It is fail-closed: it refuses to run while any `Post`, `ChannelToken` or `ScheduledGeneration` row exists, or any draft is `PUBLISHED`. A fresh deploy has none of these and needs no step. A database that ran an older build needs the sequence below, from a checkout with Node 22 or later. The one-way removal is accepted; the tag `pre-037-publishing` is the last commit that publishes.
 
@@ -126,7 +316,7 @@ Migration `20261031120000_remove_scheduling_publishing` drops publishing, schedu
 
 The `scheduler` container keeps its name and now runs only the analytics retention loop.
 
-## 10. Upgrading to the build with projects instead of campaigns (change 038)
+## 11. Upgrading to the build with projects instead of campaigns (change 038)
 
 Migration `20261101130000_drop_campaigns` drops `Campaign`, `CampaignDocument`, `CampaignBriefing`, `ProjectCampaign` and `Brief.campaignId`. It is fail-closed: a `DO` precondition refuses to run while any row exists in those tables or any post still names a campaign (`038 drop_campaigns refused: ...`). The additive migration `20261101120000_project_inputs` ran before it and moved the briefing, documents and defaults onto projects. A fresh deploy has no campaigns and needs no step. A database that ran an older build needs the sequence below, from a checkout with Node 22 or later.
 
@@ -141,7 +331,7 @@ Migration `20261101130000_drop_campaigns` drops `Campaign`, `CampaignDocument`, 
 
 The bucket keeps its name `campaign-docs`. The down scripts are `prisma/rollback/038-project-inputs.down.sql` and `prisma/rollback/038-drop-campaigns.down.sql`; both restore the schema only, never data.
 
-## 11. Upgrading to the build with general and curated captions (change 039)
+## 12. Upgrading to the build with general and curated captions (change 039)
 
 Three migrations ship with 039: `20261102120000_caption_kind` (the `CaptionKind` enum; `DraftCaption` gains `kind`, `deletedAt`, `previous` and `generalHash`, and `channel` may be null), `20261102130000_channel_facebook` (adds `FACEBOOK` to `Channel`) and `20261102140000_kit_website` (adds `BrandKit.website`). All three are additive. **No operator step is needed:** `docker compose up -d` applies them on boot, and `npm run db:migrate` applies them locally. Existing posts keep their Instagram and LinkedIn captions as curated captions. They have no general caption until a member presses "Generate general caption". Existing kits have no website until a team admin adds one (the Facebook call to action has no link until then).
 

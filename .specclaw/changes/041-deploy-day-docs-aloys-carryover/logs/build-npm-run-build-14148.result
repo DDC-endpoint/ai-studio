@@ -1,0 +1,7 @@
+exit=0
+duration_s=34
+log=.specclaw/changes/041-deploy-day-docs-aloys-carryover/logs/build-npm-run-build-14148.log
+head=6aff3e0830a15c087ca5a61b9996985b4ff6d9d0
+dirty=true
+cmd=npm run build
+interrupted=false
