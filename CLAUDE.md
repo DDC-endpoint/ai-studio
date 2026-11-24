@@ -7,7 +7,7 @@ This repo contains planning documents for **bistec-studio**, an internal marketi
 - This repo is the fork `DDC-endpoint/ai-studio` (the GitHub account was renamed from `EnderGuardian25` on 2026-10-30; GitHub redirects the old URLs). `origin` is the only remote it pushes to (a fetch-only `upstream` may reappear; see below).
 - Before any push, run `git remote get-url origin` and confirm it prints `https://github.com/DDC-endpoint/ai-studio.git`. If it names another repo, stop.
 - On 2026-10-27 the fork took company changes 018–031 once. That sync was one-time; there are no company merges.
-- The system starts fresh: no data import from any earlier deployment.
+- The system starts fresh: no data import from any earlier deployment. **Exception (user, 2026-11-24):** the user's own VPS deploy carries over this machine's local `ai_studio` (super admin `ddc`, teams `Aloys` and `ddc`, the 2 Aloys posts with their history) and its MinIO buckets, by the procedure in [`docs/deploy.md`](docs/deploy.md) (change 041). This is a one-off; no other team or deployment is imported.
 - Nothing deploys yet. The user will deploy to their own server, with a workflow written later. CI is checks only.
 - Object storage is `pgsty/silo`, pinned by digest in the compose files and `e2e.yml`, so a fresh deploy needs no MinIO migration. MinIO keys must not be `minioadmin`.
 - Local stack: compose project `ai-studio`; Postgres on 5442, MinIO on 9100 (console 9101); databases `ai_studio` and `ai_studio_test`. A preflight refuses another clone's stack. Use `npm run db:migrate` and `npm run test:e2e:db -- --reset`, never a bare `prisma migrate deploy`. See [`docs/cold-start.md`](docs/cold-start.md).

@@ -1,0 +1,12 @@
+{
+  "change": "041-deploy-day-docs-aloys-carryover",
+  "phase": "build",
+  "branch": "v2",
+  "size": "bounded",
+  "phases": {
+    "proposal": { "status": "approved", "at": "2026-11-24T07:55:22Z" },
+    "spec": { "status": "done", "at": "2026-11-24T07:56:59Z" },
+    "tasks": { "status": "done", "at": "2026-11-24T07:56:59Z" },
+    "build": { "status": "in-progress", "at": "2026-11-24T07:57:53Z" }
+  }
+}
