@@ -6,14 +6,14 @@
 
 ## Progress
 
-| Phase    | Status         | Notes |
-| -------- | -------------- | ----- |
-| Proposal | ✅ Approved    |       |
-| Spec     | ✅ Done        |       |
-| Design   | ⏳ Pending     |       |
-| Tasks    | ✅ Done        |       |
-| Build    | 🔨 In-progress |       |
-| Verify   | ⏳ Pending     |       |
+| Phase    | Status      | Notes     |
+| -------- | ----------- | --------- |
+| Proposal | ✅ Approved |           |
+| Spec     | ✅ Done     |           |
+| Design   | ⏳ Pending  |           |
+| Tasks    | ✅ Done     |           |
+| Build    | ✅ Done     | 2/2 tasks |
+| Verify   | ✅ Passed   | PASS      |
 
 ## Task Progress
 

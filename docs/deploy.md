@@ -162,7 +162,7 @@ The local database and MinIO are only read.
    docker compose exec -T minio mc alias rm src
    ```
 
-   Use the local MinIO keys here. The copy is about 100 MB. It includes any E2E test leftovers, because local dev and E2E share one MinIO. No row references them, and they are harmless.
+   Use the local MinIO keys here. The copy was about 60 MB (5 773 objects) on 2026-11-24. It includes any E2E test leftovers, because local dev and E2E share one MinIO. No row references them, and they are harmless.
 
 4. Transfer `ai_studio.dump` and `carry-objects/` to the server, for example `scp -r ai_studio.dump carry-objects <user>@<server>:~/`.
 
@@ -198,7 +198,7 @@ Do these steps in this order.
    docker compose exec -T postgres pg_restore --no-owner --no-privileges -U <POSTGRES_USER> -d <POSTGRES_DB> < ~/ai_studio.dump
    ```
 
-5. Run one transaction that rewrites the stored URLs and clears what the server cannot use:
+5. Run one transaction that rewrites the stored URLs and clears what the server cannot use. Copy the block from the rendered page, or dedent it: in the raw file it is indented three spaces, and the heredoc's closing `SQL` must start at column 0.
 
    ```bash
    docker compose exec -T postgres psql -v ON_ERROR_STOP=1 -U <POSTGRES_USER> -d <POSTGRES_DB> <<'SQL'
