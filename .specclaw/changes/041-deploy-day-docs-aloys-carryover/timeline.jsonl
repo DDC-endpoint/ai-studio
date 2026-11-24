@@ -4,3 +4,5 @@
 {"ev":"stop","span":"plan","at":"2026-11-24T07:57:00Z","ts":1795507020,"status":"ok"}
 {"ev":"start","span":"W1","kind":"wave","label":"wave 1","at":"2026-11-24T07:58:01Z","ts":1795507081}
 {"ev":"start","span":"T1","kind":"task","label":"docs","parent":"W1","model":"sonnet","attempt":"1","at":"2026-11-24T07:58:01Z","ts":1795507081}
+{"ev":"stop","span":"T1","at":"2026-11-24T08:00:54Z","ts":1795507254,"status":"ok"}
+{"ev":"stop","span":"W1","at":"2026-11-24T08:00:55Z","ts":1795507255,"status":"ok"}

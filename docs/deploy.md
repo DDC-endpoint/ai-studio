@@ -55,7 +55,7 @@ Choose one:
 
 `MINIO_PUBLIC_ENDPOINT` must be exactly the base the browser uses: scheme, host and port. Pre-signed URLs are signed against it, so a mismatch makes downloads fail with a signature error. The app's renderer also allows this host, so post images load during rendering.
 
-The app uses four buckets and creates them on startup:
+The app uses four buckets. It creates them, and sets the public-read policy on the two public ones, on its first upload (`initBuckets()` in `src/lib/storage/minio.ts`), not at startup. A server that received its objects by §9 must set that policy itself (§9.2 step 6).
 
 | Bucket             | Access      | Holds                                                                             |
 | ------------------ | ----------- | --------------------------------------------------------------------------------- |
@@ -159,6 +159,7 @@ The local database and MinIO are only read.
    done
    docker compose cp minio:/tmp/carry ./carry-objects
    docker compose exec -T minio rm -rf /tmp/carry
+   docker compose exec -T minio mc alias rm src
    ```
 
    Use the local MinIO keys here. The copy is about 100 MB. It includes any E2E test leftovers, because local dev and E2E share one MinIO. No row references them, and they are harmless.
@@ -263,7 +264,7 @@ Do these steps in this order.
    - **Why the key tables are deleted.** `UserClaudeToken` and `UserOpenAiKey` are encrypted with the local `TOKEN_ENCRYPTION_KEY`. The server uses a fresh key and cannot read them. Each user connects their keys again at `/settings`, and a team admin at `/team`.
    - **Why sessions are deleted.** A session from the local install means nothing on the server. Everyone signs in again.
 
-6. Load the objects into the server's MinIO. `mc mb --ignore-existing` creates a bucket that the app has not made yet.
+6. Load the objects into the server's MinIO, then make the two public buckets public-read:
 
    ```bash
    docker compose cp ~/carry-objects minio:/tmp/carry
@@ -272,8 +273,15 @@ Do these steps in this order.
      docker compose exec -T minio mc mb --ignore-existing dst/$b
      docker compose exec -T minio mc mirror /tmp/carry/$b dst/$b
    done
+   docker compose exec -T minio mc anonymous set download dst/generated-images
+   docker compose exec -T minio mc anonymous set download dst/brand-kits
    docker compose exec -T minio rm -rf /tmp/carry
+   docker compose exec -T minio mc alias rm dst
    ```
+
+   - `mc mb --ignore-existing` creates the buckets, because the app has not made them yet.
+   - **The `mc anonymous set download` lines are required.** The app sets the public-read policy only on its first upload, so without them every kit logo and generated image answers 403 until someone creates a post. `exported-designs` and `campaign-docs` stay private.
+   - `mc alias rm dst` removes the stored keys from the container's `mc` config.
 
 7. Build and start the whole stack:
 

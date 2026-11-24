@@ -20,7 +20,7 @@ T1 writes the docs. T2 rehearses the carry-over section on a scratch stack, exac
 
 ### Wave 2 — Rehearsal
 
-- [ ] `T2` — Rehearse the carry-over on a scratch stack and correct the doc
+- [x] `T2` — Rehearse the carry-over on a scratch stack and correct the doc
   - Files: `docs/deploy.md` (corrections only)
   - Estimate: medium
   - Kind: test
